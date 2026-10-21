@@ -192,32 +192,6 @@ local function normalize_events(v)
 	return {}
 end
 
---- Resolve lazy.nvim version spec to a vim.pack-compatible version value.
---- lazy.nvim: version = "*" | "2.1.0" | false | (branch|tag|commit are separate fields)
---- vim.pack:  version only accepts a string (branch/tag/commit hash) or VersionRange.
----@param spec LazeSpec
----@return string|vim.VersionRange|nil
-local function resolve_version(spec)
-	local v = spec.version
-	if v == false then
-		-- lazy.nvim: false = "use default branch" → nil here (vim.pack default)
-		return nil
-	end
-	if v == "*" then
-		-- lazy.nvim: "*" = "latest tag". vim.pack honors VersionRange against tags.
-		if vim.version and vim.version.range then
-			return vim.version.range("*")
-		end
-		return nil
-	end
-	if v ~= nil then
-		return v
-	end
-	-- lazy.nvim allows branch/tag/commit as independent fields; vim.pack only
-	-- has `version`. Map them: commit > tag > branch (most specific wins).
-	return spec.commit or spec.tag or spec.branch
-end
-
 local function add_to_route(route_map, keys, plugin_id)
 	for i = 1, #keys do
 		local key = keys[i]
@@ -314,7 +288,7 @@ local CONSUMED_KEYS = {
 	dependencies = true,
 	module = true,
 	build = true,
-	-- lazy.nvim fields mapped to vim.pack equivalents
+	-- lazy.nvim-only version fields (warned, never passed through)
 	branch = true,
 	tag = true,
 	commit = true,
@@ -341,6 +315,9 @@ local UNSUPPORTED_FIELDS = {
 	import = "lazy.nvim-only; load spec files yourself and pass the tables to setup",
 	lazy = "no equivalent; plugins without triggers are eager",
 	specs = "no equivalent; inline your specs instead",
+	branch = "lazy.nvim-only; set version instead",
+	tag = "lazy.nvim-only; set version instead",
+	commit = "lazy.nvim-only; set version instead",
 }
 
 local function warn_unsupported(spec, idx, spec_id, warned)
@@ -573,8 +550,8 @@ local function validate_spec(spec, idx, warned)
 	if spec.priority ~= nil and type(spec.priority) ~= "number" then
 		error("spec [" .. idx .. "] (" .. spec_id .. "): priority must be a number", 0)
 	end
-	if spec.version ~= nil and type(spec.version) ~= "string" and spec.version ~= false then
-		error("spec [" .. idx .. "] (" .. spec_id .. "): version must be a string (semver range) or false", 0)
+	if spec.version ~= nil and type(spec.version) ~= "string" and type(spec.version) ~= "table" then
+		error("spec [" .. idx .. "] (" .. spec_id .. "): version must be a string or vim.version.range() object", 0)
 	end
 
 	validate_triggers(spec, idx, spec_id)
@@ -874,9 +851,8 @@ function compile(specs, opts)
 				-- and must never be used for :packadd.
 				name = pkg,
 			}
-			local resolved_version = resolve_version(spec)
-			if resolved_version ~= nil then
-				pack_entry.version = resolved_version
+			if spec.version ~= nil then
+				pack_entry.version = spec.version
 			end
 			if spec.data ~= nil then
 				pack_entry.data = spec.data
@@ -954,7 +930,6 @@ return {
 	resolve_src = resolve_src,
 	normalize_keys = normalize_keys,
 	normalize_events = normalize_events,
-	resolve_version = resolve_version,
 	CONSUMED_KEYS = CONSUMED_KEYS,
 	UNSUPPORTED_FIELDS = UNSUPPORTED_FIELDS,
 }

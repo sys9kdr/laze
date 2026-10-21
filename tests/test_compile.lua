@@ -38,7 +38,6 @@ local pkg_name = require("laze.compile").pkg_name
 local resolve_src = require("laze.compile").resolve_src
 local normalize_keys = require("laze.compile").normalize_keys
 local normalize_events = require("laze.compile").normalize_events
-local resolve_version = require("laze.compile").resolve_version
 local FN = require("tests.fixtures._sentinel").FN
 
 local passed = 0
@@ -117,7 +116,6 @@ local compile_fixtures = {
 	"module_trigger",
 	"build_dev",
 	"keys_rhs",
-	"version_convert",
 	"deps_dedup",
 	"event_pattern",
 	"keys_opts",
@@ -374,22 +372,6 @@ for _, case in ipairs(events_cases) do
 	check(normalize_events(case[1]), case[2], case[3])
 end
 
-print("\n=== resolve_version tests ===\n")
-
-local version_cases = {
-	{ { version = false }, nil, "false → default branch (nil)" },
-	{ { version = "*" }, "RANGE", "'*' → vim.version.range (latest tag)" },
-	{ { version = "2.1.0" }, "2.1.0", "explicit version string" },
-	{ { commit = "abc123", tag = "v1", branch = "main" }, "abc123", "commit > tag > branch" },
-	{ { tag = "v1", branch = "main" }, "v1", "tag > branch" },
-	{ { branch = "main" }, "main", "branch alone" },
-	{ {}, nil, "nothing → default branch" },
-}
-
-for _, case in ipairs(version_cases) do
-	check(resolve_version(case[1]), case[2], case[3])
-end
-
 print("\n=== compile detail tests ===\n")
 
 do
@@ -485,8 +467,8 @@ local rejection_cases = {
 	{ { "folke/x.nvim", name = "x", module = 42 }, "module must be a string, array, or false", "numeric module rejected" },
 	{ { "folke/x.nvim", name = "x", module = { "a", 42 } }, "module[2] must be a non-empty string", "non-string module element rejected" },
 	{ { "folke/x.nvim", name = "x", module = {} }, "module must not be an empty array", "empty module array rejected" },
-	{ { "folke/x.nvim", name = "x", version = 42 }, "version must be a string", "numeric version rejected" },
-	{ { "folke/x.nvim", name = "x", version = {} }, "version must be a string", "table version rejected" },
+	{ { "folke/x.nvim", name = "x", version = 42 }, "version must be a string or vim.version.range() object", "numeric version rejected" },
+	{ { "folke/x.nvim", name = "x", version = false }, "version must be a string or vim.version.range() object", "false version rejected" },
 	{ { "folke/x.nvim", name = "x", priority = "high" }, "priority must be a number", "string priority rejected" },
 	{ { "folke/x.nvim", name = "x", ft = "" }, "must not be empty", "empty ft rejected" },
 	{ { "folke/x.nvim", name = "x", cmd = { "" } }, "must not be empty", "empty cmd element rejected" },

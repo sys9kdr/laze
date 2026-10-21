@@ -12,7 +12,7 @@ return {
 		},
 		{
 			"user/plugin-both",
-			version = "main",
+			version = { from = "1.0.0", to = "2.0.0" },
 			data = { key = "value" },
 			event = "VeryLazy",
 		},

@@ -92,8 +92,7 @@ Supported fields:
 * `cond`
 * `enabled`
 * `silent`
-* `version`
-* `branch` / `tag` / `commit` — folded into `version` (most specific wins)
+* `version` — a branch/tag/commit string or a `vim.version.range()` object, passed straight through to `vim.pack`
 * `pin` — passed through to `vim.pack.Spec`
 * `data`
 * `after`
@@ -111,6 +110,7 @@ Accepted value shapes:
 * `string[]`
 * `boolean`
 * `function`
+* `table` (e.g. `opts`, `data`, `vim.version.range()`)
 
 Notes:
 
@@ -118,7 +118,7 @@ Notes:
 * `[1]`/`src` is content-aware: absolute and `.`-prefixed paths (`./foo`, `../foo`) are treated as local dirs, `~` expands, `https://`/`git@` URLs as-is, anything else is expanded to `https://github.com/<src>`. A bare relative path like `foo/bar` is NOT a local dir — it becomes a GitHub URL.
 * `name` is used for internal routing (routes, after deps) and defaults to the plugin's repository name with `.nvim`/`.lua` stripped (lazy.nvim-compatible: `folke/which-key.nvim` → `which-key`). The installed directory (`pack/<pkg>/opt/<name>`) and `:packadd` use the *full* repository name (vim.pack's own derivation) — for `which-key.nvim` that directory is `which-key.nvim`, matching existing installs. It is **not** passed directly to `require` — laze only requires module names explicitly declared via `module`.
 * `silent = true` suppresses `vim.notify` warnings when `require` fails (e.g. for optional plugins).
-* Unknown fields (e.g. `pin`, `data`) are passed through to the `pack` entry for `vim.pack.Spec`. `branch`/`tag`/`commit` are consumed and folded into `version` (see the `version` notes below).
+* Unknown fields (e.g. `pin`, `data`) are passed through to the `pack` entry for `vim.pack.Spec`. `branch`/`tag`/`commit` are lazy.nvim-only and warn — use `version` instead.
 * `dir` takes priority over `[1]`, `dev`, and `url`.
 * `dir` plugins are **local**: they are excluded from the `pack` array (vim.pack never installs or manages them) and the plan loads them at trigger/eager time by prepending the exact directory path to `'runtimepath'`. This mirrors lazy.nvim's `dir` behavior — the directory must already exist on disk.
 * `url` takes priority over `[1]` and auto-detected URLs.

@@ -54,7 +54,6 @@ local fixtures = {
 	"module_trigger",
 	"build_dev",
 	"keys_rhs",
-	"version_convert",
 	"deps_dedup",
 	"event_pattern",
 	"keys_opts",

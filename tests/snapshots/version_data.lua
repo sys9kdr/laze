@@ -21,7 +21,10 @@ return {
 			},
 			name = "plugin-both",
 			src = "https://github.com/user/plugin-both",
-			version = "main",
+			version = {
+				from = "1.0.0",
+				to = "2.0.0",
+			},
 		},
 	},
 	registry = {

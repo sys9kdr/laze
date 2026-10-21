@@ -51,7 +51,7 @@ local LAZY_NVIM_FIELDS = {
 	branch = "string",
 	tag = "string",
 	commit = "string",
-	version = "string|false — full semver ranges supported",
+	version = "string|vim.VersionRange — passed through to vim.pack",
 	pin = "boolean — exclude from updates",
 	submodules = "boolean",
 	-- Spec Advanced
@@ -177,7 +177,7 @@ print("\n=== subset: semantic notes (soft) ===\n")
 
 local notes = {
 	"module: lazy.nvim accepts only false (opt-out of auto require-loading). laze accepts string|string[] as opt-in require triggers; module=false in a laze spec simply means 'no triggers'.",
-	"version: lazy.nvim = semver range (a string like '*' or '>=2.0.0', or false). laze maps version/branch/tag/commit into ONE vim.pack version field (commit > tag > branch). branch/tag/commit all exist in lazy.nvim too.",
+	"version: passed through to vim.pack unchanged (branch/tag/commit string or vim.version.range() object). lazy.nvim's semver strings and version=false need conversion; branch/tag/commit are lazy.nvim-only and warn — use version instead.",
 	"config = true: valid in lazy.nvim (implies opts support); laze raises a clear error instead of silently misbehaving — safe direction.",
 	"build: lazy.nvim accepts false (skip build) and a list of commands. laze accepts false (no-op, same as omitting it) and a single string/function; the list form is rejected with a compile error — safe direction.",
 	"priority: honored for eager ordering — eager plugins load highest-first with id as tie-break, matching lazy.nvim's start-plugin reordering. Dependencies (`after`) never order eagerly: they load via their parents.",

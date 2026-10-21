@@ -22,11 +22,8 @@
 ---@field keys? string|(string|LazeKeySpec|LazeNamedKeySpec)[]
 ---@field dev? boolean|string
 ---@field dev_path? string
----@field version? string|vim.VersionRange|false
+---@field version? string|vim.VersionRange
 ---@field data? any
----@field branch? string
----@field tag? string
----@field commit? string
 ---@field pin? boolean
 ---@field build? string|fun()|false
 ---@field module? string|string[]|false
