@@ -1,3 +1,16 @@
+---@class LazeKeySpecBase
+---@field mode? string|string[]
+---@field desc? string
+---@field silent? boolean
+
+---@class LazeKeySpec: LazeKeySpecBase
+---@field [1] string lhs
+---@field [2]? string|fun()
+
+---@class LazeNamedKeySpec: LazeKeySpecBase
+---@field lhs string lhs
+---@field rhs? string|fun()
+
 ---@class LazeSpec
 ---@field [1] string
 ---@field name? string
@@ -6,7 +19,7 @@
 ---@field event? string|string[]
 ---@field ft? string|string[]
 ---@field cmd? string|string[]
----@field keys? string|string[]|{lhs:string,rhs?:string|fun(),mode?:string|string[]}[]
+---@field keys? string|(string|LazeKeySpec|LazeNamedKeySpec)[]
 ---@field dev? boolean|string
 ---@field dev_path? string
 ---@field version? string|vim.VersionRange|false
