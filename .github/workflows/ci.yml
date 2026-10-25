@@ -1,12 +1,24 @@
 name: ci
 
 on:
+  # Branch pushes are tested by their pull request; only main needs a
+  # post-merge run. This avoids the duplicate push+PR runs per commit.
   push:
+    branches: [main]
   pull_request:
+
+# A new push to the same PR cancels the previous run instead of queueing
+# it, so checks start (and finish) as early as possible.
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 jobs:
   test:
     runs-on: ubuntu-latest
+    # The integration suite spawns nvim/git sessions; without a bound a
+    # broken spawn hangs until GitHub's 6h job limit.
+    timeout-minutes: 10
     strategy:
       fail-fast: false
       matrix:
