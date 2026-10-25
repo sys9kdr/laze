@@ -21,6 +21,10 @@ jobs:
           neovim: true
           version: ${{ matrix.nvim }}
 
+      # GitHub's ubuntu image does not ship luajit (exit 127 otherwise).
+      - name: Install luajit
+        run: sudo apt-get update && sudo apt-get install -y luajit
+
       - name: Unit tests (luajit, no nvim needed)
         run: |
           luajit tests/test_compile.lua
