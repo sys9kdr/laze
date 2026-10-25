@@ -14,7 +14,7 @@ return {
 		},
 		{
 			name = "plugin-dev",
-			src = "/home/sys9kdr/dev/plugin-dev",
+			src = "/home/user/dev/plugin-dev",
 		},
 	},
 	registry = {
@@ -53,7 +53,7 @@ return {
 			pkg = "plugin-dev",
 			priority = 50,
 			silent = false,
-			src = "/home/sys9kdr/dev/plugin-dev",
+			src = "/home/user/dev/plugin-dev",
 		},
 	},
 	routes = {

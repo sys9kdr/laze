@@ -1,4 +1,7 @@
 return {
+	-- Fixed dev root so the snapshot does not depend on $HOME (the
+	-- default "~/dev" would bake the machine's home directory into it).
+	opts = { dev_root = "/home/user/dev" },
 	specs = {
 		{
 			"user/plugin-build",

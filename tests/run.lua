@@ -81,7 +81,7 @@ local function compile_fixture(name)
 	if not ok then
 		return nil, ("could not load fixture — %s"):format(fixture)
 	end
-	local ok3, compiled = pcall(laze.compile, fixture.specs)
+	local ok3, compiled = pcall(laze.compile, fixture.specs, fixture.opts)
 	if not ok3 then
 		return nil, ("compile failed — %s"):format(compiled)
 	end
