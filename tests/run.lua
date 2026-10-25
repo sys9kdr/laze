@@ -81,7 +81,7 @@ local function compile_fixture(name)
 	if not ok then
 		return nil, ("could not load fixture — %s"):format(fixture)
 	end
-	local ok3, compiled = pcall(laze.compile, fixture.specs)
+	local ok3, compiled = pcall(laze.compile, fixture.specs, fixture.opts)
 	if not ok3 then
 		return nil, ("compile failed — %s"):format(compiled)
 	end
@@ -877,9 +877,15 @@ if not fast_only then
 			fd:write(content)
 			fd:close()
 		end
-		vim.system({ "git", "init", "-q" }, { cwd = dir }):wait()
-		vim.system({ "git", "add", "-A" }, { cwd = dir }):wait()
-		vim.system({ "git", "commit", "-qm", "init" }, { cwd = dir }):wait()
+		vim.system({ "git", "init", "-q" }, { cwd = dir, timeout = 10000 }):wait()
+		vim.system({ "git", "add", "-A" }, { cwd = dir, timeout = 10000 }):wait()
+		-- Explicit identity: CI runners have no global git user, and a
+		-- failed commit leaves an empty local clone that vim.pack cannot
+		-- install (the spawned session then never reaches VimEnter).
+		vim.system(
+			{ "git", "-c", "user.name=laze", "-c", "user.email=laze@local", "commit", "-qm", "init" },
+			{ cwd = dir, timeout = 10000 }
+		):wait()
 		return dir
 	end
 
@@ -932,7 +938,7 @@ end, { nargs = "*", bang = true, range = true })
 			"-u", init_file,
 			"--headless",
 			"--startuptime", log,
-		}, { env = env }):wait()
+		}, { env = env, timeout = 30000 }):wait()
 		return vim.fn.readfile(log)
 	end
 
@@ -1004,9 +1010,12 @@ if not fast_only then
 			fd:write(content)
 			fd:close()
 		end
-		vim.system({ "git", "init", "-q" }, { cwd = dir }):wait()
-		vim.system({ "git", "add", "-A" }, { cwd = dir }):wait()
-		vim.system({ "git", "commit", "-qm", "init" }, { cwd = dir }):wait()
+		vim.system({ "git", "init", "-q" }, { cwd = dir, timeout = 10000 }):wait()
+		vim.system({ "git", "add", "-A" }, { cwd = dir, timeout = 10000 }):wait()
+		vim.system(
+			{ "git", "-c", "user.name=laze", "-c", "user.email=laze@local", "commit", "-qm", "init" },
+			{ cwd = dir, timeout = 10000 }
+		):wait()
 		return dir
 	end
 
@@ -1036,7 +1045,7 @@ if not fast_only then
 		XDG_CONFIG_HOME = root .. "/config",
 		NVIM_LOG_FILE = root .. "/nvim.log",
 	}
-	vim.system({ vim.v.progpath, "-u", init_file, "--headless", "+qa" }, { env = env }):wait()
+	vim.system({ vim.v.progpath, "-u", init_file, "--headless", "+qa" }, { env = env, timeout = 30000 }):wait()
 
 	if
 		#vim.fn.glob(root .. "/data/nvim/site/pack/*/opt/laze-build-test.nvim/build-ran", false, true) == 1
@@ -1082,11 +1091,11 @@ if not fast_only then
 			fd:write(content)
 			fd:close()
 		end
-		vim.system({ "git", "init", "-q" }, { cwd = dir }):wait()
-		vim.system({ "git", "add", "-A" }, { cwd = dir }):wait()
+		vim.system({ "git", "init", "-q" }, { cwd = dir, timeout = 10000 }):wait()
+		vim.system({ "git", "add", "-A" }, { cwd = dir, timeout = 10000 }):wait()
 		vim.system({
 			"git", "-c", "user.email=laze@local", "-c", "user.name=laze", "commit", "-qm", "init",
-		}, { cwd = dir }):wait()
+		}, { cwd = dir, timeout = 10000 }):wait()
 		return dir
 	end
 
@@ -1154,6 +1163,7 @@ if not fast_only then
 				XDG_CONFIG_HOME = config,
 				NVIM_LOG_FILE = root .. "/nvim-" .. mode .. ".log",
 			},
+			timeout = 30000,
 		}):wait()
 		if proc.code ~= 0 then
 			errs[mode] = "exit " .. proc.code .. ": " .. (proc.stderr or "")

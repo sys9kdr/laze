@@ -144,7 +144,7 @@ for _, name in ipairs(fixtures) do
 	if not ok then
 		print(("  ✗ %s: could not load fixture — %s"):format(name, fixture))
 	else
-		local compiled = compile(fixture.specs)
+		local compiled = compile(fixture.specs, fixture.opts)
 		local content = serialize_compiled(compiled)
 		local path = SNAPSHOT_DIR .. "/" .. name .. ".lua"
 		local f = io.open(path, "w")
