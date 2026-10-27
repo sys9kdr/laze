@@ -220,6 +220,57 @@ do
 		print(("  ✗ compound range: expected a compile error, got %s"):format(tostring(err)))
 		failed = failed + 1
 	end
+
+	-- lazy.nvim's own semver_spec cases (Apache-2.0; see the fixture header).
+	-- Check membership, not the internal from/to encoding: vim.version.range
+	-- encodes an exact version as [v, v] while lazy.nvim uses [v, next patch).
+	local lazy_cases = require("tests.fixtures.lazy_semver_cases")
+	for _, case in ipairs(lazy_cases) do
+		local lazy_entry = compile_one(
+			{ "user/lazy-range", name = "lazy-range", version = case.input },
+			("lazy range %q"):format(case.input)
+		)
+		if lazy_entry then
+			local v = lazy_entry.version
+			local good = type(v) == "table"
+			if good then
+				for _, version in ipairs(case.inside) do
+					good = good and v:has(version)
+				end
+				for _, version in ipairs(case.outside) do
+					good = good and not v:has(version)
+				end
+			end
+			if good then
+				print(("  ✓ lazy range %q membership"):format(case.input))
+				passed = passed + 1
+			else
+				print(
+					("  ✗ lazy range %q: got %s (%s)"):format(
+						case.input,
+						tostring(v),
+						type(v)
+					)
+				)
+				failed = failed + 1
+			end
+		end
+	end
+
+	-- Known difference, pinned intentionally: vim.version.range(">1.2.3")
+	-- starts at 1.2.4-0, so it includes 1.2.4-alpha. lazy.nvim starts at
+	-- 1.2.4 and excludes prereleases of the lower bound.
+	local gt = compile_one({ "user/gt", name = "gt", version = ">1.2.3" }, "greater-than prerelease boundary")
+	if gt then
+		local v = gt.version
+		if type(v) == "table" and v:has("1.2.4-alpha") and not v:has("1.2.3") then
+			print("  ✓ known difference: >1.2.3 includes 1.2.4-alpha (vim.version.range)")
+			passed = passed + 1
+		else
+			print(("  ✗ greater-than prerelease boundary: got %s (%s)"):format(tostring(v), type(v)))
+			failed = failed + 1
+		end
+	end
 end
 
 --- Plan tests
