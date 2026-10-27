@@ -10,7 +10,9 @@ handling to Neovim's native `vim.pack`. Philosophy and output model:
 
 Implements only a subset of lazy.nvim. Everything beyond the core
 (compile → plan → setup) is an opt-in module in `lua/laze/` (`extra.lua`),
-never required by the core and free unless loaded.
+never required by the core and free unless loaded. Compatibility is pinned
+to the lazy.nvim spec documented as of 2026-08-18 (`tests/test_subset.lua`),
+not to every upstream change.
 
 Supported spec fields: [README § Spec shape](README.md#spec-shape) —
 mechanically pinned by `tests/test_subset.lua` (every laze-consumed
@@ -24,6 +26,30 @@ Explicitly out of scope (do not add):
 * `require()` hook interception — `module` triggers are
   `package.preload` entries (the global `require` is never touched)
 * Runtime plugin state manager, background scheduler, lifecycle framework
+
+## Subset discipline
+
+Polaris: **the target representation must not dictate source semantics.**
+laze's public spec is lazy.nvim-shaped; `vim.pack` is the target IR. Compile
+lowers one to the other. vim.pack's shape (e.g. its single `version` field) is
+an encoding detail, not a licence to redefine a lazy.nvim field.
+
+- Shared fields keep lazy.nvim's name, type, and meaning unless the deviation
+  is an explicit, documented, tested exception (e.g. `module`). Never overload
+  a shared field with a target-specific meaning: lazy.nvim's `version` is a
+  semver range, refs are `branch`/`tag`/`commit`; vim.pack's single `version`
+  is the lowering target. Lower explicitly; never sniff strings to guess.
+- Maximize the *faithful* subset, not raw acceptance: accept as much lazy.nvim
+  surface as can be represented with identical behavior. If a case cannot be
+  represented faithfully, fail loudly (compile error) or document the exact
+  conversion — never a silent drop or best-effort approximation. A warning
+  that ignores the field is still a silent drop.
+- Extensions are outside the subset: use explicit, non-colliding names,
+  document what happens when the spec moves back to lazy.nvim, and don't let
+  them change shared-field semantics.
+- Differences are inevitable (vim.pack owns resolution). Make them explicit in
+  docs and tests. `tests/test_subset.lua` pins the surface; semantic cases
+  (precedence, range vs ref, `version = false`) need explicit tests too.
 
 ## Structure
 

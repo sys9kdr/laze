@@ -21,9 +21,16 @@ return {
 			event = "VeryLazy",
 		},
 		{
-			"user/plugin-version-priority",
-			version = "v2.0.0",
+			"user/plugin-version-false-branch",
+			version = false,
 			branch = "develop",
+			event = "VeryLazy",
+		},
+		{
+			"user/plugin-tag-priority",
+			branch = "main",
+			tag = "v1.0.0",
+			version = ">=2.0.0",
 			event = "VeryLazy",
 		},
 		{
@@ -31,6 +38,7 @@ return {
 			branch = "main",
 			tag = "v1.0.0",
 			commit = "def456",
+			version = ">=2.0.0",
 			event = "VeryLazy",
 		},
 	},

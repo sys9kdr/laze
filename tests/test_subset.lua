@@ -4,17 +4,31 @@
 --- The escape-hatch principle (see AGENTS.md): a config written for laze
 --- should work in lazy.nvim with little or no changes. This test pins that
 --- property as data: every field name laze consumes must be a documented
---- lazy.nvim spec field, or an explicitly justified exception.
+--- lazy.nvim spec field, or an explicitly justified exception. It also pins
+--- value-level version semantics (semver range vs git ref, precedence).
 
 package.path = string.format("./lua/?.lua;%s", package.path)
 
--- Minimal vim stub (same shape as tests/test_compile.lua)
+-- Minimal vim stub (same shape as tests/test_compile.lua).
+-- The stub deliberately mirrors vim.version.range's real misparses for
+-- refs/multi-ranges so the shape guard in compile.lua is actually tested.
+local range_calls = {}
+local misparsed_ranges = {
+	["abc123"] = "RANGE(abc123)", -- real vim.version.range → 123.0.0 - 124.0.0
+	["1.2 || 1.3"] = "RANGE(1.2 || 1.3)", -- real vim.version.range → first range only
+}
 vim = {}
 vim.log = { levels = { WARN = "WARN" } }
 vim.notify = function() end
-vim.version = { range = function()
-	return "RANGE"
-end }
+vim.version = {
+	range = function(v)
+		table.insert(range_calls, v)
+		if v == "main" then
+			return nil
+		end
+		return misparsed_ranges[v] or ("RANGE(" .. v .. ")")
+	end,
+}
 
 local compile_mod = require("laze.compile")
 local consumed = compile_mod.CONSUMED_KEYS
@@ -51,7 +65,7 @@ local LAZY_NVIM_FIELDS = {
 	branch = "string",
 	tag = "string",
 	commit = "string",
-	version = "string|false — full semver ranges supported",
+	version = "string|false — semver range (git refs use branch/tag/commit)",
 	pin = "boolean — exclude from updates",
 	submodules = "boolean",
 	-- Spec Advanced
@@ -177,7 +191,7 @@ print("\n=== subset: semantic notes (soft) ===\n")
 
 local notes = {
 	"module: lazy.nvim accepts only false (opt-out of auto require-loading). laze accepts string|string[] as opt-in require triggers; module=false in a laze spec simply means 'no triggers'.",
-	"version: lazy.nvim = semver range (a string like '*' or '>=2.0.0', or false). laze maps version/branch/tag/commit into ONE vim.pack version field (commit > tag > branch). branch/tag/commit all exist in lazy.nvim too.",
+	"version: lazy.nvim = semver range (a string like '*' or '>=2.0.0', or false); branch/tag/commit are git refs. laze lowers a version string to vim.version.range and a ref to a vim.pack version string, with lazy.nvim precedence commit > tag > version > branch. version=false falls through to branch (or vim.pack's default).",
 	"config = true: valid in lazy.nvim (implies opts support); laze raises a clear error instead of silently misbehaving — safe direction.",
 	"build: lazy.nvim accepts false (skip build) and a list of commands. laze accepts false (no-op, same as omitting it) and a single string/function; the list form is rejected with a compile error — safe direction.",
 	"priority: honored for eager ordering — eager plugins load highest-first with id as tie-break, matching lazy.nvim's start-plugin reordering. Dependencies (`after`) never order eagerly: they load via their parents.",
@@ -189,6 +203,71 @@ local notes = {
 
 for _, note in ipairs(notes) do
 	print(("  - %s"):format(note))
+end
+
+print("\n=== subset: semantic conformance (version) ===\n")
+
+-- Field names are not enough: version is a semver range in lazy.nvim, while
+-- branch/tag/commit are git refs. Pin the lowering and precedence here so a
+-- vim.pack-shaped redefinition (version = ref) fails this test.
+local resolve_version = compile_mod.resolve_version
+
+local function version_case(spec, expected, label)
+	local ok, got = pcall(resolve_version, spec)
+	if not ok then
+		fail(label, tostring(got))
+	elseif got == expected then
+		pass(label)
+	else
+		fail(label, ("expected %s, got %s"):format(tostring(expected), tostring(got)))
+	end
+end
+
+version_case({ version = "*" }, "RANGE(*)", "version='*' lowers to a semver range")
+version_case({ version = ">=2.0.0" }, "RANGE(>=2.0.0)", "range operators stay semver ranges")
+version_case({ version = "^1.2" }, "RANGE(^1.2)", "caret ranges stay semver ranges")
+version_case({ version = "~1.2" }, "RANGE(~1.2)", "tilde ranges stay semver ranges")
+version_case({ version = "v1.2.3" }, "RANGE(v1.2.3)", "v-prefixed versions stay semver ranges")
+version_case({ version = "1.2.3" }, "RANGE(1.2.3)", "exact version strings stay semver ranges")
+version_case({ version = "1.2" }, "RANGE(1.2)", "partial versions stay semver ranges")
+version_case({ branch = "main" }, "main", "branch lowers to a vim.pack ref")
+version_case({ tag = "v1.0.0" }, "v1.0.0", "tag lowers to a vim.pack ref")
+version_case({ commit = "abc123" }, "abc123", "commit lowers to a vim.pack ref")
+version_case(
+	{ commit = "c", tag = "t", version = "1.0.0", branch = "b" },
+	"c",
+	"precedence: commit > tag > version > branch"
+)
+version_case({ tag = "t", version = "1.0.0", branch = "b" }, "t", "precedence: tag > version > branch")
+version_case({ version = "1.0.0", branch = "b" }, "RANGE(1.0.0)", "precedence: version > branch")
+version_case({ version = false, branch = "b" }, "b", "version=false falls through to branch")
+version_case({ version = false }, nil, "version=false without branch → vim.pack default")
+version_case({}, nil, "no version fields → vim.pack default")
+
+-- Invalid version strings must fail loudly, not become refs or truncated ranges.
+for _, v in ipairs({ "main", "abc123", "1.2 || 1.3" }) do
+	local ok, err = pcall(resolve_version, { version = v })
+	if ok then
+		fail(("version=%q is rejected"):format(v), "resolve_version accepted it")
+	elseif not tostring(err):find("semver range") then
+		fail(("version=%q is rejected"):format(v), tostring(err))
+	else
+		pass(("version=%q is rejected"):format(v))
+	end
+end
+
+local invalid_called = {}
+for _, v in ipairs({ "main", "abc123", "1.2 || 1.3" }) do
+	for _, call in ipairs(range_calls) do
+		if call == v then
+			table.insert(invalid_called, v)
+		end
+	end
+end
+if #invalid_called == 0 then
+	pass("invalid version strings never reach vim.version.range")
+else
+	fail("invalid version strings never reach vim.version.range", table.concat(invalid_called, ", "))
 end
 
 print(("\n%d passed, %d failed\n"):format(passed, failed))

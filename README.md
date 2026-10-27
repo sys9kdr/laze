@@ -23,7 +23,28 @@ It has:
 
 It does not have:
 
-* 100% lazy.nvim compatibility — the spec surface is a deliberate subset ([Spec shape](#spec-shape))
+* 100% lazy.nvim compatibility — see [Compatibility](#compatibility)
+
+## Compatibility
+
+laze aims to be a lightweight alternative to lazy.nvim: it accepts a
+lazy.nvim-shaped declarative spec so most ordinary plugin configurations can
+be reused with minimal changes. It does not aim for 100% compatibility. Some
+lazy.nvim features, manager commands, and edge cases behave differently or
+remain unsupported; the goal is to cover the common declarative core while
+keeping the implementation small, simple, and maintainable.
+
+Compatibility is pinned to the lazy.nvim spec documented as of **2026-08-18**
+(the reference date in `tests/test_subset.lua`), not to every upstream change.
+When a field cannot be represented faithfully, laze fails loudly at compile
+time or documents the exact conversion — it does not silently drop the field.
+Extensions are outside the subset and use non-colliding names.
+
+The guiding principle is to preserve compatibility where practical, without
+letting it undermine laze's primary goal: a small, maintainable alternative
+built around Neovim's native plugin management. See
+[docs/migration.md](docs/migration.md) for field-by-field expectations and
+[AGENTS.md](AGENTS.md) for the subset discipline.
 
 ## Quick start
 
@@ -92,8 +113,10 @@ Supported fields:
 * `cond`
 * `enabled`
 * `silent`
-* `version`
-* `branch` / `tag` / `commit` — folded into `version` (most specific wins)
+* `version` — semver range (`string|false`), lowered to `vim.version.range()`
+* `branch` / `tag` / `commit` — git refs, lowered to vim.pack's version string
+  (lazy.nvim precedence: `commit > tag > version > branch`; `version = false`
+  skips the range and falls back to `branch` / the default branch)
 * `pin` — passed through to `vim.pack.Spec`
 * `data`
 * `after`
@@ -118,7 +141,7 @@ Notes:
 * `[1]`/`src` is content-aware: absolute and `.`-prefixed paths (`./foo`, `../foo`) are treated as local dirs, `~` expands, `https://`/`git@` URLs as-is, anything else is expanded to `https://github.com/<src>`. A bare relative path like `foo/bar` is NOT a local dir — it becomes a GitHub URL.
 * `name` is used for internal routing (routes, after deps) and defaults to the plugin's repository name with `.nvim`/`.lua` stripped (lazy.nvim-compatible: `folke/which-key.nvim` → `which-key`). The installed directory (`pack/<pkg>/opt/<name>`) and `:packadd` use the *full* repository name (vim.pack's own derivation) — for `which-key.nvim` that directory is `which-key.nvim`, matching existing installs. It is **not** passed directly to `require` — laze only requires module names explicitly declared via `module`.
 * `silent = true` suppresses `vim.notify` warnings when `require` fails (e.g. for optional plugins).
-* Unknown fields (e.g. `pin`, `data`) are passed through to the `pack` entry for `vim.pack.Spec`. `branch`/`tag`/`commit` are consumed and folded into `version` (see the `version` notes below).
+* Unknown fields (e.g. `pin`, `data`) are passed through to the `pack` entry for `vim.pack.Spec`. `version` is consumed as a semver range and lowered with `vim.version.range()`; `branch`/`tag`/`commit` are consumed as git refs and lowered to vim.pack's version string. Precedence matches lazy.nvim: `commit > tag > version > branch`. `version = false` skips the range and falls back to `branch` / the default branch. Non-range version strings (e.g. `version = "main"`) are rejected with a compile error — use `branch`/`tag`/`commit` for refs.
 * `dir` takes priority over `[1]`, `dev`, and `url`.
 * `dir` plugins are **local**: they are excluded from the `pack` array (vim.pack never installs or manages them) and the plan loads them at trigger/eager time by prepending the exact directory path to `'runtimepath'`. This mirrors lazy.nvim's `dir` behavior — the directory must already exist on disk.
 * `url` takes priority over `[1]` and auto-detected URLs.

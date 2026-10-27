@@ -168,10 +168,12 @@ timing and trigger wiring.
   Alternative: commit the lockfile; update via `:Laze update`
   (`vim.pack.update()`).
 
-- **Version resolution.** What: `version`/`branch`/`tag`/`commit`
-  fold into one vim.pack `version` field (commit > tag > branch;
-  `resolve_version` in `compile.lua`); `version = "*"` maps to a
-  `VersionRange`; `pin` passes through untouched.
+- **Version resolution.** What: `version` is a lazy.nvim semver range and
+  lowers to a vim.pack `VersionRange`; `branch`/`tag`/`commit` are refs and
+  lower to vim.pack's version string. Precedence is lazy.nvim's:
+  `commit > tag > version > branch` (`resolve_version` in `compile.lua`);
+  `version = false` falls back to `branch` / the default branch; `pin`
+  passes through untouched.
   Why not: state ownership — one resolver (vim.pack), not two.
   Alternative: write the semver range directly:
   ```lua

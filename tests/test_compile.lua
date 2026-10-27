@@ -12,8 +12,8 @@ vim.fn = {
 		return s:gsub("^~", os.getenv("HOME") or "")
 	end,
 }
-vim.version = { range = function()
-	return "RANGE"
+vim.version = { range = function(v)
+	return "RANGE:" .. v
 end }
 vim.inspect = function(v)
 	if type(v) == "string" then
@@ -378,16 +378,47 @@ print("\n=== resolve_version tests ===\n")
 
 local version_cases = {
 	{ { version = false }, nil, "false → default branch (nil)" },
-	{ { version = "*" }, "RANGE", "'*' → vim.version.range (latest tag)" },
-	{ { version = "2.1.0" }, "2.1.0", "explicit version string" },
-	{ { commit = "abc123", tag = "v1", branch = "main" }, "abc123", "commit > tag > branch" },
-	{ { tag = "v1", branch = "main" }, "v1", "tag > branch" },
+	{ { version = "*" }, "RANGE:*", "'*' → vim.version.range (latest tag)" },
+	{ { version = "2.1.0" }, "RANGE:2.1.0", "explicit version string is a semver range" },
+	{ { version = ">=2.0.0" }, "RANGE:>=2.0.0", "range operator stays a semver range" },
+	{
+		{ commit = "abc123", tag = "v1", version = "1.0.0", branch = "main" },
+		"abc123",
+		"commit > tag > version > branch",
+	},
+	{ { tag = "v1", version = "1.0.0", branch = "main" }, "v1", "tag > version > branch" },
+	{ { version = "1.0.0", branch = "main" }, "RANGE:1.0.0", "version > branch" },
+	{ { version = false, branch = "main" }, "main", "false skips version, uses branch" },
 	{ { branch = "main" }, "main", "branch alone" },
 	{ {}, nil, "nothing → default branch" },
 }
 
 for _, case in ipairs(version_cases) do
 	check(resolve_version(case[1]), case[2], case[3])
+end
+
+for _, v in ipairs({ "main", "abc123", "1.2 || 1.3" }) do
+	local ok, err = pcall(resolve_version, { version = v })
+	expect(not ok and tostring(err):find("semver range") ~= nil, ("invalid version %q is rejected"):format(v))
+end
+
+do
+	local old_range = vim.version.range
+	local sentinel = {}
+	local calls = 0
+	vim.version.range = function()
+		calls = calls + 1
+		return sentinel
+	end
+	local c = compile({ { "folke/versioned.nvim", name = "versioned", version = ">=1.0.0" } })
+	expect(c.pack[1].version == sentinel, "compile lowers version to the vim.version.range object")
+	expect(calls == 1, "compile parses each version range once")
+	vim.version.range = old_range
+end
+
+do
+	local c = compile({ { "folke/false-branch.nvim", name = "false-branch", version = false, branch = "develop" } })
+	expect(c.pack[1].version == "develop", "compile keeps branch when version=false")
 end
 
 print("\n=== compile detail tests ===\n")
@@ -487,6 +518,12 @@ local rejection_cases = {
 	{ { "folke/x.nvim", name = "x", module = {} }, "module must not be an empty array", "empty module array rejected" },
 	{ { "folke/x.nvim", name = "x", version = 42 }, "version must be a string", "numeric version rejected" },
 	{ { "folke/x.nvim", name = "x", version = {} }, "version must be a string", "table version rejected" },
+	{ { "folke/x.nvim", name = "x", version = "main" }, "not a supported semver range", "git ref in version rejected" },
+	{ { "folke/x.nvim", name = "x", version = "abc123" }, "not a supported semver range", "commit hash in version rejected" },
+	{ { "folke/x.nvim", name = "x", version = "1.2 || 1.3" }, "not a supported semver range", "multi-range version rejected" },
+	{ { "folke/x.nvim", name = "x", branch = 42 }, "branch must be a non-empty string", "numeric branch rejected" },
+	{ { "folke/x.nvim", name = "x", tag = "" }, "tag must be a non-empty string", "empty tag rejected" },
+	{ { "folke/x.nvim", name = "x", commit = {} }, "commit must be a non-empty string", "table commit rejected" },
 	{ { "folke/x.nvim", name = "x", priority = "high" }, "priority must be a number", "string priority rejected" },
 	{ { "folke/x.nvim", name = "x", ft = "" }, "must not be empty", "empty ft rejected" },
 	{ { "folke/x.nvim", name = "x", cmd = { "" } }, "must not be empty", "empty cmd element rejected" },

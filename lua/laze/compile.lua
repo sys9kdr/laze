@@ -1,6 +1,7 @@
 local TRIGGER_FIELDS = { "event", "ft", "cmd", "keys" }
 local ARRAY_TRIGGER_FIELDS = { "ft", "cmd" }
 local SOURCE_FIELDS = { "dir", "url", "name" }
+local VERSION_REF_FIELDS = { "branch", "tag", "commit" }
 
 local function normalize_array(v)
 	if v == nil then
@@ -192,30 +193,92 @@ local function normalize_events(v)
 	return {}
 end
 
---- Resolve lazy.nvim version spec to a vim.pack-compatible version value.
---- lazy.nvim: version = "*" | "2.1.0" | false | (branch|tag|commit are separate fields)
---- vim.pack:  version only accepts a string (branch/tag/commit hash) or VersionRange.
----@param spec LazeSpec
----@return string|vim.VersionRange|nil
-local function resolve_version(spec)
-	local v = spec.version
-	if v == false then
-		-- lazy.nvim: false = "use default branch" → nil here (vim.pack default)
-		return nil
+-- lazy.nvim's `version` is a semver range, not a git ref. vim.version.range
+-- is lenient enough to misparse refs ("abc123" → 123.0.0) and to take only
+-- the first branch of a multi-range ("1.2 || 1.3"), so guard the shape before
+-- handing the string to vim.pack. Refs belong in branch/tag/commit.
+local function looks_like_semver_range(v)
+	local n = #v
+	if n == 0 then
+		return true
 	end
-	if v == "*" then
-		-- lazy.nvim: "*" = "latest tag". vim.pack honors VersionRange against tags.
-		if vim.version and vim.version.range then
-			return vim.version.range("*")
+	if n == 1 and v:byte(1) == 42 then -- "*"
+		return true
+	end
+	-- vim.version.range silently narrows these; lazy.nvim's parser is not a
+	-- faithful superset either. Reject instead of approximating. Plain find
+	-- keeps this off LuaJIT's interpreted pattern path.
+	if v:find("|", 1, true) or v:find(",", 1, true) then
+		return false
+	end
+	-- A range starts with an optional comparator run (^ ~ > < =), an optional
+	-- v, then a digit. This rejects plain git refs such as "main" and "abc123".
+	local i = 1
+	while i <= n do
+		local b = v:byte(i)
+		if b == 94 or b == 126 or b == 62 or b == 60 or b == 61 then
+			i = i + 1
+		else
+			break
 		end
-		return nil
 	end
-	if v ~= nil then
-		return v
+	if i > n then
+		return false
 	end
-	-- lazy.nvim allows branch/tag/commit as independent fields; vim.pack only
-	-- has `version`. Map them: commit > tag > branch (most specific wins).
-	return spec.commit or spec.tag or spec.branch
+	if v:byte(i) == 118 then -- "v"
+		i = i + 1
+	end
+	local b = v:byte(i)
+	return b ~= nil and b >= 48 and b <= 57
+end
+
+---@param v string
+---@param idx? integer
+---@return vim.VersionRange
+local function to_semver_range(v, idx)
+	local prefix = idx and ("spec [" .. idx .. "]: ") or ""
+	if not looks_like_semver_range(v) then
+		error(
+			prefix .. ("version %q is not a supported semver range; use branch/tag/commit for git refs"):format(v),
+			0
+		)
+	end
+	local range_fn = vim.version and vim.version.range
+	if type(range_fn) ~= "function" then
+		error(prefix .. "vim.version.range is required to lower version ranges", 0)
+	end
+	local ok, range = pcall(range_fn, v)
+	if not ok or range == nil then
+		error(prefix .. ("version %q is not a valid semver range"):format(v), 0)
+	end
+	return range
+end
+
+--- Resolve lazy.nvim version spec to a vim.pack-compatible version value.
+--- lazy.nvim: version = semver range string | false; branch/tag/commit are refs.
+--- vim.pack:  version accepts a git ref string or a VersionRange.
+---@param spec LazeSpec
+---@param idx? integer
+---@param range? vim.VersionRange Already validated by validate_spec
+---@return string|vim.VersionRange|nil
+local function resolve_version(spec, idx, range)
+	-- lazy.nvim precedence: commit > tag > version > branch.
+	if spec.commit ~= nil then
+		return spec.commit
+	end
+	if spec.tag ~= nil then
+		return spec.tag
+	end
+	local v = spec.version
+	if v ~= nil and v ~= false then
+		-- Field-based lowering: a version string is always a semver range,
+		-- never a git ref (refs use branch/tag/commit). Reuse the range
+		-- validated during compile instead of parsing the same string twice.
+		return range or to_semver_range(v, idx)
+	end
+	-- version = false (or omitted) means "do not pin a range"; branch still
+	-- applies, then vim.pack's default branch when neither is set.
+	return spec.branch
 end
 
 local function add_to_route(route_map, keys, plugin_id)
@@ -454,6 +517,10 @@ local function validate_triggers(spec, idx, spec_id)
 	end
 end
 
+---@param spec LazeSpec
+---@param idx integer
+---@param warned table<string, boolean>
+---@return vim.VersionRange|nil
 local function validate_spec(spec, idx, warned)
 	local src = spec[1] or spec.src
 	if not src and not spec.dir and not spec.url then
@@ -573,11 +640,24 @@ local function validate_spec(spec, idx, warned)
 	if spec.priority ~= nil and type(spec.priority) ~= "number" then
 		error("spec [" .. idx .. "] (" .. spec_id .. "): priority must be a number", 0)
 	end
-	if spec.version ~= nil and type(spec.version) ~= "string" and spec.version ~= false then
-		error("spec [" .. idx .. "] (" .. spec_id .. "): version must be a string (semver range) or false", 0)
+	local version_range
+	if spec.version ~= nil and spec.version ~= false then
+		if type(spec.version) ~= "string" then
+			error("spec [" .. idx .. "] (" .. spec_id .. "): version must be a string (semver range) or false", 0)
+		end
+		-- Validate here (not only in resolve_version) so a bad range fails
+		-- even for local dir plugins, which never get a pack entry. Return
+		-- the object so resolve_version can reuse it instead of parsing twice.
+		version_range = to_semver_range(spec.version, idx)
+	end
+	for _, f in ipairs(VERSION_REF_FIELDS) do
+		if spec[f] ~= nil and (type(spec[f]) ~= "string" or spec[f] == "") then
+			error("spec [" .. idx .. "] (" .. spec_id .. "): " .. f .. " must be a non-empty string", 0)
+		end
 	end
 
 	validate_triggers(spec, idx, spec_id)
+	return version_range
 end
 
 ---@param specs LazeSpec[]
@@ -696,7 +776,7 @@ function compile(specs, opts)
 	local warned = {}
 
 	for idx, spec in ipairs(expanded) do
-		validate_spec(spec, idx, warned)
+		local version_range = validate_spec(spec, idx, warned)
 
 		local src = spec[1] or spec.src
 		local dir = spec.dir
@@ -874,7 +954,7 @@ function compile(specs, opts)
 				-- and must never be used for :packadd.
 				name = pkg,
 			}
-			local resolved_version = resolve_version(spec)
+			local resolved_version = resolve_version(spec, idx, version_range)
 			if resolved_version ~= nil then
 				pack_entry.version = resolved_version
 			end
