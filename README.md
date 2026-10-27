@@ -126,7 +126,8 @@ Supported fields:
   via `vim.version.range()`. Single ranges only: `*`, partial versions,
   `^`/`~`/`>`/`>=`/`<`/`<=`/`=`, `x` wildcards, hyphen ranges, and
   prerelease/build. Multi-range (`||`) and whitespace-separated comparator
-  sets are rejected.
+  sets are rejected; the only whitespace allowed inside a range is the
+  ` - ` hyphen separator.
 * `branch` / `tag` / `commit` — git refs, lowered to vim.pack's version string
   (lazy.nvim precedence: `commit > tag > version > branch`; `version = false`
   skips the range and falls back to `branch` / the default branch)
