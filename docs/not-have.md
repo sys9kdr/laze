@@ -157,8 +157,9 @@ function; re-proposing needs new measurements, not arguments.
 ## Native already does it (vim.pack)
 
 Delegated per `docs/design.md`: vim.pack owns placement,
-installation, version resolution, dependency handling. Laze only owns
-timing and trigger wiring.
+installation, tag/ref resolution, the lockfile, and dependency handling.
+Laze owns lowering lazy.nvim ranges/refs into vim.pack's `version` field,
+plus timing and trigger wiring.
 
 - **Install / update / delete.** What: no solver, no parallel
   fetcher, no lock module.
@@ -173,8 +174,12 @@ timing and trigger wiring.
   lower to vim.pack's version string. Precedence is lazy.nvim's:
   `commit > tag > version > branch` (`resolve_version` in `compile.lua`);
   `version = false` falls back to `branch` / the default branch; `pin`
-  passes through untouched.
-  Why not: state ownership — one resolver (vim.pack), not two.
+  passes through untouched. A range is parsed only when it wins precedence.
+  Only single ranges are accepted; multi-ranges and whitespace-separated
+  comparator sets fail at compile time.
+  Why not: state ownership — one resolver (vim.pack), not two. vim.pack
+  errors when no tag matches a range, whereas lazy.nvim falls back to the
+  default branch; use a ref for repos without semver tags.
   Alternative: write the semver range directly:
   ```lua
   { "foo/bar", version = ">=2.0.0" }

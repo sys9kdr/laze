@@ -191,7 +191,7 @@ print("\n=== subset: semantic notes (soft) ===\n")
 
 local notes = {
 	"module: lazy.nvim accepts only false (opt-out of auto require-loading). laze accepts string|string[] as opt-in require triggers; module=false in a laze spec simply means 'no triggers'.",
-	"version: lazy.nvim = semver range (a string like '*' or '>=2.0.0', or false); branch/tag/commit are git refs. laze lowers a version string to vim.version.range and a ref to a vim.pack version string, with lazy.nvim precedence commit > tag > version > branch. version=false falls through to branch (or vim.pack's default).",
+	"version: lazy.nvim = semver range (a string like '*' or '>=2.0.0', or false); branch/tag/commit are git refs. laze lowers a version string to vim.version.range and a ref to a vim.pack version string, with lazy.nvim precedence commit > tag > version > branch. version=false falls through to branch (or vim.pack's default). Only a single range is accepted (no '||' or whitespace-separated comparator sets); a prebuilt vim.VersionRange is rejected. A range overridden by tag/commit is not parsed.",
 	"config = true: valid in lazy.nvim (implies opts support); laze raises a clear error instead of silently misbehaving — safe direction.",
 	"build: lazy.nvim accepts false (skip build) and a list of commands. laze accepts false (no-op, same as omitting it) and a single string/function; the list form is rejected with a compile error — safe direction.",
 	"priority: honored for eager ordering — eager plugins load highest-first with id as tie-break, matching lazy.nvim's start-plugin reordering. Dependencies (`after`) never order eagerly: they load via their parents.",
@@ -223,13 +223,32 @@ local function version_case(spec, expected, label)
 	end
 end
 
-version_case({ version = "*" }, "RANGE(*)", "version='*' lowers to a semver range")
-version_case({ version = ">=2.0.0" }, "RANGE(>=2.0.0)", "range operators stay semver ranges")
-version_case({ version = "^1.2" }, "RANGE(^1.2)", "caret ranges stay semver ranges")
-version_case({ version = "~1.2" }, "RANGE(~1.2)", "tilde ranges stay semver ranges")
-version_case({ version = "v1.2.3" }, "RANGE(v1.2.3)", "v-prefixed versions stay semver ranges")
-version_case({ version = "1.2.3" }, "RANGE(1.2.3)", "exact version strings stay semver ranges")
-version_case({ version = "1.2" }, "RANGE(1.2)", "partial versions stay semver ranges")
+local accepted_versions = {
+	{ "*", "version='*' lowers to a semver range" },
+	{ "", "empty version is all versions (lazy.nvim/vim.version.range)" },
+	{ ">=2.0.0", "range operators stay semver ranges" },
+	{ "^1.2", "caret ranges stay semver ranges" },
+	{ "~1.2", "tilde ranges stay semver ranges" },
+	{ ">1.2", "greater-than ranges stay semver ranges" },
+	{ "<1.2", "less-than ranges stay semver ranges" },
+	{ "<=1.2", "less-than-or-equal ranges stay semver ranges" },
+	{ "=1.2", "equality ranges stay semver ranges" },
+	{ "v1.2.3", "v-prefixed versions stay semver ranges" },
+	{ "V1.2.3", "uppercase V-prefixed versions stay semver ranges" },
+	{ "1.2.3", "exact version strings stay semver ranges" },
+	{ "1.2", "partial versions stay semver ranges" },
+	{ "1", "partial major versions stay semver ranges" },
+	{ "1.x", "wildcard minor versions stay semver ranges" },
+	{ "1.2.x", "wildcard patch versions stay semver ranges" },
+	{ "1.2.3-rc.1", "prerelease versions stay semver ranges" },
+	{ "1.2.3+build.2", "build metadata stays a semver range" },
+	{ "1.2.3-rc.1+build.2", "prerelease + build metadata stays a semver range" },
+	{ "1.2.3 - 2.3.4", "hyphen ranges stay semver ranges" },
+}
+for _, case in ipairs(accepted_versions) do
+	version_case({ version = case[1] }, "RANGE(" .. case[1] .. ")", case[2])
+end
+
 version_case({ branch = "main" }, "main", "branch lowers to a vim.pack ref")
 version_case({ tag = "v1.0.0" }, "v1.0.0", "tag lowers to a vim.pack ref")
 version_case({ commit = "abc123" }, "abc123", "commit lowers to a vim.pack ref")
@@ -241,11 +260,40 @@ version_case(
 version_case({ tag = "t", version = "1.0.0", branch = "b" }, "t", "precedence: tag > version > branch")
 version_case({ version = "1.0.0", branch = "b" }, "RANGE(1.0.0)", "precedence: version > branch")
 version_case({ version = false, branch = "b" }, "b", "version=false falls through to branch")
+version_case({ version = false, tag = "t" }, "t", "version=false falls through to tag")
+version_case({ version = false, commit = "c" }, "c", "version=false falls through to commit")
+version_case({ tag = "t", version = "main" }, "t", "tag wins before version is parsed")
+version_case({ commit = "c", version = "main" }, "c", "commit wins before version is parsed")
 version_case({ version = false }, nil, "version=false without branch → vim.pack default")
 version_case({}, nil, "no version fields → vim.pack default")
 
 -- Invalid version strings must fail loudly, not become refs or truncated ranges.
-for _, v in ipairs({ "main", "abc123", "1.2 || 1.3" }) do
+local invalid_versions = {
+	"main",
+	"abc123",
+	"1.2 || 1.3",
+	">=1.2.0 <2.0.0",
+	">=1.2.0<2.0.0",
+	">=1.2.0\t<2.0.0",
+	">= 1.0.0",
+	"1.2.3 - ",
+	"1.2.3 - 2.3.4 - 3.4.5",
+	"1.2.3 garbage",
+	"1.2.3;2.0.0",
+	"1.2.3 && 2.0.0",
+	">>1.2",
+	"==1.2",
+	"~>1.2",
+	"1.2.3.4",
+	"1.2.3garbage",
+	"1.x.3",
+	"1.2.3-",
+	"1.2.3+",
+	"1.2.3-rc..1",
+	" ",
+	"1.2.3 ",
+}
+for _, v in ipairs(invalid_versions) do
 	local ok, err = pcall(resolve_version, { version = v })
 	if ok then
 		fail(("version=%q is rejected"):format(v), "resolve_version accepted it")
@@ -257,7 +305,7 @@ for _, v in ipairs({ "main", "abc123", "1.2 || 1.3" }) do
 end
 
 local invalid_called = {}
-for _, v in ipairs({ "main", "abc123", "1.2 || 1.3" }) do
+for _, v in ipairs(invalid_versions) do
 	for _, call in ipairs(range_calls) do
 		if call == v then
 			table.insert(invalid_called, v)

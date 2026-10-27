@@ -2,8 +2,9 @@
 
 Laze is a tiny compiler that transforms a well-defined subset of
 lazy.nvim specs into `vim.pack` specs and a minimal execution plan.
-It delegates installation, placement, version resolution, and dependency
-handling to Neovim's native `vim.pack`. Philosophy and output model:
+It delegates installation, placement, tag/ref resolution, and dependency
+handling to Neovim's native `vim.pack`; laze lowers lazy.nvim ranges/refs to
+its `version` field. Philosophy and output model:
 [docs/design.md](docs/design.md).
 
 ## Scope
@@ -21,7 +22,8 @@ exception in compile.lua). Update both when the surface changes.
 
 Explicitly out of scope (do not add):
 
-* Dependency solver, plugin manager UI, install/update commands
+* Dependency solver, plugin manager UI, install/update commands in the core
+  (opt-in `:Laze` wrappers live in `lua/laze/extra.lua`)
 * `opts` abstraction, import system
 * `require()` hook interception — `module` triggers are
   `package.preload` entries (the global `require` is never touched)
@@ -29,16 +31,18 @@ Explicitly out of scope (do not add):
 
 ## Subset discipline
 
-Polaris: **the target representation must not dictate source semantics.**
-laze's public spec is lazy.nvim-shaped; `vim.pack` is the target IR. Compile
-lowers one to the other. vim.pack's shape (e.g. its single `version` field) is
-an encoding detail, not a licence to redefine a lazy.nvim field.
+**Core principle: the target representation must not dictate source
+semantics.** laze's public spec is lazy.nvim-shaped; `vim.pack` is the target
+IR. Compile lowers one to the other. vim.pack's shape (e.g. its single
+`version` field) is an encoding detail, not a licence to redefine a lazy.nvim
+field.
 
 - Shared fields keep lazy.nvim's name, type, and meaning unless the deviation
   is an explicit, documented, tested exception (e.g. `module`). Never overload
   a shared field with a target-specific meaning: lazy.nvim's `version` is a
   semver range, refs are `branch`/`tag`/`commit`; vim.pack's single `version`
-  is the lowering target. Lower explicitly; never sniff strings to guess.
+  is the lowering target. Lower explicitly; sniff only to reject a value,
+  never to reclassify it (e.g. `version = "main"` is an error, not a branch).
 - Maximize the *faithful* subset, not raw acceptance: accept as much lazy.nvim
   surface as can be represented with identical behavior. If a case cannot be
   represented faithfully, fail loudly (compile error) or document the exact

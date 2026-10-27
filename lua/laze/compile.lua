@@ -194,52 +194,174 @@ local function normalize_events(v)
 end
 
 -- lazy.nvim's `version` is a semver range, not a git ref. vim.version.range
--- is lenient enough to misparse refs ("abc123" → 123.0.0) and to take only
--- the first branch of a multi-range ("1.2 || 1.3"), so guard the shape before
--- handing the string to vim.pack. Refs belong in branch/tag/commit.
-local function looks_like_semver_range(v)
-	local n = #v
-	if n == 0 then
-		return true
+-- is lenient enough to misparse refs ("abc123" → 123.0.0), drop everything
+-- after the first comparator ("1.2 || 1.3", ">=1.2.0 <2.0.0"), and ignore
+-- trailing junk. Validate the whole string before handing it to vim.pack so
+-- an unrepresentable range fails at compile time instead of silently
+-- narrowing. Refs belong in branch/tag/commit.
+local function is_digit(b)
+	return b ~= nil and b >= 48 and b <= 57
+end
+
+local function is_wildcard(b)
+	return b == 42 or b == 120 or b == 88 -- * x X
+end
+
+local function is_ident_byte(b)
+	return b ~= nil
+		and ((b >= 48 and b <= 57) or (b >= 65 and b <= 90) or (b >= 97 and b <= 122) or b == 45)
+end
+
+-- Scan one version token after an optional comparator. Accepts the shapes
+-- lazy.nvim/vim.version.range support: partial versions, x/X/* wildcards,
+-- prerelease, and build metadata. Returns false on any trailing bytes.
+local function is_version_token(s, i)
+	local n = #s
+	local b = s:byte(i)
+	if b == 118 or b == 86 then -- v / V
+		i = i + 1
 	end
-	if n == 1 and v:byte(1) == 42 then -- "*"
-		return true
-	end
-	-- vim.version.range silently narrows these; lazy.nvim's parser is not a
-	-- faithful superset either. Reject instead of approximating. Plain find
-	-- keeps this off LuaJIT's interpreted pattern path.
-	if v:find("|", 1, true) or v:find(",", 1, true) then
+	if not is_digit(s:byte(i)) then
 		return false
 	end
-	-- A range starts with an optional comparator run (^ ~ > < =), an optional
-	-- v, then a digit. This rejects plain git refs such as "main" and "abc123".
-	local i = 1
+
+	local numeric = 0
+	local wildcard = false
 	while i <= n do
-		local b = v:byte(i)
-		if b == 94 or b == 126 or b == 62 or b == 60 or b == 61 then
+		b = s:byte(i)
+		if is_digit(b) then
+			if wildcard then
+				return false -- no numeric component after a wildcard
+			end
+			repeat
+				i = i + 1
+			until not is_digit(s:byte(i))
+			numeric = numeric + 1
+		elseif is_wildcard(b) then
+			wildcard = true
 			i = i + 1
 		else
 			break
 		end
+		if s:byte(i) == 46 then -- "."
+			i = i + 1
+			if i > n then
+				return false
+			end
+		else
+			break
+		end
 	end
-	if i > n then
+	if numeric == 0 or numeric > 3 then
 		return false
 	end
-	if v:byte(i) == 118 then -- "v"
-		i = i + 1
+
+	-- Prerelease/build after a wildcard would be stripped by vim.version.range
+	-- along with the wildcard, so reject it rather than guess.
+	if wildcard and (s:byte(i) == 45 or s:byte(i) == 43) then
+		return false
 	end
-	local b = v:byte(i)
-	return b ~= nil and b >= 48 and b <= 57
+
+	local function scan_identifiers(j, stop_at_plus)
+		local start = j
+		while j <= n do
+			local bb = s:byte(j)
+			if is_ident_byte(bb) then
+				j = j + 1
+			elseif bb == 46 then -- "."
+				if j == start or s:byte(j - 1) == 46 then
+					return false
+				end
+				j = j + 1
+				if not is_ident_byte(s:byte(j)) then
+					return false
+				end
+			elseif bb == 43 and stop_at_plus then -- "+"
+				break
+			else
+				return false
+			end
+		end
+		if j == start then
+			return false
+		end
+		return j
+	end
+
+	if s:byte(i) == 45 then -- "-" prerelease
+		i = scan_identifiers(i + 1, true)
+		if i == false then
+			return false
+		end
+	end
+	if s:byte(i) == 43 then -- "+" build
+		i = scan_identifiers(i + 1, false)
+		if i == false then
+			return false
+		end
+	end
+	return i > n
+end
+
+local function is_range_operand(s, allow_comparator)
+	local i = 1
+	if allow_comparator then
+		local b = s:byte(i)
+		if b == 62 or b == 60 then -- > <
+			if s:byte(i + 1) == 61 then -- >= <=
+				i = i + 2
+			else
+				i = i + 1
+			end
+		elseif b == 94 or b == 126 or b == 61 then -- ^ ~ =
+			i = i + 1
+		end
+	end
+	return is_version_token(s, i)
+end
+
+local function looks_like_semver_range(v)
+	local n = #v
+	if n == 0 then
+		return true -- lazy.nvim and vim.version.range treat "" as "*"
+	end
+	if n == 1 and v:byte(1) == 42 then -- "*"
+		return true
+	end
+
+	-- The only whitespace accepted is a single hyphen-range separator. This
+	-- rejects compound ranges (" >=1.2.0 <2.0.0") instead of letting
+	-- vim.version.range keep only the first comparator.
+	local hyphen = v:find(" - ", 1, true)
+	if hyphen then
+		if v:find(" - ", hyphen + 3, true) then
+			return false
+		end
+		local a = v:sub(1, hyphen - 1)
+		local b = v:sub(hyphen + 3)
+		return a ~= "" and b ~= "" and is_range_operand(a, false) and is_range_operand(b, false)
+	end
+	for i = 1, n do
+		local b = v:byte(i)
+		if b == 32 or b == 9 or b == 10 or b == 13 then
+			return false
+		end
+	end
+	return is_range_operand(v, true)
 end
 
 ---@param v string
 ---@param idx? integer
+---@param spec_id? string
 ---@return vim.VersionRange
-local function to_semver_range(v, idx)
-	local prefix = idx and ("spec [" .. idx .. "]: ") or ""
+local function to_semver_range(v, idx, spec_id)
+	local prefix = idx and ("spec [" .. idx .. "]" .. (spec_id and (" (" .. spec_id .. ")") or "") .. ": ") or ""
 	if not looks_like_semver_range(v) then
 		error(
-			prefix .. ("version %q is not a supported semver range; use branch/tag/commit for git refs"):format(v),
+			prefix
+				.. ("version %q is not a supported semver range (single ranges only; multi-range/whitespace sets are rejected; git refs belong in branch/tag/commit)"):format(
+					v
+				),
 			0
 		)
 	end
@@ -645,10 +767,15 @@ local function validate_spec(spec, idx, warned)
 		if type(spec.version) ~= "string" then
 			error("spec [" .. idx .. "] (" .. spec_id .. "): version must be a string (semver range) or false", 0)
 		end
-		-- Validate here (not only in resolve_version) so a bad range fails
-		-- even for local dir plugins, which never get a pack entry. Return
-		-- the object so resolve_version can reuse it instead of parsing twice.
-		version_range = to_semver_range(spec.version, idx)
+		-- lazy.nvim's precedence is commit > tag > version > branch, so a
+		-- range that cannot win is not evaluated. Keep the type check above,
+		-- but only parse when version is actually eligible. This also lets
+		-- plain-Lua snapshot generation handle ref-only fixtures without a
+		-- vim.version stub. Return the object so resolve_version can reuse it
+		-- instead of parsing the same string twice.
+		if spec.commit == nil and spec.tag == nil then
+			version_range = to_semver_range(spec.version, idx, spec_id)
+		end
 	end
 	for _, f in ipairs(VERSION_REF_FIELDS) do
 		if spec[f] ~= nil and (type(spec[f]) ~= "string" or spec[f] == "") then

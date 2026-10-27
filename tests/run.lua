@@ -147,6 +147,81 @@ for _, name in ipairs(compile_fixtures) do
 	::continue_compile::
 end
 
+--- Version lowering against the real vim.version.range (the LuaJIT suites
+--- use a stub; this pins the actual Neovim object and the compile error path).
+print("\n=== version lowering (real vim.version.range) ===\n")
+
+do
+	local function compile_one(spec, label)
+		local ok, compiled = pcall(laze.compile, { spec })
+		if not ok then
+			print(("  ✗ %s: %s"):format(label, compiled))
+			failed = failed + 1
+			return nil
+		end
+		return compiled.pack[1]
+	end
+
+	local entry = compile_one({ "user/versioned", name = "versioned", version = ">=1.2.3" }, "version-only range")
+	if entry then
+		local v = entry.version
+		if type(v) == "table" and tostring(v) == ">=1.2.3" and v:has("1.2.3") and not v:has("1.2.2") then
+			print("  ✓ version-only range lowers to a real vim.VersionRange")
+			passed = passed + 1
+		else
+			print(("  ✗ version-only range: got %s (%s)"):format(tostring(v), type(v)))
+			failed = failed + 1
+		end
+	end
+
+	local hyphen = compile_one({ "user/hyphen", name = "hyphen", version = "1.2.3 - 2.0.0" }, "hyphen range")
+	if hyphen then
+		local v = hyphen.version
+		if type(v) == "table" and v:has("1.9.9") and not v:has("2.0.0") then
+			print("  ✓ hyphen range lowers to a real vim.VersionRange")
+			passed = passed + 1
+		else
+			print(("  ✗ hyphen range: got %s (%s)"):format(tostring(v), type(v)))
+			failed = failed + 1
+		end
+	end
+
+	local upper = compile_one({ "user/upper", name = "upper", version = "V1.2.3" }, "uppercase V prefix")
+	if upper then
+		local v = upper.version
+		if type(v) == "table" and v:has("1.2.3") and not v:has("1.2.4") then
+			print("  ✓ uppercase V prefix is accepted")
+			passed = passed + 1
+		else
+			print(("  ✗ uppercase V prefix: got %s (%s)"):format(tostring(v), type(v)))
+			failed = failed + 1
+		end
+	end
+
+	local tag_entry = compile_one(
+		{ "user/tag-wins", name = "tag-wins", tag = "v1", version = "main" },
+		"tag precedence"
+	)
+	if tag_entry then
+		if tag_entry.version == "v1" then
+			print("  ✓ tag wins before an invalid version is parsed")
+			passed = passed + 1
+		else
+			print(("  ✗ tag precedence: got %s"):format(tostring(tag_entry.version)))
+			failed = failed + 1
+		end
+	end
+
+	local ok, err = pcall(laze.compile, { { "user/compound", name = "compound", version = ">=1.2.0 <2.0.0" } })
+	if not ok and tostring(err):find("semver range") then
+		print("  ✓ compound range fails at compile time")
+		passed = passed + 1
+	else
+		print(("  ✗ compound range: expected a compile error, got %s"):format(tostring(err)))
+		failed = failed + 1
+	end
+end
+
 --- Plan tests
 print("\n=== plan tests ===\n")
 

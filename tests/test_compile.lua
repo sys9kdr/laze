@@ -379,8 +379,29 @@ print("\n=== resolve_version tests ===\n")
 local version_cases = {
 	{ { version = false }, nil, "false → default branch (nil)" },
 	{ { version = "*" }, "RANGE:*", "'*' → vim.version.range (latest tag)" },
+	{ { version = "" }, "RANGE:", "empty string → all versions (lazy.nvim/vim.version.range)" },
 	{ { version = "2.1.0" }, "RANGE:2.1.0", "explicit version string is a semver range" },
+	{ { version = "v1.2.3" }, "RANGE:v1.2.3", "v-prefixed version stays a semver range" },
+	{ { version = "V1.2.3" }, "RANGE:V1.2.3", "uppercase V-prefixed version stays a semver range" },
+	{ { version = "1" }, "RANGE:1", "partial major version stays a semver range" },
+	{ { version = "1.2" }, "RANGE:1.2", "partial minor version stays a semver range" },
+	{ { version = "1.x" }, "RANGE:1.x", "wildcard minor version stays a semver range" },
+	{ { version = "1.2.x" }, "RANGE:1.2.x", "wildcard patch version stays a semver range" },
+	{ { version = "^1.2.3" }, "RANGE:^1.2.3", "caret range stays a semver range" },
+	{ { version = "~1.2.3" }, "RANGE:~1.2.3", "tilde range stays a semver range" },
+	{ { version = ">1.2.3" }, "RANGE:>1.2.3", "greater-than range stays a semver range" },
 	{ { version = ">=2.0.0" }, "RANGE:>=2.0.0", "range operator stays a semver range" },
+	{ { version = "<1.2.3" }, "RANGE:<1.2.3", "less-than range stays a semver range" },
+	{ { version = "<=1.2.3" }, "RANGE:<=1.2.3", "less-than-or-equal range stays a semver range" },
+	{ { version = "=1.2.3" }, "RANGE:=1.2.3", "explicit equality range stays a semver range" },
+	{ { version = "1.2.3-rc.1" }, "RANGE:1.2.3-rc.1", "prerelease version stays a semver range" },
+	{ { version = "1.2.3+build.2" }, "RANGE:1.2.3+build.2", "build metadata stays a semver range" },
+	{
+		{ version = "1.2.3-rc.1+build.2" },
+		"RANGE:1.2.3-rc.1+build.2",
+		"prerelease + build metadata stays a semver range",
+	},
+	{ { version = "1.2.3 - 2.3.4" }, "RANGE:1.2.3 - 2.3.4", "hyphen range stays a semver range" },
 	{
 		{ commit = "abc123", tag = "v1", version = "1.0.0", branch = "main" },
 		"abc123",
@@ -389,6 +410,10 @@ local version_cases = {
 	{ { tag = "v1", version = "1.0.0", branch = "main" }, "v1", "tag > version > branch" },
 	{ { version = "1.0.0", branch = "main" }, "RANGE:1.0.0", "version > branch" },
 	{ { version = false, branch = "main" }, "main", "false skips version, uses branch" },
+	{ { version = false, tag = "v1" }, "v1", "false skips version, uses tag" },
+	{ { version = false, commit = "abc123" }, "abc123", "false skips version, uses commit" },
+	{ { tag = "v1", version = "main" }, "v1", "tag wins before version is parsed" },
+	{ { commit = "abc123", version = "main" }, "abc123", "commit wins before version is parsed" },
 	{ { branch = "main" }, "main", "branch alone" },
 	{ {}, nil, "nothing → default branch" },
 }
@@ -397,7 +422,34 @@ for _, case in ipairs(version_cases) do
 	check(resolve_version(case[1]), case[2], case[3])
 end
 
-for _, v in ipairs({ "main", "abc123", "1.2 || 1.3" }) do
+-- These must fail before reaching vim.version.range; otherwise vim.version.range
+-- would silently narrow or misparse them.
+local invalid_versions = {
+	"main",
+	"abc123",
+	"1.2 || 1.3",
+	">=1.2.0 <2.0.0",
+	">=1.2.0<2.0.0",
+	">=1.2.0\t<2.0.0",
+	">= 1.0.0",
+	"1.2.3 - ",
+	"1.2.3 - 2.3.4 - 3.4.5",
+	"1.2.3 garbage",
+	"1.2.3;2.0.0",
+	"1.2.3 && 2.0.0",
+	">>1.2",
+	"==1.2",
+	"~>1.2",
+	"1.2.3.4",
+	"1.2.3garbage",
+	"1.x.3",
+	"1.2.3-",
+	"1.2.3+",
+	"1.2.3-rc..1",
+	" ",
+	"1.2.3 ",
+}
+for _, v in ipairs(invalid_versions) do
 	local ok, err = pcall(resolve_version, { version = v })
 	expect(not ok and tostring(err):find("semver range") ~= nil, ("invalid version %q is rejected"):format(v))
 end
@@ -410,15 +462,30 @@ do
 		calls = calls + 1
 		return sentinel
 	end
-	local c = compile({ { "folke/versioned.nvim", name = "versioned", version = ">=1.0.0" } })
-	expect(c.pack[1].version == sentinel, "compile lowers version to the vim.version.range object")
-	expect(calls == 1, "compile parses each version range once")
+	local ok, c = pcall(compile, { { "folke/versioned.nvim", name = "versioned", version = ">=1.0.0" } })
 	vim.version.range = old_range
+	expect(ok, "compile accepts a version-only range")
+	if ok then
+		expect(c.pack[1].version == sentinel, "compile lowers version to the vim.version.range object")
+		expect(calls == 1, "compile parses each version range once")
+	end
 end
 
 do
 	local c = compile({ { "folke/false-branch.nvim", name = "false-branch", version = false, branch = "develop" } })
 	expect(c.pack[1].version == "develop", "compile keeps branch when version=false")
+end
+
+do
+	local c = compile({ { "folke/tag-wins.nvim", name = "tag-wins", tag = "v1", version = "main" } })
+	expect(c.pack[1].version == "v1", "compile does not parse a version overridden by tag")
+end
+
+do
+	local ok, err = pcall(compile, { { dir = "/tmp/laze-dir", name = "local", version = "main" } })
+	expect(not ok and tostring(err):find("semver range") ~= nil, "dir plugin with invalid version is rejected")
+	local ok2, c = pcall(compile, { { dir = "/tmp/laze-dir", name = "local", version = ">=1.0.0" } })
+	expect(ok2 and #c.pack == 0, "dir plugin with valid version compiles with no pack entry")
 end
 
 print("\n=== compile detail tests ===\n")

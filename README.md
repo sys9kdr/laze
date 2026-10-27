@@ -3,9 +3,9 @@
 Tiny package manager. A thin wrapper around Neovim's `vim.pack` APIs.
 Requires Neovim **0.12+** (`vim.pack`).
 
-It adds a lazy.nvim-shaped spec subset and a small lazy-loading plan on top of native package management. `vim.pack` still owns installation, placement, version resolution, and dependency handling.
+It adds a lazy.nvim-shaped spec subset and a small lazy-loading plan on top of native package management. `vim.pack` still owns installation, placement, tag/ref resolution, the lockfile, and dependency handling; laze lowers lazy.nvim ranges/refs to vim.pack's `version` field.
 
-It intentionally does not provide its own dependency solver, manager UI, or install/update command surface.
+It intentionally does not provide its own dependency solver or `:Lazy`-style manager UI. Opt-in `:Laze update/clean/health/reload` wrappers live in `laze.extra`.
 
 Its wrapper layer is narrow:
 
@@ -37,8 +37,17 @@ keeping the implementation small, simple, and maintainable.
 Compatibility is pinned to the lazy.nvim spec documented as of **2026-08-18**
 (the reference date in `tests/test_subset.lua`), not to every upstream change.
 When a field cannot be represented faithfully, laze fails loudly at compile
-time or documents the exact conversion — it does not silently drop the field.
-Extensions are outside the subset and use non-colliding names.
+time or documents the exact conversion. A few fields are explicitly
+warned-and-ignored (`lazy`, `import`, `submodules`, `optional`, `specs`), and
+unsupported `keys` entry options are dropped; see
+[docs/migration.md](docs/migration.md). Extensions are outside the subset and
+use non-colliding names.
+
+Notable gaps: no `:Lazy` UI or install/sync surface (only the opt-in `:Laze`
+wrappers); `import`, `specs`, `optional`, `submodules`, and `lazy` are not
+implemented; function-shaped triggers are rejected; `opts` requires an
+explicit `main`; and `version` accepts semver ranges only (refs use
+`branch`/`tag`/`commit`).
 
 The guiding principle is to preserve compatibility where practical, without
 letting it undermine laze's primary goal: a small, maintainable alternative
@@ -113,7 +122,11 @@ Supported fields:
 * `cond`
 * `enabled`
 * `silent`
-* `version` — semver range (`string|false`), lowered to `vim.version.range()`
+* `version` — semver range (`string|false`), lowered to a `vim.VersionRange`
+  via `vim.version.range()`. Single ranges only: `*`, partial versions,
+  `^`/`~`/`>`/`>=`/`<`/`<=`/`=`, `x` wildcards, hyphen ranges, and
+  prerelease/build. Multi-range (`||`) and whitespace-separated comparator
+  sets are rejected.
 * `branch` / `tag` / `commit` — git refs, lowered to vim.pack's version string
   (lazy.nvim precedence: `commit > tag > version > branch`; `version = false`
   skips the range and falls back to `branch` / the default branch)
@@ -141,7 +154,7 @@ Notes:
 * `[1]`/`src` is content-aware: absolute and `.`-prefixed paths (`./foo`, `../foo`) are treated as local dirs, `~` expands, `https://`/`git@` URLs as-is, anything else is expanded to `https://github.com/<src>`. A bare relative path like `foo/bar` is NOT a local dir — it becomes a GitHub URL.
 * `name` is used for internal routing (routes, after deps) and defaults to the plugin's repository name with `.nvim`/`.lua` stripped (lazy.nvim-compatible: `folke/which-key.nvim` → `which-key`). The installed directory (`pack/<pkg>/opt/<name>`) and `:packadd` use the *full* repository name (vim.pack's own derivation) — for `which-key.nvim` that directory is `which-key.nvim`, matching existing installs. It is **not** passed directly to `require` — laze only requires module names explicitly declared via `module`.
 * `silent = true` suppresses `vim.notify` warnings when `require` fails (e.g. for optional plugins).
-* Unknown fields (e.g. `pin`, `data`) are passed through to the `pack` entry for `vim.pack.Spec`. `version` is consumed as a semver range and lowered with `vim.version.range()`; `branch`/`tag`/`commit` are consumed as git refs and lowered to vim.pack's version string. Precedence matches lazy.nvim: `commit > tag > version > branch`. `version = false` skips the range and falls back to `branch` / the default branch. Non-range version strings (e.g. `version = "main"`) are rejected with a compile error — use `branch`/`tag`/`commit` for refs.
+* Unknown fields (e.g. `pin`, `data`) are passed through to the `pack` entry for `vim.pack.Spec`. `version` is consumed as a semver range and lowered to a `vim.VersionRange` via `vim.version.range()`; `branch`/`tag`/`commit` are consumed as git refs and lowered to vim.pack's version string. Precedence matches lazy.nvim: `commit > tag > version > branch`. `version = false` skips the range and falls back to `branch` / the default branch. `version` is parsed only when it wins precedence; `dir` plugins do not lower it (lazy.nvim ignores it), but a range is still validated. Unsupported version strings (git refs like `"main"`, commit hashes, multi-ranges like `"1.2 || 1.3"`, and whitespace-separated comparator sets) are rejected with a compile error — use `branch`/`tag`/`commit` for refs. vim.pack errors if no tag matches the range; lazy.nvim falls back to the default branch, so use a ref for repos without semver tags.
 * `dir` takes priority over `[1]`, `dev`, and `url`.
 * `dir` plugins are **local**: they are excluded from the `pack` array (vim.pack never installs or manages them) and the plan loads them at trigger/eager time by prepending the exact directory path to `'runtimepath'`. This mirrors lazy.nvim's `dir` behavior — the directory must already exist on disk.
 * `url` takes priority over `[1]` and auto-detected URLs.
@@ -231,6 +244,6 @@ vendored or copied from lazy.nvim.
 Credits:
 
 * **lazy.nvim** (Apache-2.0, © Folke Lemaitre) — laze's spec surface is a deliberate subset of lazy.nvim's declarative spec format, its name derivation (`Spec.get_name`) informed laze's id/pkg derivation, and the migration-compatibility goal (escape hatch first) is directly inspired by it. https://github.com/folke/lazy.nvim
-* **Neovim / `vim.pack`** (Apache-2.0) — installation, placement and version resolution are delegated entirely to `vim.pack`.
+* **Neovim / `vim.pack`** (Apache-2.0) — installation, placement, tag/ref resolution, and the lockfile are delegated to `vim.pack`; laze lowers lazy.nvim ranges/refs to its `version` field.
 
 See AGENTS.md for design invariants and conventions.
