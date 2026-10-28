@@ -122,6 +122,7 @@ local compile_fixtures = {
 	"event_pattern",
 	"keys_opts",
 	"cond_enabled",
+	"dev_version",
 }
 
 for _, name in ipairs(compile_fixtures) do
@@ -486,6 +487,58 @@ do
 	expect(not ok and tostring(err):find("semver range") ~= nil, "dir plugin with invalid version is rejected")
 	local ok2, c = pcall(compile, { { dir = "/tmp/laze-dir", name = "local", version = ">=1.0.0" } })
 	expect(ok2 and #c.pack == 0, "dir plugin with valid version compiles with no pack entry")
+end
+
+do
+	-- An active dev path is a local checkout: lazy.nvim turns `dev` into a
+	-- local `dir`, so version/branch/tag/commit are never applied to it.
+	-- Lowering them would make vim.pack clone the dev path and check out the
+	-- ref there instead of loading the working tree (issue #1).
+	local function dev_pack(spec, dev_root)
+		local ok, c = pcall(compile, { spec }, { dev_root = dev_root or "/home/user/dev" })
+		expect(ok, "dev spec compiles: " .. (spec.name or "?"))
+		return ok and c.pack[1] or nil
+	end
+
+	local bool_dev = dev_pack({ "user/dev-bool.nvim", name = "dev-bool", dev = true, version = ">=1.0.0" })
+	expect(bool_dev and bool_dev.src == "/home/user/dev/dev-bool", "dev=true + version: src is the dev path")
+	expect(bool_dev and bool_dev.version == nil, "dev=true + version: no version on the pack entry")
+
+	local path_dev = dev_pack({ "user/dev-path.nvim", name = "dev-path", dev = "/abs/dev-path", version = "^2.0.0" })
+	expect(path_dev and path_dev.src == "/abs/dev-path", "dev=string + version: src is the dev path")
+	expect(path_dev and path_dev.version == nil, "dev=string + version: no version on the pack entry")
+
+	local fallback_dev = dev_pack({ "user/dev-fb.nvim", name = "dev-fb", dev_path = "/abs/dev-fb", version = "1.2.3" })
+	expect(fallback_dev and fallback_dev.src == "/abs/dev-fb", "dev_path + version: src is the dev path")
+	expect(fallback_dev and fallback_dev.version == nil, "dev_path + version: no version on the pack entry")
+
+	-- Refs are version checkouts too: a dev source drops them for the same
+	-- reason (lazy.nvim never checks out a local dir).
+	for _, case in ipairs({
+		{ field = "tag", value = "v1.0.0" },
+		{ field = "commit", value = "abc123" },
+		{ field = "branch", value = "develop" },
+	}) do
+		local spec = { "user/dev-ref.nvim", name = "dev-ref", dev = true }
+		spec[case.field] = case.value
+		local entry = dev_pack(spec)
+		expect(entry and entry.version == nil, "dev=true + " .. case.field .. ": no version checkout")
+	end
+
+	local false_dev = dev_pack({ "user/dev-false.nvim", name = "dev-false", dev = true, version = false })
+	expect(false_dev and false_dev.version == nil, "dev=true + version=false: no version")
+
+	-- Validation is unchanged (same policy as `dir`): an unrepresentable
+	-- range still fails loudly even though it is never lowered.
+	local ok, err = pcall(compile, { { "user/dev-bad.nvim", name = "dev-bad", dev = true, version = "main" } })
+	expect(not ok and tostring(err):find("semver range") ~= nil, "dev spec with invalid version is rejected")
+
+	-- Remote specs are untouched: version still lowers, refs keep precedence.
+	local ok2, remote = pcall(compile, { { "user/remote.nvim", name = "remote", version = ">=1.0.0" } })
+	expect(ok2 and remote.pack[1].version == "RANGE:>=1.0.0", "remote spec still lowers version")
+	local ok3, remote_tag =
+		pcall(compile, { { "user/remote-tag.nvim", name = "remote-tag", tag = "v1", version = ">=1.0.0" } })
+	expect(ok3 and remote_tag.pack[1].version == "v1", "remote spec: tag still wins over version")
 end
 
 print("\n=== compile detail tests ===\n")

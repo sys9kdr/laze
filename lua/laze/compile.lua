@@ -1012,26 +1012,29 @@ function compile(specs, opts)
 		-- module names (cmp-buffer ships cmp_buffer).
 		local modname = norm.module
 
-		-- Resolve dev paths at compile time (once), not at plan/build time
-		local final_src = resolved_src
+		-- Resolve dev paths at compile time (once), not at plan/build time.
+		-- `dev_src` also records that the source is a local checkout: an
+		-- active dev path changes version handling below.
+		local dev_src
 		if norm.dev == true then
-			final_src = vim.fn.expand(dev_root .. "/" .. name)
+			dev_src = vim.fn.expand(dev_root .. "/" .. name)
 		elseif type(norm.dev) == "string" and norm.dev ~= "" then
 			-- dev = "path" is the per-plugin dev directory (lazy.nvim
 			-- semantics): ~ expands, absolute/relative stay verbatim —
 			-- consistent with dev_path and the README notes.
 			if norm.dev:byte(1) == 126 then -- "~"
-				final_src = vim.fn.expand(norm.dev)
+				dev_src = vim.fn.expand(norm.dev)
 			else
-				final_src = norm.dev
+				dev_src = norm.dev
 			end
 		elseif norm.dev_path then
 			if norm.dev_path:byte(1) == 126 then -- "~"
-				final_src = vim.fn.expand(norm.dev_path)
+				dev_src = vim.fn.expand(norm.dev_path)
 			else
-				final_src = norm.dev_path
+				dev_src = norm.dev_path
 			end
 		end
+		local final_src = dev_src or resolved_src
 
 		-- `dir` plugins are local: vim.pack never installs or manages them
 		-- (it would try to git-clone the path). They are loaded by the plan
@@ -1081,7 +1084,16 @@ function compile(specs, opts)
 				-- and must never be used for :packadd.
 				name = pkg,
 			}
-			local resolved_version = resolve_version(spec, idx, version_range)
+			-- An active dev path is a local, unmanaged checkout: lazy.nvim
+			-- turns `dev` into `dir` and never applies version/branch/tag/
+			-- commit to it. Lowering one here would make vim.pack clone the
+			-- dev path and check out that ref instead of loading the working
+			-- tree — the exact bug this guard prevents. Same policy as `dir`
+			-- (validate the range, never lower it; validate_spec already ran).
+			local resolved_version
+			if dev_src == nil then
+				resolved_version = resolve_version(spec, idx, version_range)
+			end
 			if resolved_version ~= nil then
 				pack_entry.version = resolved_version
 			end

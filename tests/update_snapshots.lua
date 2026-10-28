@@ -64,6 +64,7 @@ local fixtures = {
 	"name_derivation",
 	"priority_build",
 	"opts_main",
+	"dev_version",
 }
 
 local function serialize(val, indent)
