@@ -40,6 +40,7 @@ return {
 	registry = {
 		["plugin-branch"] = {
 			after = {},
+			eager = false,
 			enabled = true,
 			has_route = true,
 			id = "plugin-branch",
@@ -51,6 +52,7 @@ return {
 		},
 		["plugin-commit"] = {
 			after = {},
+			eager = false,
 			enabled = true,
 			has_route = true,
 			id = "plugin-commit",
@@ -62,6 +64,7 @@ return {
 		},
 		["plugin-commit-priority"] = {
 			after = {},
+			eager = false,
 			enabled = true,
 			has_route = true,
 			id = "plugin-commit-priority",
@@ -73,6 +76,7 @@ return {
 		},
 		["plugin-tag"] = {
 			after = {},
+			eager = false,
 			enabled = true,
 			has_route = true,
 			id = "plugin-tag",
@@ -84,6 +88,7 @@ return {
 		},
 		["plugin-tag-priority"] = {
 			after = {},
+			eager = false,
 			enabled = true,
 			has_route = true,
 			id = "plugin-tag-priority",
@@ -95,6 +100,7 @@ return {
 		},
 		["plugin-version-false"] = {
 			after = {},
+			eager = false,
 			enabled = true,
 			has_route = true,
 			id = "plugin-version-false",
@@ -106,6 +112,7 @@ return {
 		},
 		["plugin-version-false-branch"] = {
 			after = {},
+			eager = false,
 			enabled = true,
 			has_route = true,
 			id = "plugin-version-false-branch",

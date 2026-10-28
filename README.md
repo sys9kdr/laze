@@ -38,15 +38,15 @@ Compatibility is pinned to the lazy.nvim spec documented as of **2026-08-18**
 (the reference date in `tests/test_subset.lua`), not to every upstream change.
 When a field cannot be represented faithfully, laze fails loudly at compile
 time or documents the exact conversion. A few fields are explicitly
-warned-and-ignored (`lazy`, `import`, `submodules`, `optional`, `specs`), and
-unsupported `keys` entry options are dropped; see
+warned-and-ignored (`import`, `optional`, `specs`, and `submodules = false`),
+and unsupported `keys` entry options are dropped; see
 [docs/migration.md](docs/migration.md). Extensions are outside the subset and
 use non-colliding names. Known differences are indexed in
 [docs/known-differences.md](docs/known-differences.md) with stable IDs and
 test references.
 
 Notable gaps: no `:Lazy` UI or install/sync surface (only the opt-in `:Laze`
-wrappers); `import`, `specs`, `optional`, `submodules`, and `lazy` are not
+wrappers); `import`, `specs`, `optional`, and `submodules = false` are not
 implemented; function-shaped triggers are rejected; `opts` requires an
 explicit `main`; and `version` accepts semver ranges only (refs use
 `branch`/`tag`/`commit`).
@@ -137,6 +137,8 @@ Supported fields:
 * `data`
 * `after`
 * `dependencies`
+* `lazy` — explicit eager/lazy override: `false` loads at startup even with triggers, `true` stays lazy even without triggers (nil keeps the inferred behavior)
+* `submodules` — `true` matches vim.pack (submodules are always fetched); `false` warns because vim.pack cannot opt out
 * `module` — module name(s) that trigger lazy load on `require`
 * `main` — module name for `opts` (explicit; never guessed from the repo)
 * `opts` — table passed to `require(main).setup(opts)` at load (requires `main`)
@@ -153,7 +155,7 @@ Accepted value shapes:
 
 Notes:
 
-* `dependencies` is a **shallow, non-recursive** syntax sugar: each dependency is registered as a separate spec and mapped to `after`. No config/trigger inheritance, no transitive resolution — an inline dep spec that carries its own `dependencies` field gets a compile-time warning (move it to the top-level spec list). Dependencies are **never eager**: they load with their parents — eagerly when the parent is eager, lazily when the parent is lazy (lazy.nvim-compatible: *"Dependencies are always lazy-loaded unless specified otherwise"*). To load a dep independently, give it its own trigger (e.g. `event = "InsertEnter"`).
+* `dependencies` is **recursive**: each dependency spec is registered once (shared deps are deduplicated) and its own `dependencies` are expanded first, so every `after` edge points at a registered id. A name already defined at the top level is referenced, not re-registered (lazy.nvim's spec-fragment merge is outside laze's subset). No config/trigger inheritance. Dependencies are **never eager** unless they set `lazy = false`: they load with their parents — eagerly when the parent is eager, lazily when the parent is lazy (lazy.nvim-compatible: *"Dependencies are always lazy-loaded unless specified otherwise"*). To load a dep independently, give it its own trigger (e.g. `event = "InsertEnter"`).
 * `[1]`/`src` is content-aware: absolute and `.`-prefixed paths (`./foo`, `../foo`) are treated as local dirs, `~` expands, `https://`/`git@` URLs as-is, anything else is expanded to `https://github.com/<src>`. A bare relative path like `foo/bar` is NOT a local dir — it becomes a GitHub URL.
 * `name` is used for internal routing (routes, after deps) and defaults to the plugin's repository name with `.nvim`/`.lua` stripped (lazy.nvim-compatible: `folke/which-key.nvim` → `which-key`). The installed directory (`pack/<pkg>/opt/<name>`) and `:packadd` use the *full* repository name (vim.pack's own derivation) — for `which-key.nvim` that directory is `which-key.nvim`, matching existing installs. It is **not** passed directly to `require` — laze only requires module names explicitly declared via `module`.
 * `silent = true` suppresses `vim.notify` warnings when `require` fails (e.g. for optional plugins).

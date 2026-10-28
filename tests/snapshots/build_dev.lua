@@ -21,6 +21,7 @@ return {
 		["plugin-build"] = {
 			after = {},
 			build = ":TSUpdate",
+			eager = false,
 			enabled = true,
 			has_route = true,
 			id = "plugin-build",
@@ -33,6 +34,7 @@ return {
 		["plugin-build-fn"] = {
 			after = {},
 			build = FN,
+			eager = false,
 			enabled = true,
 			has_route = true,
 			id = "plugin-build-fn",
@@ -46,6 +48,7 @@ return {
 			after = {},
 			dev = true,
 			dev_path = "~/dev/my-plugin",
+			eager = false,
 			enabled = true,
 			has_route = true,
 			id = "plugin-dev",

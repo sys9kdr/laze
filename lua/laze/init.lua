@@ -36,6 +36,7 @@
 ---@field config? fun()
 ---@field cond? fun(): boolean|boolean
 ---@field enabled? fun(): boolean|boolean
+---@field lazy? boolean Explicit eager/lazy override (lazy.nvim semantics)
 ---@field silent? boolean
 ---@field priority? number
 ---@field after? string[]
@@ -61,8 +62,10 @@
 ---@field dev_path? string
 ---@field build? string|fun()
 ---@field priority? number
+---@field lazy? boolean Explicit lazy.nvim override (nil = infer from triggers/deps)
 ---@field has_route boolean Plugin has at least one lazy-load trigger
 ---@field is_dep boolean Plugin is referenced as an `after` dependency (never eager)
+---@field eager boolean Plugin is loaded at startup (compile's shared eager decision)
 ---@field pkg? string Directory name under pack/<pkg>/opt/ (matches vim.pack; may differ from id for dotted repos)
 
 ---@class LazeKeyRoute One trigger map for a single (lhs, mode) variant
@@ -187,13 +190,13 @@ function M.setup(specs, opts)
 		})
 	end
 
-	-- Split activation responsibility: eager plugins (no trigger, not a
-	-- dependency) get the runtimepath entry at setup (:packadd! via
-	-- `load = false`) so the startup plugin/ and after/plugin phases source
-	-- their files — their init/config still run via the plan. Lazy plugins
-	-- (has a trigger, or referenced as `after` dep) get a no-op `load` fun:
-	-- never on the runtimepath until the plan activates them on demand. A
-	-- plain add() would :packadd everything, defeating lazy loading.
+	-- Split activation responsibility: eager plugins (compile's `eager`
+	-- flag: no trigger and not a dependency, unless `lazy` overrides) get the
+	-- runtimepath entry at setup (:packadd! via `load = false`) so the
+	-- startup plugin/ and after/plugin phases source their files — their
+	-- init/config still run via the plan. Lazy plugins get a no-op `load`
+	-- fun: never on the runtimepath until the plan activates them on demand.
+	-- A plain add() would :packadd everything, defeating lazy loading.
 	-- Pack specs carry the directory name (`pkg`), which can differ from
 	-- the registry id for dotted repos — map back via pkg.
 	local pkg_to_id = {}
@@ -206,10 +209,10 @@ function M.setup(specs, opts)
 	local lazy_pack = {}
 	for _, spec in ipairs(compiled.pack) do
 		local entry = compiled.registry[pkg_to_id[spec.name]]
-		if entry.has_route or entry.is_dep then
-			table.insert(lazy_pack, spec)
-		else
+		if entry.eager then
 			table.insert(eager_pack, spec)
+		else
+			table.insert(lazy_pack, spec)
 		end
 	end
 	if #eager_pack > 0 then

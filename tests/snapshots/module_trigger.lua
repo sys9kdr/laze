@@ -14,6 +14,7 @@ return {
 	registry = {
 		["plugin-module"] = {
 			after = {},
+			eager = false,
 			enabled = true,
 			has_route = true,
 			id = "plugin-module",
@@ -26,6 +27,7 @@ return {
 		},
 		["plugin-module-array"] = {
 			after = {},
+			eager = false,
 			enabled = true,
 			has_route = true,
 			id = "plugin-module-array",

@@ -27,6 +27,7 @@ return {
 		["plugin-cond-false"] = {
 			after = {},
 			cond = false,
+			eager = false,
 			enabled = true,
 			has_route = true,
 			id = "plugin-cond-false",
@@ -39,6 +40,7 @@ return {
 		["plugin-cond-true"] = {
 			after = {},
 			cond = true,
+			eager = false,
 			enabled = true,
 			has_route = true,
 			id = "plugin-cond-true",
@@ -50,6 +52,7 @@ return {
 		},
 		["plugin-enabled-fn"] = {
 			after = {},
+			eager = false,
 			enabled = FN,
 			has_route = true,
 			id = "plugin-enabled-fn",
@@ -61,6 +64,7 @@ return {
 		},
 		["plugin-module-false"] = {
 			after = {},
+			eager = true,
 			enabled = true,
 			has_route = false,
 			id = "plugin-module-false",
@@ -73,6 +77,7 @@ return {
 		},
 		["plugin-priority"] = {
 			after = {},
+			eager = true,
 			enabled = true,
 			has_route = false,
 			id = "plugin-priority",

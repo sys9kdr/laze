@@ -14,6 +14,7 @@ return {
 	registry = {
 		["key-desc-silent"] = {
 			after = {},
+			eager = false,
 			enabled = true,
 			has_route = true,
 			id = "key-desc-silent",
@@ -25,6 +26,7 @@ return {
 		},
 		["key-plain"] = {
 			after = {},
+			eager = false,
 			enabled = true,
 			has_route = true,
 			id = "key-plain",

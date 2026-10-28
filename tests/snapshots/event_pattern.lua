@@ -26,6 +26,7 @@ return {
 	registry = {
 		["plugin-array"] = {
 			after = {},
+			eager = false,
 			enabled = true,
 			has_route = true,
 			id = "plugin-array",
@@ -37,6 +38,7 @@ return {
 		},
 		["plugin-pattern"] = {
 			after = {},
+			eager = false,
 			enabled = true,
 			has_route = true,
 			id = "plugin-pattern",
@@ -48,6 +50,7 @@ return {
 		},
 		["plugin-same-event"] = {
 			after = {},
+			eager = false,
 			enabled = true,
 			has_route = true,
 			id = "plugin-same-event",
@@ -59,6 +62,7 @@ return {
 		},
 		["plugin-same-event-dedup"] = {
 			after = {},
+			eager = false,
 			enabled = true,
 			has_route = true,
 			id = "plugin-same-event-dedup",
@@ -70,6 +74,7 @@ return {
 		},
 		["plugin-simple"] = {
 			after = {},
+			eager = false,
 			enabled = true,
 			has_route = true,
 			id = "plugin-simple",

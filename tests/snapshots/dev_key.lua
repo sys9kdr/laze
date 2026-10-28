@@ -15,6 +15,7 @@ return {
 		myplugin = {
 			after = {},
 			dev = "/tmp/laze-test/myplugin",
+			eager = false,
 			enabled = true,
 			has_route = true,
 			id = "myplugin",
@@ -27,6 +28,7 @@ return {
 		plugin = {
 			after = {},
 			dev = "/custom/path/to/plugin",
+			eager = false,
 			enabled = true,
 			has_route = true,
 			id = "plugin",

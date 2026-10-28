@@ -15,6 +15,7 @@ return {
 		["my-plugin"] = {
 			after = {},
 			dir = "/home/user/projects/my-plugin",
+			eager = false,
 			enabled = true,
 			has_route = true,
 			id = "my-plugin",
@@ -26,6 +27,7 @@ return {
 		["no-name"] = {
 			after = {},
 			dir = "/home/user/projects/no-name",
+			eager = true,
 			enabled = true,
 			has_route = false,
 			id = "no-name",
@@ -36,6 +38,7 @@ return {
 		},
 		["other-plugin"] = {
 			after = {},
+			eager = false,
 			enabled = true,
 			has_route = true,
 			id = "other-plugin",
@@ -47,6 +50,7 @@ return {
 		},
 		plugin = {
 			after = {},
+			eager = false,
 			enabled = true,
 			has_route = true,
 			id = "plugin",

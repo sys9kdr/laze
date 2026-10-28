@@ -87,10 +87,10 @@ local function build_plan(compiled, opts)
 		end
 	end
 
-	-- Entries referenced as `after` deps are not eager (compile marks
-	-- `is_dep`): eager parents pull them in at startup, lazy parents at
-	-- trigger time. Mirrors lazy.nvim ("Dependencies are always lazy-loaded
-	-- unless specified otherwise").
+	-- compile's `eager` flag already accounts for dependency status:
+	-- eager parents pull deps in at startup, lazy parents at trigger time.
+	-- Mirrors lazy.nvim ("Dependencies are always lazy-loaded unless
+	-- specified otherwise" — `lazy = false` is the explicit override).
 
 	-- Store original require before wrapping
 	local original_require = require
@@ -252,7 +252,7 @@ local function build_plan(compiled, opts)
 			end
 		end
 
-		if during_startup and (entry.has_route or entry.is_dep) then
+		if during_startup and not entry.eager then
 			loaded[id] = "pending_startup"
 			startup_pending[id] = { entry = entry, dir = plugin_dir, start = start }
 			table.insert(startup_pending_order, id)
@@ -640,11 +640,12 @@ local function build_plan(compiled, opts)
 		end
 
 		-- Eager plugins: load in spec order, but honor lazy.nvim `priority`
-		-- (higher loads first, default 50) when explicitly set. Dependencies
-		-- (`is_dep`) are excluded: they load via their parents instead.
+		-- (higher loads first, default 50) when explicitly set. compile's
+		-- `eager` flag already excludes dependencies (they load via parents)
+		-- and honors an explicit `lazy` override.
 		local eager = {}
 		for _, entry in pairs(registry) do
-			if enabled_ok[entry.id] and not entry.has_route and not entry.is_dep then
+			if enabled_ok[entry.id] and entry.eager then
 				table.insert(eager, entry)
 			end
 		end

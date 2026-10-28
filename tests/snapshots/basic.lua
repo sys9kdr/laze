@@ -19,6 +19,7 @@ return {
 		["nvim-treesitter"] = {
 			after = {},
 			config = FN,
+			eager = false,
 			enabled = true,
 			has_route = true,
 			id = "nvim-treesitter",
@@ -31,6 +32,7 @@ return {
 		oil = {
 			after = {},
 			config = FN,
+			eager = false,
 			enabled = true,
 			has_route = true,
 			id = "oil",
@@ -43,6 +45,7 @@ return {
 		["which-key"] = {
 			after = {},
 			config = FN,
+			eager = false,
 			enabled = true,
 			has_route = true,
 			id = "which-key",

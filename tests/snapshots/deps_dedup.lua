@@ -22,6 +22,7 @@ return {
 	registry = {
 		["only-dep1"] = {
 			after = {},
+			eager = false,
 			enabled = true,
 			has_route = false,
 			id = "only-dep1",
@@ -36,6 +37,7 @@ return {
 				"shared-dep",
 				"only-dep1",
 			},
+			eager = false,
 			enabled = true,
 			has_route = true,
 			id = "parent1",
@@ -49,6 +51,7 @@ return {
 			after = {
 				"shared-dep",
 			},
+			eager = false,
 			enabled = true,
 			has_route = true,
 			id = "parent2",
@@ -60,6 +63,7 @@ return {
 		},
 		["shared-dep"] = {
 			after = {},
+			eager = false,
 			enabled = true,
 			has_route = true,
 			id = "shared-dep",

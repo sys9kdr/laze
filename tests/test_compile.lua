@@ -124,6 +124,7 @@ local compile_fixtures = {
 	"keys_variants",
 	"cond_enabled",
 	"dev_version",
+	"lazy_flag",
 }
 
 for _, name in ipairs(compile_fixtures) do
@@ -683,6 +684,23 @@ do
 	expect(c.registry["x"].has_route == true, "event trigger: has_route")
 end
 
+do
+	local c = compile({
+		{ "folke/x.nvim", name = "eager-default" },
+		{ "folke/y.nvim", name = "lazy-true", lazy = true },
+		{ "folke/z.nvim", name = "eager-false", event = "BufRead", lazy = false },
+		{ "folke/w.nvim", name = "lazy-trigger", event = "BufRead" },
+	})
+	expect(c.registry["eager-default"].eager == true, "lazy nil: no triggers -> eager")
+	expect(c.registry["lazy-true"].eager == false, "lazy = true: no triggers -> not eager")
+	expect(c.registry["eager-false"].eager == true, "lazy = false: triggers -> eager")
+	expect(c.registry["lazy-trigger"].eager == false, "lazy nil: trigger -> not eager")
+	local d = compile({
+		{ "folke/p.nvim", name = "p", dependencies = { { "folke/d.nvim", name = "d", lazy = false } } },
+	})
+	expect(d.registry["d"].is_dep == true and d.registry["d"].eager == true, "lazy = false overrides dep status")
+end
+
 print("\n=== trigger validation tests ===\n")
 
 local rejection_cases = {
@@ -710,6 +728,7 @@ local rejection_cases = {
 	{ { "folke/x.nvim", name = "x", init = 42 }, "init must be a function", "non-function init rejected" },
 	{ { "folke/x.nvim", name = "x", cond = "yes" }, "cond must be a function or boolean", "string cond rejected" },
 	{ { "folke/x.nvim", name = "x", enabled = "yes" }, "enabled must be a function or boolean", "string enabled rejected" },
+	{ { "folke/x.nvim", name = "x", lazy = "yes" }, "lazy must be a boolean", "string lazy rejected" },
 	{ { "folke/x.nvim", name = "x", after = "dep" }, "after must be an array", "string after rejected" },
 	{ { "folke/x.nvim", name = "x", after = { 42 } }, "after[1] must be a non-empty plugin id", "numeric after element rejected" },
 	{ { "folke/x.nvim", name = "x", after = { "" } }, "after[1] must be a non-empty plugin id", "empty after element rejected" },
@@ -985,18 +1004,39 @@ do
 		{
 			"folke/parent.nvim",
 			name = "nested-parent",
-			dependencies = { { "folke/child.nvim", name = "nested-child", dependencies = { "grand" } } },
+			dependencies = {
+				{
+					"folke/child.nvim",
+					name = "nested-child",
+					dependencies = {
+						{
+							"folke/grand.nvim",
+							name = "nested-grand",
+							dependencies = { "nested-great" },
+						},
+					},
+				},
+			},
+		},
+		{
+			"folke/parent2.nvim",
+			name = "nested-parent2",
+			dependencies = { "nested-child" },
 		},
 	})
 	vim.notify = function() end
-	local found = false
-	for _, m in ipairs(msgs) do
-		if m:find("nested", 1, true) then
-			found = true
-		end
-	end
-	expect(found, "nested dependencies on inline dep specs warn")
-	expect(c.registry["nested-child"].is_dep == true and c.registry["nested-parent"] ~= nil, "inline dep itself still registered")
+	expect(#msgs == 0, "nested dependencies expand without warnings")
+	expect(c.registry["nested-parent"].after[1] == "nested-child", "nested parent -> child after edge")
+	expect(c.registry["nested-child"].after[1] == "nested-grand", "nested child -> grand after edge")
+	expect(c.registry["nested-grand"].after[1] == "nested-great", "nested grand -> great after edge")
+	expect(
+		c.registry["nested-child"].is_dep and c.registry["nested-grand"].is_dep and c.registry["nested-great"].is_dep,
+		"all nested levels are marked as deps"
+	)
+	expect(
+		c.registry["nested-parent2"].after[1] == "nested-child" and #c.pack == 5,
+		"shared nested dependency is registered once and referenced"
+	)
 end
 
 do
@@ -1056,7 +1096,7 @@ do
 		},
 	})
 	vim.notify = function() end
-	for _, field in ipairs({ "submodules", "optional", "import", "lazy", "specs" }) do
+	for _, field in ipairs({ "submodules", "optional", "import", "specs" }) do
 		local found = false
 		for _, m in ipairs(msgs) do
 			if m:find("'" .. field .. "'", 1, true) then
@@ -1065,7 +1105,7 @@ do
 		end
 		expect(found, "unsupported field '" .. field .. "' warns")
 	end
-	for _, field in ipairs({ "main", "opts" }) do
+	for _, field in ipairs({ "main", "opts", "lazy" }) do
 		local found = false
 		for _, m in ipairs(msgs) do
 			if m:find("'" .. field .. "'", 1, true) then
@@ -1074,7 +1114,27 @@ do
 		end
 		expect(not found, "supported field '" .. field .. "' does not warn")
 	end
-	expect(#msgs == 5, "exactly one warning per unsupported field (got " .. #msgs .. ")")
+	expect(#msgs == 4, "exactly one warning per unsupported field (got " .. #msgs .. ")")
+end
+
+do
+	local msgs = {}
+	vim.notify = function(msg, _)
+		table.insert(msgs, msg)
+	end
+	compile({ { "folke/sub-true.nvim", name = "sub-true", submodules = true } })
+	expect(#msgs == 0, "submodules = true matches vim.pack and does not warn")
+	compile({ { "folke/sub-false.nvim", name = "sub-false", submodules = false } })
+	vim.notify = function() end
+	local found = false
+	for _, m in ipairs(msgs) do
+		if m:find("submodules", 1, true) then
+			found = true
+		end
+	end
+	expect(found, "submodules = false warns (vim.pack cannot opt out)")
+	local ok, err = pcall(compile, { { "folke/sub-bad.nvim", name = "sub-bad", submodules = "yes" } })
+	expect(not ok and tostring(err):find("submodules must be a boolean", 1, true) ~= nil, "non-boolean submodules rejected")
 end
 
 do

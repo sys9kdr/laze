@@ -22,6 +22,7 @@ return {
 	registry = {
 		["lua-src"] = {
 			after = {},
+			eager = false,
 			enabled = true,
 			has_route = true,
 			id = "lua-src",
@@ -33,6 +34,7 @@ return {
 		},
 		plugin = {
 			after = {},
+			eager = false,
 			enabled = true,
 			has_route = true,
 			id = "plugin",
@@ -44,6 +46,7 @@ return {
 		},
 		repo = {
 			after = {},
+			eager = false,
 			enabled = true,
 			has_route = true,
 			id = "repo",
@@ -55,6 +58,7 @@ return {
 		},
 		["which-key"] = {
 			after = {},
+			eager = false,
 			enabled = true,
 			has_route = true,
 			id = "which-key",
