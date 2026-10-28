@@ -18,6 +18,7 @@ return {
 	registry = {
 		["keys-mixed"] = {
 			after = {},
+			eager = false,
 			enabled = true,
 			has_route = true,
 			id = "keys-mixed",
@@ -29,6 +30,7 @@ return {
 		},
 		["keys-rhs-fn"] = {
 			after = {},
+			eager = false,
 			enabled = true,
 			has_route = true,
 			id = "keys-rhs-fn",
@@ -40,6 +42,7 @@ return {
 		},
 		["keys-rhs-str"] = {
 			after = {},
+			eager = false,
 			enabled = true,
 			has_route = true,
 			id = "keys-rhs-str",

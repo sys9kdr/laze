@@ -2,13 +2,13 @@
 
 laze accepts lazy.nvim's declarative spec shape on purpose (escape hatch first). Most configs port with mechanical edits, and the conformance test `tests/test_subset.lua` pins the subset continuously. The canonical index of known differences, with stable IDs and test references, is [known-differences.md](known-differences.md). What to expect per field:
 
-**Works as-is** — `[1]`/`src`, `dir`, `url`, `name`, `dev`, `dev_path`, `event`, `ft`, `cmd`, `keys`, `init`, `config`, `cond`, `enabled`, `dependencies`, `build`, `branch`/`tag`/`commit`, `pin`, `module` (laze's take on it, see below), `main` + `opts` (see below). See the version notes for `version`.
+**Works as-is** — `[1]`/`src`, `dir`, `url`, `name`, `dev`, `dev_path`, `event`, `ft`, `cmd`, `keys`, `init`, `config`, `cond`, `enabled`, `dependencies` (recursive), `lazy`, `build`, `branch`/`tag`/`commit`, `pin`, `module` (laze's take on it, see below), `main` + `opts` (see below). `lazy = false` forces startup loading even with triggers; `lazy = true` keeps a triggerless plugin lazy; `nil` keeps laze's inferred behavior. See the version notes for `version`.
 
 **One-line conversions**
-* `lazy = true` → remove it. In laze, *no trigger* means eager and a trigger means lazy — there is no separate `lazy` flag.
 * `import = "..."` → not supported; load your spec files yourself and pass the resulting tables to `setup`.
 * `priority` → **honored for eager ordering** (higher first, tie-break: id), default 50 — matches lazy.nvim's colorscheme-first workflow. Non-number priorities are rejected.
-* `submodules`, `optional`, `specs`: consumed with a per-compile warning (each compile, not one-time), no equivalent.
+* `optional`, `specs`: consumed with a per-compile warning (each compile, not one-time), no equivalent.
+* `submodules = false`: warned and ignored — vim.pack always runs `git submodule update --init --recursive`. `submodules = true` (and the default) matches.
 
 **Rejected loudly (safe direction — lazy.nvim never breaks a laze config, only the reverse)**
 

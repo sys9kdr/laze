@@ -36,6 +36,7 @@ return {
 		["plugin-dev-bool"] = {
 			after = {},
 			dev = true,
+			eager = false,
 			enabled = true,
 			has_route = true,
 			id = "plugin-dev-bool",
@@ -48,6 +49,7 @@ return {
 		["plugin-dev-branch"] = {
 			after = {},
 			dev = true,
+			eager = false,
 			enabled = true,
 			has_route = true,
 			id = "plugin-dev-branch",
@@ -60,6 +62,7 @@ return {
 		["plugin-dev-commit"] = {
 			after = {},
 			dev = true,
+			eager = false,
 			enabled = true,
 			has_route = true,
 			id = "plugin-dev-commit",
@@ -72,6 +75,7 @@ return {
 		["plugin-dev-fallback"] = {
 			after = {},
 			dev_path = "/home/user/work/plugin-dev-fallback",
+			eager = false,
 			enabled = true,
 			has_route = true,
 			id = "plugin-dev-fallback",
@@ -84,6 +88,7 @@ return {
 		["plugin-dev-path"] = {
 			after = {},
 			dev = "/home/user/work/plugin-dev-path",
+			eager = false,
 			enabled = true,
 			has_route = true,
 			id = "plugin-dev-path",
@@ -96,6 +101,7 @@ return {
 		["plugin-dev-tag"] = {
 			after = {},
 			dev = true,
+			eager = false,
 			enabled = true,
 			has_route = true,
 			id = "plugin-dev-tag",
@@ -107,6 +113,7 @@ return {
 		},
 		["plugin-remote-tag"] = {
 			after = {},
+			eager = false,
 			enabled = true,
 			has_route = true,
 			id = "plugin-remote-tag",
