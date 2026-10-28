@@ -72,6 +72,70 @@ local function derive_name(src)
 	return name
 end
 
+-- lazy.nvim's Util.normname: used to match a plugin name against the
+-- top-level Lua modules it ships. Kept byte-for-byte equivalent to
+-- lazy/core/util.lua so main-module resolution picks the same module.
+local function norm_module_name(name)
+	return name:lower():gsub("^n?vim%-", ""):gsub("%.n?vim$", ""):gsub("[%.%-]lua", ""):gsub("[^a-z]+", "")
+end
+
+--- Resolve a plugin's `main` module the way lazy.nvim does when `opts` or
+--- `config = true` is used without an explicit `main`:
+---   * `mini.<name>` plugins use their own name (except `mini.nvim`),
+---   * otherwise scan the top-level entries under `<plugin>/lua`, prefer a
+---     module whose normalized name matches the plugin name, and fall back
+---     to the single module when the plugin ships exactly one.
+--- Runs at load time (the plugin is installed by then), never at compile.
+---@param plugin_dir string?
+---@param name string
+---@return string?
+local function get_main(plugin_dir, name)
+	if name ~= "mini.nvim" and name:match("^mini%.") then
+		return name
+	end
+	if not plugin_dir then
+		return nil
+	end
+	local uv = vim.uv or vim.loop
+	local lua_dir = plugin_dir .. "/lua"
+	local handle = uv.fs_scandir(lua_dir)
+	if not handle then
+		return nil
+	end
+	local normname = norm_module_name(name)
+	local mods = {}
+	local seen = {}
+	while true do
+		local entry_name, t = uv.fs_scandir_next(handle)
+		if not entry_name then
+			break
+		end
+		local topname
+		local ext = entry_name:sub(-4)
+		if ext == ".lua" or ext == ".dll" then
+			topname = entry_name:sub(1, -5)
+		elseif entry_name:sub(-3) == ".so" then
+			topname = entry_name:sub(1, -4)
+		elseif t == "link" or t == "directory" then
+			topname = entry_name
+		elseif t == nil then
+			-- luv occasionally omits the type; stat it like lazy.nvim does.
+			local st = uv.fs_stat(lua_dir .. "/" .. entry_name)
+			if st and (st.type == "link" or st.type == "directory") then
+				topname = entry_name
+			end
+		end
+		if topname and not seen[topname] then
+			seen[topname] = true
+			if norm_module_name(topname) == normname then
+				return topname
+			end
+			table.insert(mods, topname)
+		end
+	end
+	return #mods == 1 and mods[1] or nil
+end
+
 -- vim.pack's own directory-name derivation (runtime/lua/vim/pack.lua):
 -- the last path segment with a trailing `.git` stripped. The installed
 -- directory is `pack/<pkg>/opt/<name>`, so this must match vim.pack
@@ -692,6 +756,15 @@ local function validate_triggers(spec, idx, spec_id)
 	end
 end
 
+--- A `dev`/`dev_path` source is a local checkout, just like `dir`.
+---@param spec LazeSpec
+---@return boolean
+local function has_dev_source(spec)
+	return spec.dev == true
+		or (type(spec.dev) == "string" and spec.dev ~= "")
+		or (type(spec.dev_path) == "string" and spec.dev_path ~= "")
+end
+
 ---@param spec LazeSpec
 ---@param idx integer
 ---@param warned table<string, boolean>
@@ -721,34 +794,18 @@ local function validate_spec(spec, idx, warned)
 	if spec.init ~= nil and type(spec.init) ~= "function" then
 		error("spec [" .. idx .. "] (" .. spec_id .. "): init must be a function", 0)
 	end
-	if spec.config ~= nil and type(spec.config) ~= "function" then
-		if spec.config == true then
-			error(
-				"spec ["
-					.. idx
-					.. "] ("
-					.. spec_id
-					.. "): config = true is not supported — use opts = {...} with main, or config = function() require(...).setup() end",
-				0
-			)
-		end
-		error("spec [" .. idx .. "] (" .. spec_id .. "): config must be a function", 0)
+	if spec.config ~= nil and type(spec.config) ~= "function" and spec.config ~= true then
+		error("spec [" .. idx .. "] (" .. spec_id .. "): config must be a function or true", 0)
 	end
-	-- opts is laze's lazy.nvim-compatible setup shorthand: a table passed
-	-- to require(main).setup(opts) at load. main is never guessed
-	-- (repo names don't map to module names) — it must be explicit.
-	-- config and opts together is ambiguous: specify one.
-	if spec.opts ~= nil and type(spec.opts) ~= "table" then
-		error("spec [" .. idx .. "] (" .. spec_id .. "): opts must be a table", 0)
+	-- opts is lazy.nvim's setup shorthand: a table (or a function returning
+	-- one) passed to require(main).setup(opts) at load. main is resolved
+	-- lazily like lazy.nvim (explicit, name match, or the single top-level
+	-- module) because the plugin is not installed at compile time.
+	if spec.opts ~= nil and type(spec.opts) ~= "table" and type(spec.opts) ~= "function" then
+		error("spec [" .. idx .. "] (" .. spec_id .. "): opts must be a table or function", 0)
 	end
 	if spec.main ~= nil and (type(spec.main) ~= "string" or spec.main == "") then
 		error("spec [" .. idx .. "] (" .. spec_id .. "): main must be a non-empty string", 0)
-	end
-	if spec.opts ~= nil and spec.main == nil then
-		error("spec [" .. idx .. "] (" .. spec_id .. "): opts requires main (laze never guesses the module name)", 0)
-	end
-	if spec.opts ~= nil and spec.config ~= nil then
-		error("spec [" .. idx .. "] (" .. spec_id .. "): specify config or opts, not both", 0)
 	end
 	-- lazy.nvim accepts boolean or function for both cond and enabled.
 	if spec.cond ~= nil and type(spec.cond) ~= "function" and type(spec.cond) ~= "boolean" then
@@ -783,16 +840,30 @@ local function validate_spec(spec, idx, warned)
 	end
 	if spec.build ~= nil and type(spec.build) ~= "string" and type(spec.build) ~= "function" and spec.build ~= false then
 		if type(spec.build) == "table" then
+			for i, item in ipairs(spec.build) do
+				if type(item) ~= "string" and type(item) ~= "function" then
+					error(
+						"spec ["
+							.. idx
+							.. "] ("
+							.. spec_id
+							.. "): build["
+							.. i
+							.. "] must be a string or function",
+						0
+					)
+				end
+			end
+		else
 			error(
 				"spec ["
 					.. idx
 					.. "] ("
 					.. spec_id
-					.. "): build list form (lazy.nvim) is not supported — use a single string or function",
+					.. "): build must be a string, function, false, or a list of strings/functions",
 				0
 			)
 		end
-		error("spec [" .. idx .. "] (" .. spec_id .. "): build must be a string, function, or false", 0)
 	end
 		if
 		spec.module ~= nil
@@ -826,7 +897,11 @@ local function validate_spec(spec, idx, warned)
 		-- plain-Lua snapshot generation handle ref-only fixtures without a
 		-- vim.version stub. Return the object so resolve_version can reuse it
 		-- instead of parsing the same string twice.
-		if spec.commit == nil and spec.tag == nil then
+		--
+		-- `dir` and an active dev source are local checkouts: lazy.nvim
+		-- ignores version/refs for them, so do not reject a range that will
+		-- never be lowered. This is a drop-in compatibility fix (KD-004).
+		if spec.commit == nil and spec.tag == nil and spec.dir == nil and not has_dev_source(spec) then
 			version_range = to_semver_range(spec.version, idx, spec_id)
 		end
 	end
@@ -1017,22 +1092,37 @@ function compile(specs, opts)
 			-- `spec.build == false and nil or spec.build` — that Lua gotcha
 			-- returns false again (nil can't flow through and/or).
 			local build = spec.build
-			if build == false then
+			if build == false or (type(build) == "table" and #build == 0) then
 				build = nil
 			end
 
-			-- opts without config desugars to require(main).setup(opts),
-			-- run in the config slot at load. Pure transform: the closure
-			-- captures only main/opts, so re-compiles are deterministic.
+			-- opts without config and config = true both desugar to
+			-- require(main).setup(opts) at load. The main module is resolved
+			-- at load time (like lazy.nvim) because a remote plugin is not
+			-- installed yet during compile. The closure captures only pure
+			-- values, so re-compiles are deterministic.
 			local config = spec.config
 			if config == nil and spec.opts ~= nil then
-				local main, opts = spec.main, spec.opts
-				config = function()
+				config = true
+			end
+			if config == true then
+				local explicit_main = spec.main
+				local plugin_name = name
+				config = function(plugin, opts)
+					local main = explicit_main or get_main(plugin and plugin.dir, plugin_name)
+					if not main then
+						error(
+							("Lua module not found for config of %s. Please use a `config()` function instead"):format(
+								plugin_name
+							),
+							0
+						)
+					end
 					local mod = require(main)
 					if type(mod.setup) ~= "function" then
 						error(("module %q has no setup function"):format(main), 0)
 					end
-					mod.setup(opts)
+					mod.setup(opts or {})
 				end
 			end
 

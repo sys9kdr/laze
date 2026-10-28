@@ -565,10 +565,10 @@ do
 end
 
 do
-	local ok, err = pcall(compile, { { dir = "/tmp/laze-dir", name = "local", version = "main" } })
-	expect(not ok and tostring(err):find("semver range") ~= nil, "dir plugin with invalid version is rejected")
-	local ok2, c = pcall(compile, { { dir = "/tmp/laze-dir", name = "local", version = ">=1.0.0" } })
-	expect(ok2 and #c.pack == 0, "dir plugin with valid version compiles with no pack entry")
+	local ok, c = pcall(compile, { { dir = "/tmp/laze-dir", name = "local", version = "main" } })
+	expect(ok and #c.pack == 0, "dir plugin ignores an invalid version (lazy.nvim parity)")
+	local ok2, c2 = pcall(compile, { { dir = "/tmp/laze-dir", name = "local", version = ">=1.0.0" } })
+	expect(ok2 and #c2.pack == 0, "dir plugin with valid version compiles with no pack entry")
 end
 
 do
@@ -610,10 +610,10 @@ do
 	local false_dev = dev_pack({ "user/dev-false.nvim", name = "dev-false", dev = true, version = false })
 	expect(false_dev and false_dev.version == nil, "dev=true + version=false: no version")
 
-	-- Validation is unchanged (same policy as `dir`): an unrepresentable
-	-- range still fails loudly even though it is never lowered.
-	local ok, err = pcall(compile, { { "user/dev-bad.nvim", name = "dev-bad", dev = true, version = "main" } })
-	expect(not ok and tostring(err):find("semver range") ~= nil, "dev spec with invalid version is rejected")
+	-- A dev source is a local checkout, so lazy.nvim ignores an
+	-- unrepresentable version instead of rejecting the spec.
+	local ok, c = pcall(compile, { { "user/dev-bad.nvim", name = "dev-bad", dev = true, version = "main" } })
+	expect(ok and c.pack[1].version == nil, "dev spec ignores an invalid version (lazy.nvim parity)")
 
 	-- Remote specs are untouched: version still lowers, refs keep precedence.
 	local ok2, remote = pcall(compile, { { "user/remote.nvim", name = "remote", version = ">=1.0.0" } })
@@ -708,7 +708,6 @@ local rejection_cases = {
 	{ { "folke/x.nvim", name = "x", event = { { event = { "A", 42 } } } }, "must have event = string", "non-string in event array rejected" },
 	{ { "folke/x.nvim", name = "x", event = { { event = "BufEnter", pattern = 42 } } }, "pattern must be a string", "numeric pattern rejected" },
 	{ { "folke/x.nvim", name = "x", event = { "ok", {} } }, "event[2] must have event = string", "bare table in event rejected" },
-	{ { "folke/x.nvim", name = "x", config = true }, "config = true is not supported", "config=true rejected" },
 	{ { "folke/x.nvim", name = "x", config = 42 }, "config must be a function", "non-function config rejected" },
 	{ { "folke/x.nvim", name = "x", init = 42 }, "init must be a function", "non-function init rejected" },
 	{ { "folke/x.nvim", name = "x", cond = "yes" }, "cond must be a function or boolean", "string cond rejected" },
@@ -716,8 +715,9 @@ local rejection_cases = {
 	{ { "folke/x.nvim", name = "x", after = "dep" }, "after must be an array", "string after rejected" },
 	{ { "folke/x.nvim", name = "x", after = { 42 } }, "after[1] must be a non-empty plugin id", "numeric after element rejected" },
 	{ { "folke/x.nvim", name = "x", after = { "" } }, "after[1] must be a non-empty plugin id", "empty after element rejected" },
-	{ { "folke/x.nvim", name = "x", build = 42 }, "build must be a string, function, or false", "numeric build rejected" },
-	{ { "folke/x.nvim", name = "x", build = true }, "build must be a string, function, or false", "boolean build rejected" },
+	{ { "folke/x.nvim", name = "x", build = 42 }, "build must be a string, function, false", "numeric build rejected" },
+	{ { "folke/x.nvim", name = "x", build = true }, "build must be a string, function, false", "boolean build rejected" },
+	{ { "folke/x.nvim", name = "x", build = { "make", 42 } }, "build[2] must be a string or function", "invalid build list item rejected" },
 	{ { "folke/x.nvim", name = "x", module = 42 }, "module must be a string, array, or false", "numeric module rejected" },
 	{ { "folke/x.nvim", name = "x", module = { "a", 42 } }, "module[2] must be a non-empty string", "non-string module element rejected" },
 	{ { "folke/x.nvim", name = "x", module = {} }, "module must not be an empty array", "empty module array rejected" },
@@ -991,8 +991,23 @@ end
 do
 	local c = compile({ { "folke/x.nvim", name = "x", build = false } })
 	expect(c.registry["x"].build == nil, "build = false accepted as no-build (lazy.nvim semantics)")
-	local ok, err = pcall(compile, { { "folke/x.nvim", name = "x", build = { "make", "make test" } } })
-	expect(not ok and err and err:find("list form", 1, true) ~= nil, "build list form rejected with a clear message")
+	local c2 = compile({ { "folke/x.nvim", name = "x", build = { "make", "make test" } } })
+	expect(type(c2.registry["x"].build) == "table" and #c2.registry["x"].build == 2, "build list accepted")
+	local c3 = compile({ { "folke/x.nvim", name = "x", build = {} } })
+	expect(c3.registry["x"].build == nil, "empty build list is a no-op")
+end
+
+do
+	local c = compile({ { "folke/x.nvim", name = "x", config = true } })
+	expect(type(c.registry["x"].config) == "function", "config = true accepted")
+	local c2 = compile({ { "folke/x.nvim", name = "x", config = true, opts = { a = 1 } } })
+	expect(type(c2.registry["x"].config) == "function", "config = true + opts accepted")
+	local c3 = compile({ { "folke/x.nvim", name = "x", opts = { a = 1 } } })
+	expect(type(c3.registry["x"].config) == "function", "opts without main accepted (resolved at load)")
+	local c4 = compile({ { "folke/x.nvim", name = "x", main = "m", opts = function() end } })
+	expect(type(c4.registry["x"].opts) == "function", "opts function accepted")
+	local c5 = compile({ { "folke/x.nvim", name = "x", main = "m", opts = { a = 1 }, config = function() end } })
+	expect(type(c5.registry["x"].config) == "function", "config + opts accepted")
 end
 
 do

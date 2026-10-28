@@ -1259,6 +1259,7 @@ if not fast_only then
 	})
 	local cmdrepo = make_repo("buildcmd", { ["plugin/b.lua"] = "" })
 	local fnrepo = make_repo("buildfn", { ["plugin/f.lua"] = "" })
+	local listrepo = make_repo("buildlist", { ["plugin/l.lua"] = "" })
 
 	local init_dir = root .. "/config"
 	vim.fn.mkdir(init_dir, "p")
@@ -1271,6 +1272,7 @@ if not fast_only then
 			.. ("  { src = %q, build = \"touch build-ran\" },\n"):format(dotted)
 			.. ("  { src = %q, name = \"buildcmd\", build = \":lua vim.fn.writefile({'ran'}, vim.fn.stdpath('data') .. '/cmd-ran')\" },\n"):format(cmdrepo)
 			.. ("  { src = %q, name = \"buildfn\", build = function() vim.fn.writefile({'ran'}, vim.fn.stdpath('data') .. '/fn-ran') end },\n"):format(fnrepo)
+			.. ("  { src = %q, name = \"buildlist\", build = { \"touch list-ran\", function() vim.fn.writefile({'ran'}, vim.fn.stdpath('data') .. '/list-fn-ran') end } },\n"):format(listrepo)
 			.. "})\n"
 	)
 	fd:close()
@@ -1286,15 +1288,19 @@ if not fast_only then
 		#vim.fn.glob(root .. "/data/nvim/site/pack/*/opt/laze-build-test.nvim/build-ran", false, true) == 1
 		and #vim.fn.glob(root .. "/data/nvim/cmd-ran", false, true) == 1
 		and #vim.fn.glob(root .. "/data/nvim/fn-ran", false, true) == 1
+		and #vim.fn.glob(root .. "/data/nvim/site/pack/*/opt/buildlist/list-ran", false, true) == 1
+		and #vim.fn.glob(root .. "/data/nvim/list-fn-ran", false, true) == 1
 	then
-		print("  ✓ build: string/:cmd/function forms run after install (pkg-keyed lookup)")
+		print("  ✓ build: string/:cmd/function/list forms run after install (pkg-keyed lookup)")
 		passed = passed + 1
 	else
 		print(
-			("  ✗ build: markers — string:%d :cmd:%d fn:%d"):format(
+			("  ✗ build: markers — string:%d :cmd:%d fn:%d list:%d listfn:%d"):format(
 				#vim.fn.glob(root .. "/data/nvim/site/pack/*/opt/laze-build-test.nvim/build-ran", false, true),
 				#vim.fn.glob(root .. "/data/nvim/cmd-ran", false, true),
-				#vim.fn.glob(root .. "/data/nvim/fn-ran", false, true)
+				#vim.fn.glob(root .. "/data/nvim/fn-ran", false, true),
+				#vim.fn.glob(root .. "/data/nvim/site/pack/*/opt/buildlist/list-ran", false, true),
+				#vim.fn.glob(root .. "/data/nvim/list-fn-ran", false, true)
 			)
 		)
 		failed = failed + 1
@@ -1994,44 +2000,178 @@ do
 	end
 end
 
--- opts without main is a compile error (laze never guesses module names)
+-- opts without main resolves the module like lazy.nvim: a single top-level
+-- Lua module (or one whose normalized name matches the plugin name).
 do
-	local ok = pcall(laze.compile, {
-		{ "test/opts-nomain", opts = { foo = 1 } },
+	local dir = vim.fn.tempname() .. "_opts_auto"
+	vim.fn.mkdir(dir .. "/lua/auto_opts", "p")
+	vim.fn.mkdir(dir .. "/lua/other_mod", "p")
+	local fd = assert(io.open(dir .. "/lua/auto_opts/init.lua", "w"))
+	fd:write("return { setup = function(o) _G.__laze_auto_opts = o end }\n")
+	fd:close()
+	local other = assert(io.open(dir .. "/lua/other_mod/init.lua", "w"))
+	other:write("return { setup = function() _G.__laze_wrong_main = true end }\n")
+	other:close()
+	_G.__laze_auto_opts, _G.__laze_wrong_main = nil, nil
+	package.loaded["auto_opts"], package.loaded["other_mod"] = nil, nil
+	local compiled = laze.compile({
+		{ dir = dir, name = "auto-opts", opts = { foo = 1 } },
 	})
-	if not ok then
-		print("  ✓ opts: missing main is a compile error")
+	laze.build_plan(compiled)()
+	package.loaded["auto_opts"], package.loaded["other_mod"] = nil, nil
+	local got, wrong = _G.__laze_auto_opts, _G.__laze_wrong_main
+	_G.__laze_auto_opts, _G.__laze_wrong_main = nil, nil
+	if type(got) == "table" and got.foo == 1 and not wrong then
+		print("  ✓ opts: missing main prefers the normalized name match (lazy.nvim parity)")
 		passed = passed + 1
 	else
-		print("  ✗ opts: missing main compiled without error")
+		print("  ✗ opts: missing main did not resolve/load the right module")
 		failed = failed + 1
 	end
 end
 
--- opts must be a table (function form deferred)
+-- Multiple top-level modules with no name match: fail loudly instead of
+-- guessing the wrong module.
 do
-	local ok = pcall(laze.compile, {
-		{ "test/opts-fn", main = "x", opts = function() end },
+	local dir = vim.fn.tempname() .. "_opts_ambiguous"
+	vim.fn.mkdir(dir .. "/lua/one_mod", "p")
+	vim.fn.mkdir(dir .. "/lua/two_mod", "p")
+	for _, mod in ipairs({ "one_mod", "two_mod" }) do
+		local fd = assert(io.open(dir .. "/lua/" .. mod .. "/init.lua", "w"))
+		fd:write("return { setup = function() end }\n")
+		fd:close()
+	end
+	local msgs = {}
+	local orig_notify = vim.notify
+	vim.notify = function(msg)
+		table.insert(msgs, msg)
+	end
+	local compiled = laze.compile({
+		{ dir = dir, name = "no-match", opts = {} },
 	})
-	if not ok then
-		print("  ✓ opts: function form is a compile error")
+	laze.build_plan(compiled)()
+	vim.notify = orig_notify
+	local found = false
+	for _, msg in ipairs(msgs) do
+		if tostring(msg):find("Lua module not found for config of no-match", 1, true) then
+			found = true
+		end
+	end
+	if found then
+		print("  ✓ opts: ambiguous main resolution fails loudly (no wrong-module guess)")
 		passed = passed + 1
 	else
-		print("  ✗ opts: function form compiled without error")
+		print("  ✗ opts: ambiguous main resolution did not warn")
 		failed = failed + 1
 	end
 end
 
--- config and opts together is a compile error (specify one)
+-- A single top-level module is used even when its name does not match the
+-- plugin name (lazy.nvim's get_main fallback).
 do
-	local ok = pcall(laze.compile, {
-		{ "test/opts-both", main = "x", opts = { a = 1 }, config = function() end },
+	local dir = vim.fn.tempname() .. "_opts_single"
+	vim.fn.mkdir(dir .. "/lua/whatever_mod", "p")
+	local fd = assert(io.open(dir .. "/lua/whatever_mod/init.lua", "w"))
+	fd:write("return { setup = function(o) _G.__laze_single_main = o end }\n")
+	fd:close()
+	_G.__laze_single_main = nil
+	package.loaded["whatever_mod"] = nil
+	local compiled = laze.compile({
+		{ dir = dir, name = "single-mod", opts = { foo = 1 } },
 	})
-	if not ok then
-		print("  ✓ opts: config+opts together is a compile error")
+	laze.build_plan(compiled)()
+	package.loaded["whatever_mod"] = nil
+	local got = _G.__laze_single_main
+	_G.__laze_single_main = nil
+	if type(got) == "table" and got.foo == 1 then
+		print("  ✓ opts: missing main falls back to the plugin's single top-level module (lazy.nvim parity)")
 		passed = passed + 1
 	else
-		print("  ✗ opts: config+opts together compiled without error")
+		print("  ✗ opts: single-module fallback did not reach setup")
+		failed = failed + 1
+	end
+end
+
+-- config = true without main uses the same main resolution and calls
+-- setup with the resolved opts table ({} when opts is absent).
+do
+	local dir = vim.fn.tempname() .. "_config_true"
+	vim.fn.mkdir(dir .. "/lua/config_true", "p")
+	local fd = assert(io.open(dir .. "/lua/config_true/init.lua", "w"))
+	fd:write("return { setup = function(o) _G.__laze_config_true = o end }\n")
+	fd:close()
+	_G.__laze_config_true = nil
+	package.loaded["config_true"] = nil
+	local compiled = laze.compile({
+		{ dir = dir, name = "config-true", config = true },
+	})
+	laze.build_plan(compiled)()
+	package.loaded["config_true"] = nil
+	local got = _G.__laze_config_true
+	_G.__laze_config_true = nil
+	if type(got) == "table" then
+		print("  ✓ config = true: resolves main and calls setup (lazy.nvim parity)")
+		passed = passed + 1
+	else
+		print("  ✗ config = true: setup was not called with an opts table")
+		failed = failed + 1
+	end
+end
+
+-- opts function form: receives (plugin, opts) and may mutate the base table
+-- (the common lazy.nvim pattern is mutating and returning nil).
+do
+	local got = nil
+	package.preload["opts_fn_mod"] = function()
+		return {
+			setup = function(o)
+				got = o
+			end,
+		}
+	end
+	local compiled = laze.compile({
+		{
+			dir = vim.fn.tempname(),
+			name = "opts-fn",
+			main = "opts_fn_mod",
+			opts = function(_, opts)
+				opts.a = 1
+				opts.b = 2
+			end,
+		},
+	})
+	laze.build_plan(compiled)()
+	package.preload["opts_fn_mod"] = nil
+	package.loaded["opts_fn_mod"] = nil
+	if type(got) == "table" and got.a == 1 and got.b == 2 then
+		print("  ✓ opts: function form is resolved at load (lazy.nvim parity)")
+		passed = passed + 1
+	else
+		print("  ✗ opts: function form did not reach setup")
+		failed = failed + 1
+	end
+end
+
+-- config + opts: the config function receives the lazy.nvim-style
+-- (plugin, opts) arguments.
+do
+	local got_plugin, got_opts = nil, nil
+	local compiled = laze.compile({
+		{
+			dir = vim.fn.tempname(),
+			name = "config-opts",
+			opts = { a = 1 },
+			config = function(plugin, opts)
+				got_plugin, got_opts = plugin, opts
+			end,
+		},
+	})
+	laze.build_plan(compiled)()
+	if type(got_plugin) == "table" and got_plugin.name == "config-opts" and type(got_opts) == "table" and got_opts.a == 1 then
+		print("  ✓ config + opts: config receives (plugin, opts) (lazy.nvim parity)")
+		passed = passed + 1
+	else
+		print("  ✗ config + opts: config did not receive plugin/opts")
 		failed = failed + 1
 	end
 end

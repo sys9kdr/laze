@@ -24,7 +24,8 @@ Explicitly out of scope (do not add):
 
 * Dependency solver, plugin manager UI, install/update commands in the core
   (opt-in `:Laze` wrappers live in `lua/laze/extra.lua`)
-* `opts` abstraction, import system
+* Full `opts` inheritance/merge abstraction (the spec-level `opts` /
+  `config = true` setup shorthand is supported), import system
 * `require()` hook interception — `module` triggers are
   `package.preload` entries (the global `require` is never touched)
 * Runtime plugin state manager, background scheduler, lifecycle framework

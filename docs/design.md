@@ -9,7 +9,7 @@ Laze produces a pure IR with three parts:
 * `routes`: trigger indexes
 
 The execution plan is then generated from that IR.
-At load time, laze only requires module names explicitly declared via `module`. It never guesses the module from the repo name (`hrsh7th/cmp-buffer` ships the `cmp_buffer` module), and `config` functions do their own requires — mirroring lazy.nvim.
+At load time, laze only requires module names explicitly declared via `module` as triggers. Separately, `opts` / `config = true` resolve `main` at load time the way lazy.nvim does (explicit, a normalized name match, or the plugin's single top-level Lua module), and `config` functions do their own requires.
 
 ## When does a plugin's code run?
 

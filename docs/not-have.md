@@ -12,8 +12,11 @@ known differences is [known-differences.md](known-differences.md).
 
 Explicitness over magic, pure transforms over stateful managers
 (`docs/design.md` Philosophy). Out of scope per `AGENTS.md`:
-dependency solver, manager UI, install/update commands, `opts`
-abstraction, import system, background scheduler, lifecycle framework.
+dependency solver, manager UI, install/update commands, full `opts`
+inheritance/merge abstraction, import system, background scheduler,
+lifecycle framework. laze supports lazy.nvim's spec-level `opts` /
+`config = true` setup shorthand; the full inheritance/merge pipeline
+is not implemented.
 
 - **UI / commands in core.** What: no dashboard, update UI,
   install/update command surface in `setup()`.
@@ -56,39 +59,6 @@ abstraction, import system, background scheduler, lifecycle framework.
   { "foo/bar", cond = function() return vim.fn.executable("rg") == 1 end }
   ```
 
-- **`opts` function form.** What: `opts` must be a table
-  (`validate_spec`: "opts must be a table"); the lazy.nvim
-  `fun(_, opts)` mutator is rejected.
-  Why not: magic-vs-explicit — a mutating callback hides the final
-  value from the pure IR.
-  Alternative: compute the table yourself, pass it with `main`:
-  ```lua
-  { "foo/bar", main = "bar", opts = vim.tbl_extend("force", defaults, { extra = true }) }
-  ```
-
-- **`config = true`.** What: compile error
-  (`validate_spec`: "config = true is not supported").
-  Why not: magic-vs-explicit — `true` implies an `opts` pipeline
-  laze does not own (safe direction per `test_subset.lua`: lazy.nvim
-  accepts the laze form, not vice versa).
-  Alternative:
-  ```lua
-  { "foo/bar", main = "bar", opts = {} }
-  -- or:
-  { "foo/bar", config = function() require("bar").setup({}) end }
-  ```
-
-- **`main` guessing (module-name inference).** What: `opts` without
-  `main` is a compile error ("laze never guesses the module name");
-  laze never derives the module from the repo name.
-  Why not: magic-vs-explicit — repo names don't map to modules
-  (`hrsh7th/cmp-buffer` ships `cmp_buffer`; `compile.lua`,
-  `design.md`).
-  Alternative: always name it:
-  ```lua
-  { "hrsh7th/cmp-buffer", main = "cmp_buffer", opts = {} }
-  ```
-
 - **Function-shaped triggers.** What: `event`/`cmd`/`ft`/`keys` as a
   function is a compile error (`validate_triggers`).
   Why not: silently normalizing to "no trigger" would turn a lazy
@@ -97,14 +67,6 @@ abstraction, import system, background scheduler, lifecycle framework.
   ```lua
   -- before: event = function() return cond and "BufRead" or nil end
   { "foo/bar", event = "BufReadPost", cond = function() return cond end }
-  ```
-
-- **`build` list form.** What: `build` as a list is a compile error
-  ("use a single string or function"); `false`/string/function accepted.
-  Why not: magic-vs-explicit — one build step, one value.
-  Alternative:
-  ```lua
-  { "foo/bar", build = "make && make install" }
   ```
 
 - **Background scheduler / lifecycle framework.** What: no timers,

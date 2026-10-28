@@ -47,9 +47,8 @@ test references.
 
 Notable gaps: no `:Lazy` UI or install/sync surface (only the opt-in `:Laze`
 wrappers); `import`, `specs`, `optional`, `submodules`, and `lazy` are not
-implemented; function-shaped triggers are rejected; `opts` requires an
-explicit `main`; and `version` accepts semver ranges only (refs use
-`branch`/`tag`/`commit`).
+implemented; function-shaped triggers are rejected; and `version` accepts
+semver ranges only (refs use `branch`/`tag`/`commit`).
 
 The guiding principle is to preserve compatibility where practical, without
 letting it undermine laze's primary goal: a small, maintainable alternative
@@ -138,9 +137,10 @@ Supported fields:
 * `after`
 * `dependencies`
 * `module` — module name(s) that trigger lazy load on `require`
-* `main` — module name for `opts` (explicit; never guessed from the repo)
-* `opts` — table passed to `require(main).setup(opts)` at load (requires `main`)
-* `build` — build command or function (passed to `vim.pack`)
+* `main` — module used by `opts` / `config = true`; when omitted, resolved at load like lazy.nvim (name match or the plugin's single top-level Lua module)
+* `opts` — table or `function(plugin, opts)` passed to `require(main).setup(opts)` at load
+* `config` — `function(plugin, opts)` or `true` (the lazy.nvim setup shorthand)
+* `build` — build command/function, or a list of them (run on `PackChanged`)
 * `priority` — eager plugin load order: higher loads first, tie-break by id (default 50)
 * `dev_path` — local path for dev mode (used by your own commands)
 
@@ -157,7 +157,7 @@ Notes:
 * `[1]`/`src` is content-aware: absolute and `.`-prefixed paths (`./foo`, `../foo`) are treated as local dirs, `~` expands, `https://`/`git@` URLs as-is, anything else is expanded to `https://github.com/<src>`. A bare relative path like `foo/bar` is NOT a local dir — it becomes a GitHub URL.
 * `name` is used for internal routing (routes, after deps) and defaults to the plugin's repository name with `.nvim`/`.lua` stripped (lazy.nvim-compatible: `folke/which-key.nvim` → `which-key`). The installed directory (`pack/<pkg>/opt/<name>`) and `:packadd` use the *full* repository name (vim.pack's own derivation) — for `which-key.nvim` that directory is `which-key.nvim`, matching existing installs. It is **not** passed directly to `require` — laze only requires module names explicitly declared via `module`.
 * `silent = true` suppresses `vim.notify` warnings when `require` fails (e.g. for optional plugins).
-* Unknown fields (e.g. `pin`, `data`) are passed through to the `pack` entry for `vim.pack.Spec`. `version` is consumed as a semver range and lowered to a `vim.VersionRange` via `vim.version.range()`; `branch`/`tag`/`commit` are consumed as git refs and lowered to vim.pack's version string. Precedence matches lazy.nvim: `commit > tag > version > branch`. `version = false` skips the range and falls back to `branch` / the default branch. `version` is parsed only when it wins precedence; `dir` plugins do not lower it (lazy.nvim ignores it), but a range is still validated. An active dev path (`dev`/`dev_path`) is a local checkout too: `version`/`branch`/`tag`/`commit` are validated but never lowered into the pack entry, so vim.pack cannot check out a ref in your dev clone (lazy.nvim turns `dev` into a local `dir`). Unsupported version strings (git refs like `"main"`, commit hashes, multi-ranges like `"1.2 || 1.3"`, and whitespace-separated comparator sets) are rejected with a compile error — use `branch`/`tag`/`commit` for refs. vim.pack errors if no tag matches the range; lazy.nvim falls back to the default branch, so use a ref for repos without semver tags.
+* Unknown fields (e.g. `pin`, `data`) are passed through to the `pack` entry for `vim.pack.Spec`. `version` is consumed as a semver range and lowered to a `vim.VersionRange` via `vim.version.range()`; `branch`/`tag`/`commit` are consumed as git refs and lowered to vim.pack's version string. Precedence matches lazy.nvim: `commit > tag > version > branch`. `version = false` skips the range and falls back to `branch` / the default branch. `version` is parsed only when it wins precedence. `dir` plugins and an active dev path (`dev`/`dev_path`) are local checkouts: lazy.nvim ignores `version`/`branch`/`tag`/`commit` for them, so laze ignores them too (they are neither validated nor lowered). Unsupported version strings on remote plugins (git refs like `"main"`, commit hashes, multi-ranges like `"1.2 || 1.3"`, and whitespace-separated comparator sets) are rejected with a compile error — use `branch`/`tag`/`commit` for refs. vim.pack errors if no tag matches the range; lazy.nvim falls back to the default branch, so use a ref for repos without semver tags.
 * `dir` takes priority over `[1]`, `dev`, and `url`.
 * `dir` plugins are **local**: they are excluded from the `pack` array (vim.pack never installs or manages them) and the plan loads them at trigger/eager time by prepending the exact directory path to `'runtimepath'`. This mirrors lazy.nvim's `dir` behavior — the directory must already exist on disk.
 * `url` takes priority over `[1]` and auto-detected URLs.
@@ -205,7 +205,7 @@ Passed directly to `vim.pack.Spec`.
 
 `dev = true` or a string re-points the install source at your local clone. `~` expands; absolute and relative paths pass through verbatim. `dev_path` is a fallback source with the same effect when `dev` is unset — see [Custom commands](docs/commands.md) for sync / dev-mode / hot-reload recipes.
 
-A dev path is a local checkout, so laze never lowers `version`/`branch`/`tag`/`commit` for it (lazy.nvim treats dev plugins as local `dir`s). A semver `version` is still validated at compile time; it just cannot select a tag in your working tree.
+A dev path is a local checkout, so laze ignores `version`/`branch`/`tag`/`commit` for it (lazy.nvim treats dev plugins as local `dir`s). They are neither validated nor lowered: they cannot select a tag in your working tree.
 
 ## `VeryLazy`
 
