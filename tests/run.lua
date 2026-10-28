@@ -114,6 +114,7 @@ local compile_fixtures = {
 	"name_derivation",
 	"priority_build",
 	"opts_main",
+	"dev_version",
 }
 
 for _, name in ipairs(compile_fixtures) do
