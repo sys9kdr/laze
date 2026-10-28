@@ -165,7 +165,8 @@ local EVENT_ALIASES = {
 	BufWrite = "BufWritePre",
 }
 
---- Normalize lazy.nvim event values (string | string[] | {event,pattern}[]).
+--- Normalize lazy.nvim event values
+--- (string | string[] | {event,pattern} | {event,pattern}[]).
 ---@param v any
 ---@return {event: string, pattern?: string}[] -- event name and optional pattern
 local function normalize_events(v)
@@ -177,7 +178,12 @@ local function normalize_events(v)
 	end
 	if type(v) == "table" then
 		local result = {}
-		for _, item in ipairs(v) do
+		-- lazy.nvim's LazyEventSpec is a string, a list, or a single
+		-- { event = ..., pattern = ... } table. Treat the latter as a
+		-- one-item list: ipairs over a map-shaped table yields nothing, so
+		-- dropping it would silently turn a lazy spec eager.
+		local items = v.event ~= nil and { v } or v
+		for _, item in ipairs(items) do
 			if type(item) == "string" then
 				table.insert(result, { event = EVENT_ALIASES[item] or item })
 			elseif type(item) == "table" then
@@ -413,27 +419,32 @@ local function add_to_route(route_map, keys, plugin_id)
 	end
 end
 
---- Event routes now carry optional autocmd patterns (lazy.nvim `{event, pattern}` form).
---- One entry per event name: a second plugin using the same event with a
---- DIFFERENT pattern is a conflict (a single autocmd can only carry one) —
---- warn and keep the first instead of silently dropping the second.
+--- Event routes carry optional autocmd patterns (lazy.nvim `{event, pattern}` form).
+--- Each event name maps to a list of pattern variants: the same event with
+--- DIFFERENT patterns routes independently (plan.lua creates one autocmd per
+--- variant), while the same (event, pattern) pair shares one variant. Keying
+--- by name alone would make a patternless spec inherit another spec's pattern
+--- (and never load), or make a patterned spec fire unconditionally.
 local function add_to_event_route(route_map, events, plugin_id)
 	for i = 1, #events do
 		local ev = events[i]
-		local name = ev.event
-		if not route_map[name] then
-			route_map[name] = { ids = {}, pattern = ev.pattern }
-		elseif route_map[name].pattern ~= ev.pattern then
-			vim.notify(
-				("laze: event %q has conflicting patterns (%s vs %s) — keeping the first; give the plugins distinct events or matching patterns"):format(
-					name,
-					vim.inspect(route_map[name].pattern),
-					vim.inspect(ev.pattern)
-				),
-				vim.log.levels.WARN
-			)
+		local variants = route_map[ev.event]
+		if not variants then
+			variants = {}
+			route_map[ev.event] = variants
 		end
-		table.insert(route_map[name].ids, plugin_id)
+		local variant
+		for j = 1, #variants do
+			if variants[j].pattern == ev.pattern then
+				variant = variants[j]
+				break
+			end
+		end
+		if not variant then
+			variant = { pattern = ev.pattern, ids = {} }
+			table.insert(variants, variant)
+		end
+		table.insert(variant.ids, plugin_id)
 	end
 end
 
@@ -576,29 +587,40 @@ local function validate_triggers(spec, idx, spec_id)
 	end
 
 	if type(spec.event) == "table" then
-		for i, item in ipairs(spec.event) do
-			if type(item) == "table" then
-				local ev = item.event
-				if type(ev) == "string" then
-					if ev == "" then
-						bad("event[" .. i .. "]", "event must not be empty")
-					end
-				elseif not is_string_array(ev) then
-					bad("event[" .. i .. "]", "must have event = string | string[]")
-				else
-					for _, e in ipairs(ev) do
-						if e == "" then
-							bad("event[" .. i .. "]", "event must not be empty")
-						end
+		local function check_event_spec(item, label)
+			local ev = item.event
+			if type(ev) == "string" then
+				if ev == "" then
+					bad(label, "event must not be empty")
+				end
+			elseif not is_string_array(ev) then
+				bad(label, "must have event = string | string[]")
+			else
+				for _, e in ipairs(ev) do
+					if e == "" then
+						bad(label, "event must not be empty")
 					end
 				end
-				if item.pattern ~= nil and type(item.pattern) ~= "string" then
-					bad("event[" .. i .. "]", "pattern must be a string")
+			end
+			if item.pattern ~= nil and type(item.pattern) ~= "string" then
+				bad(label, "pattern must be a string")
+			end
+		end
+
+		-- Single { event = ..., pattern = ... } table (lazy.nvim LazyEventSpec)
+		-- as well as the array form.
+		if spec.event.event ~= nil then
+			check_event_spec(spec.event, "event")
+		else
+			for i, item in ipairs(spec.event) do
+				local label = "event[" .. i .. "]"
+				if type(item) == "table" then
+					check_event_spec(item, label)
+				elseif type(item) ~= "string" then
+					bad(label, "must be a string or { event, pattern } table")
+				elseif item == "" then
+					bad(label, "must not be empty")
 				end
-			elseif type(item) ~= "string" then
-				bad("event[" .. i .. "]", "must be a string or { event, pattern } table")
-			elseif item == "" then
-				bad("event[" .. i .. "]", "must not be empty")
 			end
 		end
 	end

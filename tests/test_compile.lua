@@ -365,6 +365,16 @@ local events_cases = {
 		{ { event = "BufEnter", pattern = "*.md" } },
 		"single event with pattern",
 	},
+	{
+		{ event = "BufWritePost", pattern = "*.lua" },
+		{ { event = "BufWritePost", pattern = "*.lua" } },
+		"single { event, pattern } table (lazy.nvim LazyEventSpec)",
+	},
+	{
+		{ event = { "BufRead", "BufWrite" }, pattern = "*.md" },
+		{ { event = "BufReadPost", pattern = "*.md" }, { event = "BufWritePre", pattern = "*.md" } },
+		"single table with event array + pattern, aliases normalized",
+	},
 	{ "BufRead", { { event = "BufReadPost" } }, "alias normalized to stored form" },
 	{ "BufWrite", { { event = "BufWritePre" } }, "alias normalized to stored form" },
 	{ "BufCreate", { { event = "BufAdd" } }, "alias normalized to stored form" },
@@ -373,6 +383,77 @@ local events_cases = {
 for _, case in ipairs(events_cases) do
 	check(normalize_events(case[1]), case[2], case[3])
 end
+
+print("\n=== event route variants tests ===\n")
+
+-- Each distinct (event, pattern) pair is an independent route variant:
+-- a patternless spec must never inherit another spec's pattern, and a
+-- patterned spec must not fire unconditionally. Spec order only changes
+-- variant order, never the grouping.
+local function event_routes(specs)
+	return compile(specs).routes.events
+end
+
+check(event_routes({
+	{ "test/plain", event = "BufReadPre" },
+	{ "test/lua", event = { { event = "BufReadPre", pattern = "*.lua" } } },
+}), {
+	BufReadPre = {
+		{ ids = { "plain" } },
+		{ pattern = "*.lua", ids = { "lua" } },
+	},
+}, "same event, patternless first: separate variants")
+
+check(event_routes({
+	{ "test/lua", event = { { event = "BufReadPre", pattern = "*.lua" } } },
+	{ "test/plain", event = "BufReadPre" },
+}), {
+	BufReadPre = {
+		{ pattern = "*.lua", ids = { "lua" } },
+		{ ids = { "plain" } },
+	},
+}, "same event, patterned first: separate variants")
+
+check(event_routes({
+	{ "test/a", event = { { event = "BufReadPre", pattern = "*.lua" } } },
+	{ "test/b", event = { { event = "BufReadPre", pattern = "*.lua" } } },
+}), {
+	BufReadPre = {
+		{ pattern = "*.lua", ids = { "a", "b" } },
+	},
+}, "same event + same pattern: deduped into one variant")
+
+check(event_routes({
+	{ "test/a", event = "BufReadPre" },
+	{ "test/b", event = "BufReadPre" },
+}), {
+	BufReadPre = {
+		{ ids = { "a", "b" } },
+	},
+}, "same event + no pattern: deduped into one variant")
+
+check(event_routes({
+	{ "test/map", event = { event = "BufReadPre", pattern = "*.lua" } },
+}), {
+	BufReadPre = {
+		{ pattern = "*.lua", ids = { "map" } },
+	},
+}, "single { event, pattern } table compiles to a route variant")
+
+local map_compiled = compile({
+	{ "test/map-lazy", event = { event = "BufWritePost", pattern = "*.lua" } },
+})
+expect(map_compiled.registry["map-lazy"].has_route, "single { event, pattern } table marks the plugin lazy")
+
+local ok_bad_pattern = pcall(compile, {
+	{ "test/bad-pattern", event = { event = "BufReadPre", pattern = 42 } },
+})
+expect(not ok_bad_pattern, "single { event, pattern } table rejects a non-string pattern")
+
+local ok_bad_event = pcall(compile, {
+	{ "test/bad-event", event = { event = "", pattern = "*.lua" } },
+})
+expect(not ok_bad_event, "single { event, pattern } table rejects an empty event")
 
 print("\n=== resolve_version tests ===\n")
 

@@ -1741,6 +1741,102 @@ do
 	end
 end
 
+-- same event, different patterns: each (event, pattern) variant is wired
+-- independently. A patternless spec must load for any buffer and a patterned
+-- spec only for matching buffers — in both spec orders (a name-keyed route
+-- let whichever spec came first dictate the pattern shared by both).
+local function check_event_variant_order(patterned_first)
+	local plain_ran, lua_ran = 0, 0
+	local suffix = patterned_first and "patterned-first" or "patternless-first"
+	local plain = {
+		dir = vim.fn.tempname(),
+		name = "ev-order-plain-" .. suffix,
+		event = "BufRead",
+		config = function() plain_ran = plain_ran + 1 end,
+	}
+	local patterned = {
+		dir = vim.fn.tempname(),
+		name = "ev-order-lua-" .. suffix,
+		event = { { event = "BufRead", pattern = "*.lua" } },
+		config = function() lua_ran = lua_ran + 1 end,
+	}
+	local specs = patterned_first and { patterned, plain } or { plain, patterned }
+	laze.build_plan(laze.compile(specs))()
+
+	local rows = vim.api.nvim_get_autocmds({ event = "BufReadPost", group = "laze_events" })
+	local lua_rows = 0
+	for _, row in ipairs(rows) do
+		if row.pattern == "*.lua" then
+			lua_rows = lua_rows + 1
+		end
+	end
+	if #rows == 2 and lua_rows == 1 then
+		print(("  ✓ event variants (%s): one autocmd per pattern variant"):format(suffix))
+		passed = passed + 1
+	else
+		print(("  ✗ event variants (%s): rows=%d lua-patterned=%d"):format(suffix, #rows, lua_rows))
+		failed = failed + 1
+	end
+
+	local b_vim = vim.api.nvim_create_buf(false, true)
+	vim.api.nvim_buf_set_name(b_vim, vim.fn.tempname() .. ".vim")
+	vim.api.nvim_exec_autocmds("BufRead", { buffer = b_vim })
+	if plain_ran == 1 and lua_ran == 0 then
+		print(("  ✓ event variants (%s): non-matching buffer loads only the patternless plugin"):format(suffix))
+		passed = passed + 1
+	else
+		print(("  ✗ event variants (%s): non-matching buffer — plain:%d lua:%d"):format(suffix, plain_ran, lua_ran))
+		failed = failed + 1
+	end
+
+	local b_lua = vim.api.nvim_create_buf(false, true)
+	vim.api.nvim_buf_set_name(b_lua, vim.fn.tempname() .. ".lua")
+	vim.api.nvim_exec_autocmds("BufRead", { buffer = b_lua })
+	if plain_ran == 1 and lua_ran == 1 then
+		print(("  ✓ event variants (%s): matching buffer loads the patterned plugin"):format(suffix))
+		passed = passed + 1
+	else
+		print(("  ✗ event variants (%s): matching buffer — plain:%d lua:%d"):format(suffix, plain_ran, lua_ran))
+		failed = failed + 1
+	end
+end
+
+check_event_variant_order(false)
+check_event_variant_order(true)
+
+-- VeryLazy keeps its special handling alongside (event, pattern) variants
+do
+	local vl_ran, ev_ran = 0, 0
+	local compiled = laze.compile({
+		{ dir = vim.fn.tempname(), name = "ev-vl", event = "VeryLazy", config = function() vl_ran = vl_ran + 1 end },
+		{
+			dir = vim.fn.tempname(),
+			name = "ev-vl-lua",
+			event = { { event = "BufRead", pattern = "*.lua" } },
+			config = function() ev_ran = ev_ran + 1 end,
+		},
+	})
+	laze.build_plan(compiled)()
+	vim.wait(10)
+	if vl_ran == 1 and ev_ran == 0 then
+		print("  ✓ event variants: VeryLazy still fires immediately (headless) while patterned events stay lazy")
+		passed = passed + 1
+	else
+		print(("  ✗ event variants: VeryLazy interaction — vl:%d ev:%d"):format(vl_ran, ev_ran))
+		failed = failed + 1
+	end
+	local b_lua = vim.api.nvim_create_buf(false, true)
+	vim.api.nvim_buf_set_name(b_lua, vim.fn.tempname() .. ".lua")
+	vim.api.nvim_exec_autocmds("BufRead", { buffer = b_lua })
+	if ev_ran == 1 then
+		print("  ✓ event variants: patterned event still loads after VeryLazy fired")
+		passed = passed + 1
+	else
+		print(("  ✗ event variants: patterned event after VeryLazy — ev:%d"):format(ev_ran))
+		failed = failed + 1
+	end
+end
+
 -- unsupported-field warnings are deduped per field per compile
 do
 	local msgs = {}
@@ -1843,14 +1939,15 @@ do
 	end
 end
 
--- conflicting trigger merges warn instead of silently dropping (first wins)
+-- distinct event patterns route independently (no conflict warning);
+-- conflicting shared-lhs merges still warn instead of silently dropping
 do
 	local msgs = {}
 	local orig_notify = vim.notify
 	vim.notify = function(msg, _)
 		table.insert(msgs, msg)
 	end
-	laze.compile({
+	local compiled = laze.compile({
 		{ "test/ev-a", event = { { event = "BufRead", pattern = "*.lua" } } },
 		{ "test/ev-b", event = { { event = "BufRead", pattern = "*.vim" } } },
 		{ "test/key-a", keys = { { lhs = "<leader>cc", rhs = ":A<CR>" } } },
@@ -1866,11 +1963,18 @@ do
 			key_warn = true
 		end
 	end
-	if ev_warn and key_warn then
-		print("  ✓ trigger conflicts: event-pattern and shared-lhs merges warn")
+	local variants = compiled.routes.events.BufReadPost or {}
+	if not ev_warn and key_warn and #variants == 2 then
+		print("  ✓ trigger conflicts: event patterns route independently; shared-lhs merges warn")
 		passed = passed + 1
 	else
-		print(("  ✗ trigger conflicts: event:%s keys:%s"):format(tostring(ev_warn), tostring(key_warn)))
+		print(
+			("  ✗ trigger conflicts: event-warn:%s keys:%s variants:%d"):format(
+				tostring(ev_warn),
+				tostring(key_warn),
+				#variants
+			)
+		)
 		failed = failed + 1
 	end
 end

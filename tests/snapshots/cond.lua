@@ -56,10 +56,12 @@ return {
 		cmds = {},
 		events = {
 			VeryLazy = {
-				ids = {
-					"plugin-always",
-					"plugin-cond-false",
-					"plugin-cond-true",
+				{
+					ids = {
+						"plugin-always",
+						"plugin-cond-false",
+						"plugin-cond-true",
+					},
 				},
 			},
 		},

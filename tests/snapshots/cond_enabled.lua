@@ -87,10 +87,12 @@ return {
 		cmds = {},
 		events = {
 			VeryLazy = {
-				ids = {
-					"plugin-cond-false",
-					"plugin-cond-true",
-					"plugin-enabled-fn",
+				{
+					ids = {
+						"plugin-cond-false",
+						"plugin-cond-true",
+						"plugin-enabled-fn",
+					},
 				},
 			},
 		},

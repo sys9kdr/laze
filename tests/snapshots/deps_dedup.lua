@@ -78,9 +78,11 @@ return {
 		},
 		events = {
 			VeryLazy = {
-				ids = {
-					"parent1",
-					"parent2",
+				{
+					ids = {
+						"parent1",
+						"parent2",
+					},
 				},
 			},
 		},

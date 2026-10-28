@@ -65,8 +65,10 @@ return {
 		},
 		events = {
 			BufReadPost = {
-				ids = {
-					"plugin",
+				{
+					ids = {
+						"plugin",
+					},
 				},
 			},
 		},

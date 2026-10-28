@@ -103,11 +103,13 @@ return {
 		cmds = {},
 		events = {
 			VeryLazy = {
-				ids = {
-					"low-priority",
-					"no-build",
-					"build-str",
-					"build-fn",
+				{
+					ids = {
+						"low-priority",
+						"no-build",
+						"build-str",
+						"build-fn",
+					},
 				},
 			},
 		},

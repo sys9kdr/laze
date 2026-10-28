@@ -44,9 +44,11 @@ return {
 		cmds = {},
 		events = {
 			VeryLazy = {
-				ids = {
-					"plugin-module",
-					"plugin-module-array",
+				{
+					ids = {
+						"plugin-module",
+						"plugin-module-array",
+					},
 				},
 			},
 		},
