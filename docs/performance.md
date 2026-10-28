@@ -115,8 +115,8 @@ that does an O(1) `routes` hash lookup on `ev.match`
 from `load_with_deps`' `loaded[]` guard (the old per-ft `once`
 self-delete is subsumed by it); misfires on unrelated
 filetypes/commands cost one hash miss. Events were already one
-autocmd per event name; keys need one mapping per lhs by nature
-(`vim.keymap.set`, ~15 µs each — accepted, inherent API cost).
+autocmd per event name; keys need one mapping per `(lhs, mode)` variant
+by nature (`vim.keymap.set`, ~15 µs each — accepted, inherent API cost).
 
 ### plan.lua: O(N×M) route scan on every startup — resolved
 

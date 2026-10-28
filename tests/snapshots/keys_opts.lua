@@ -41,19 +41,23 @@ return {
 		fts = {},
 		keys = {
 			[",,d"] = {
-				desc = "my desc",
-				ids = {
-					"key-desc-silent",
+				{
+					desc = "my desc",
+					ids = {
+						"key-desc-silent",
+					},
+					mode = "n",
+					rhs = "<cmd>echo 1<CR>",
+					silent = true,
 				},
-				mode = "n",
-				rhs = "<cmd>echo 1<CR>",
-				silent = true,
 			},
 			[",,x"] = {
-				ids = {
-					"key-plain",
+				{
+					ids = {
+						"key-plain",
+					},
+					mode = "n",
 				},
-				mode = "n",
 			},
 		},
 		modules = {},

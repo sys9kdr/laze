@@ -60,6 +60,7 @@ local fixtures = {
 	"deps_dedup",
 	"event_pattern",
 	"keys_opts",
+	"keys_variants",
 	"cond_enabled",
 	"name_derivation",
 	"priority_build",

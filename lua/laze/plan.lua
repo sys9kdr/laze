@@ -585,11 +585,15 @@ local function build_plan(compiled, opts)
 			})
 		end
 
-		for lhs, entry in pairs(routes.keys) do
-			local modes = type(entry.mode) == "table" and entry.mode or { entry.mode }
-			local ids = entry.ids
-			local rhs = entry.rhs
-			for _, mode in ipairs(modes) do
+		-- One trigger map per (lhs, mode) variant. A `mode` array in the
+		-- spec is already expanded by compile, so each variant owns exactly
+		-- one mode: deleting this trigger (takeover, below) only touches its
+		-- own mode, and the other variants stay live for their modes.
+		for lhs, variants in pairs(routes.keys) do
+			for _, entry in ipairs(variants) do
+				local mode = entry.mode
+				local ids = entry.ids
+				local rhs = entry.rhs
 				local keymap_opts = { desc = entry.desc or "laze: load on key" }
 				if entry.silent ~= nil then
 					keymap_opts.silent = entry.silent
@@ -599,9 +603,11 @@ local function build_plan(compiled, opts)
 					if rhs == nil then
 						-- No rhs: the plugin's own keymap takes over after load.
 						-- Delete the trigger NOW — at this point it is the only
-						-- map for this lhs. Deleting after loading would remove
-						-- the freshly registered plugin map too (vim.keymap.del
-						-- removes every map for the lhs).
+						-- map for this lhs in this mode (other mode variants
+						-- are separate maps and must stay). Deleting after
+						-- loading would remove the freshly registered plugin
+						-- map too (vim.keymap.del removes every map for the
+						-- lhs in the mode).
 						pcall(vim.keymap.del, mode, lhs)
 					end
 					for _, id in ipairs(ids) do

@@ -43,22 +43,28 @@ return {
 		fts = {},
 		keys = {
 			["<leader>a"] = {
-				ids = {
-					"plugin",
+				{
+					ids = {
+						"plugin",
+					},
+					mode = "n",
 				},
-				mode = "n",
 			},
 			["<leader>b"] = {
-				ids = {
-					"plugin",
+				{
+					ids = {
+						"plugin",
+					},
+					mode = "n",
 				},
-				mode = "n",
 			},
 			["<leader>ff"] = {
-				ids = {
-					"myplugin",
+				{
+					ids = {
+						"myplugin",
+					},
+					mode = "n",
 				},
-				mode = "n",
 			},
 		},
 		modules = {},
