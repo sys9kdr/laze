@@ -561,6 +561,129 @@ do
 	io.flush()
 end
 
+-- empty mode string: lazy.nvim passes "" to vim.keymap.set, which creates
+-- a multi-mode mapping (n/v/x/s/o). Keep that behavior.
+do
+	local ran = 0
+	local compiled = laze.compile({
+		{
+			dir = vim.fn.tempname(),
+			name = "key-empty-mode",
+			keys = { { lhs = "<leader>em", mode = "" } },
+			config = function()
+				ran = ran + 1
+			end,
+		},
+	})
+	laze.build_plan(compiled)()
+
+	local lhs = vim.api.nvim_replace_termcodes("<leader>em", true, false, true)
+	local function has_map(mode)
+		for _, km in ipairs(vim.api.nvim_get_keymap(mode)) do
+			if km.lhs == lhs then
+				return true
+			end
+		end
+		return false
+	end
+
+	local found = {}
+	for _, mode in ipairs({ "n", "v", "x", "s", "o" }) do
+		found[mode] = has_map(mode)
+	end
+	local insert_modes_clear = not has_map("i") and not has_map("c") and not has_map("t")
+	vim.api.nvim_feedkeys(lhs, "x", false)
+	vim.wait(50)
+
+	if
+		found.n
+		and found.v
+		and found.x
+		and found.s
+		and found.o
+		and insert_modes_clear
+		and ran == 1
+	then
+		print("  ✓ keys route: empty mode string creates a multi-mode map (lazy.nvim parity)")
+		passed = passed + 1
+	else
+		print(
+			(
+				"  ✗ keys route: empty mode string — n:%s v:%s x:%s s:%s o:%s i/c/t-clear:%s ran:%d"
+			):format(
+				tostring(found.n),
+				tostring(found.v),
+				tostring(found.x),
+				tostring(found.s),
+				tostring(found.o),
+				tostring(insert_modes_clear),
+				ran
+			)
+		)
+		failed = failed + 1
+	end
+	pcall(vim.keymap.del, "", lhs)
+	pcall(vim.keymap.del, "n", lhs)
+	pcall(vim.keymap.del, "v", lhs)
+end
+
+-- empty mode array: lazy.nvim resolves no key handler but keeps the plugin
+-- lazy, so it never loads. No trigger map should be installed.
+do
+	local ran = 0
+	local compiled = laze.compile({
+		{
+			dir = vim.fn.tempname(),
+			name = "key-empty-modes",
+			keys = { { lhs = "<leader>ea", mode = {} } },
+			config = function()
+				ran = ran + 1
+			end,
+		},
+	})
+	laze.build_plan(compiled)()
+
+	local lhs = vim.api.nvim_replace_termcodes("<leader>ea", true, false, true)
+	local function has_map(mode)
+		for _, km in ipairs(vim.api.nvim_get_keymap(mode)) do
+			if km.lhs == lhs then
+				return true
+			end
+		end
+		return false
+	end
+
+	local mapped = false
+	for _, mode in ipairs({ "n", "v", "x", "s", "o", "i", "c", "t" }) do
+		if has_map(mode) then
+			mapped = true
+			break
+		end
+	end
+	vim.api.nvim_feedkeys(lhs, "x", false)
+	vim.wait(50)
+
+	if
+		compiled.registry["key-empty-modes"].has_route
+		and compiled.routes.keys["<leader>ea"] == nil
+		and not mapped
+		and ran == 0
+	then
+		print("  ✓ keys route: empty mode array installs no map and stays lazy (lazy.nvim parity)")
+		passed = passed + 1
+	else
+		print(
+			("  ✗ keys route: empty mode array — has_route:%s route:%s mapped:%s ran:%d"):format(
+				tostring(compiled.registry["key-empty-modes"].has_route),
+				tostring(compiled.routes.keys["<leader>ea"] ~= nil),
+				tostring(mapped),
+				ran
+			)
+		)
+		failed = failed + 1
+	end
+end
+
 -- keys route: plugin's own keymap takes over after the trigger fires
 -- (regression: the trigger map must be deleted BEFORE loading — keymap.del
 -- removes every map for the lhs, which would also kill the plugin's map)

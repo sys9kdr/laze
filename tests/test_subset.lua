@@ -197,7 +197,7 @@ local notes = {
 	"priority: honored for eager ordering — eager plugins load highest-first with id as tie-break, matching lazy.nvim's start-plugin reordering. Dependencies (`after`) never order eagerly: they load via their parents.",
 	"keys entries: laze keeps lhs/rhs/mode/desc/silent; other vim.keymap.set options (noremap, nowait, expr, callback, buffer) are silently dropped.",
 	"function-shaped triggers (event/cmd/ft/keys = fun(self, list)): valid in lazy.nvim (evaluated at startup). laze REJECTS them with a compile error — silently ignoring them would turn the plugin eager. Rejecting is the safe direction: a laze config never contains them, and migrating laze → lazy.nvim is unaffected.",
-	"keys mode: laze accepts mode = string | string[] ('n','v',...); lazy.nvim's LazyKeysSpec mode also accepts a mode table. Shared shape.",
+	"keys mode: laze accepts mode = string | string[] ('n','v',...); lazy.nvim's LazyKeysSpec mode also accepts a mode table. Shared shape. Empty values are passed through: mode = \"\" becomes a multi-mode mapping via vim.keymap.set, while mode = {} installs no key handler but keeps the plugin lazy (lazy.nvim parity).",
 	"dev = string: laze uses it as the dev directory. lazy.nvim documents dev as boolean only (a string is truthy there and triggers config.dev.path).",
 }
 

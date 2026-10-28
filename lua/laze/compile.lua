@@ -459,18 +459,21 @@ local function add_to_key_route(route_map, keys, plugin_id)
 	for i = 1, #keys do
 		local ke = keys[i]
 		local lhs = ke.lhs
-		local variants = route_map[lhs]
-		if not variants then
-			variants = {}
-			route_map[lhs] = variants
-		end
 		local modes = type(ke.mode) == "table" and ke.mode or { ke.mode }
 		local seen_modes = {}
 		for j = 1, #modes do
 			local mode = modes[j]
 			-- `mode = { "n", "n" }`: one variant, not two maps for one lhs.
+			-- An empty mode array creates no variants at all (lazy.nvim
+			-- resolves no key handler and keeps the plugin lazy); don't
+			-- leave an empty `routes.keys[lhs]` entry behind.
 			if not seen_modes[mode] then
 				seen_modes[mode] = true
+				local variants = route_map[lhs]
+				if not variants then
+					variants = {}
+					route_map[lhs] = variants
+				end
 				local variant
 				for k = 1, #variants do
 					if variants[k].mode == mode then
@@ -664,24 +667,13 @@ local function validate_triggers(spec, idx, spec_id)
 				if type(lhs) ~= "string" or lhs == "" then
 					bad("keys[" .. i .. "]", "must have a non-empty lhs (string)")
 				end
-				if item.mode ~= nil then
-					if type(item.mode) == "string" then
-						if item.mode == "" then
-							bad("keys[" .. i .. "]", "mode must not be empty")
-						end
-					elseif not is_string_array(item.mode) then
-						bad("keys[" .. i .. "]", "mode must be a string or string[]")
-					elseif #item.mode == 0 then
-						-- An empty mode set would create no trigger map at all
-						-- while still marking the plugin lazy — a silent drop.
-						bad("keys[" .. i .. "]", "mode must not be an empty array")
-					else
-						for _, m in ipairs(item.mode) do
-							if m == "" then
-								bad("keys[" .. i .. "]", "mode must not be empty")
-							end
-						end
-					end
+				-- lazy.nvim does not validate the contents of mode:
+				-- mode = "" is passed to vim.keymap.set (which creates a
+				-- multi-mode mapping), and mode = {} resolves to no key
+				-- handler while the plugin stays lazy. Match that behavior
+				-- instead of rejecting empty values.
+				if item.mode ~= nil and type(item.mode) ~= "string" and not is_string_array(item.mode) then
+					bad("keys[" .. i .. "]", "mode must be a string or string[]")
 				end
 			elseif type(item) ~= "string" then
 				bad("keys[" .. i .. "]", "must be a string or an entry table")
