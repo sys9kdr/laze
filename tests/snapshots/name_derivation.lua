@@ -69,11 +69,13 @@ return {
 		cmds = {},
 		events = {
 			VeryLazy = {
-				ids = {
-					"repo",
-					"plugin",
-					"which-key",
-					"lua-src",
+				{
+					ids = {
+						"repo",
+						"plugin",
+						"which-key",
+						"lua-src",
+					},
 				},
 			},
 		},

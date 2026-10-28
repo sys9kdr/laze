@@ -73,7 +73,7 @@
 ---@field silent? boolean
 
 ---@class LazeRoutes
----@field events table<string, {ids: string[], pattern?: string}>
+---@field events table<string, {ids: string[], pattern?: string}[]> One pattern variant per distinct (event, pattern) pair
 ---@field fts table<string, string[]>
 ---@field cmds table<string, string[]>
 ---@field keys table<string, LazeKeyRoute[]> Keyed by lhs; one entry per mode variant

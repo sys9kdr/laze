@@ -24,8 +24,10 @@ return {
 		cmds = {},
 		events = {
 			VeryLazy = {
-				ids = {
-					"wk",
+				{
+					ids = {
+						"wk",
+					},
 				},
 			},
 		},

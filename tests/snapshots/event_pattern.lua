@@ -14,6 +14,14 @@ return {
 			name = "plugin-array",
 			src = "https://github.com/user/plugin-array",
 		},
+		{
+			name = "plugin-same-event",
+			src = "https://github.com/user/plugin-same-event",
+		},
+		{
+			name = "plugin-same-event-dedup",
+			src = "https://github.com/user/plugin-same-event-dedup",
+		},
 	},
 	registry = {
 		["plugin-array"] = {
@@ -30,13 +38,35 @@ return {
 		["plugin-pattern"] = {
 			after = {},
 			enabled = true,
-			has_route = false,
+			has_route = true,
 			id = "plugin-pattern",
 			is_dep = false,
 			pkg = "plugin-pattern",
 			priority = 50,
 			silent = false,
 			src = "https://github.com/user/plugin-pattern",
+		},
+		["plugin-same-event"] = {
+			after = {},
+			enabled = true,
+			has_route = true,
+			id = "plugin-same-event",
+			is_dep = false,
+			pkg = "plugin-same-event",
+			priority = 50,
+			silent = false,
+			src = "https://github.com/user/plugin-same-event",
+		},
+		["plugin-same-event-dedup"] = {
+			after = {},
+			enabled = true,
+			has_route = true,
+			id = "plugin-same-event-dedup",
+			is_dep = false,
+			pkg = "plugin-same-event-dedup",
+			priority = 50,
+			silent = false,
+			src = "https://github.com/user/plugin-same-event-dedup",
 		},
 		["plugin-simple"] = {
 			after = {},
@@ -54,19 +84,40 @@ return {
 		cmds = {},
 		events = {
 			BufEnter = {
-				ids = {
-					"plugin-array",
+				{
+					ids = {
+						"plugin-array",
+					},
 				},
 			},
 			BufLeave = {
-				ids = {
-					"plugin-array",
+				{
+					ids = {
+						"plugin-array",
+					},
+					pattern = "*.md",
 				},
-				pattern = "*.md",
 			},
 			BufReadPre = {
-				ids = {
-					"plugin-simple",
+				{
+					ids = {
+						"plugin-simple",
+					},
+				},
+				{
+					ids = {
+						"plugin-same-event",
+						"plugin-same-event-dedup",
+					},
+					pattern = "*.lua",
+				},
+			},
+			BufWritePost = {
+				{
+					ids = {
+						"plugin-pattern",
+					},
+					pattern = "*.lua",
 				},
 			},
 		},

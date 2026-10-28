@@ -120,14 +120,16 @@ return {
 		cmds = {},
 		events = {
 			VeryLazy = {
-				ids = {
-					"plugin-branch",
-					"plugin-tag",
-					"plugin-commit",
-					"plugin-version-false",
-					"plugin-version-false-branch",
-					"plugin-tag-priority",
-					"plugin-commit-priority",
+				{
+					ids = {
+						"plugin-branch",
+						"plugin-tag",
+						"plugin-commit",
+						"plugin-version-false",
+						"plugin-version-false-branch",
+						"plugin-tag-priority",
+						"plugin-commit-priority",
+					},
 				},
 			},
 		},

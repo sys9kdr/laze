@@ -93,16 +93,19 @@ real-plugin cold start 9.58ms → 7.19ms.
 ### plan.lua: one autocmd per event name — resolved (2026-09)
 
 `plan()` created one autocmd per distinct event (~12 µs each).
-`nvim_create_autocmd` accepts an event list in one call, so events
+`nvim_create_autocmd` accepts an event list in one call, so variants
 sharing a pattern are now wired by a single call dispatching on
 `ev.event` (100 distinct events: ~130 µs saved, ~10 µs at realistic
-scale; no memory win — nvim still stores N rows). `once = true` is
-per-event-row (verified: rows self-delete independently), so fire-once
-semantics are unchanged. VeryLazy stays separate (not a real event).
-Required a compile-side fix found by the new tests: Neovim stores
-`BufRead`→`BufReadPost`, `BufCreate`→`BufAdd`, `BufWrite`→`BufWritePre`
-(verified by create + read-back), so route keys are canonicalized in
-`normalize_events` — the grouped dispatch looks them up by `ev.event`.
+scale; no memory win — nvim still stores N rows). Routes are modelled
+per distinct `(event, pattern)` variant, so different patterns for the
+same event are separate buckets (separate calls) while the patternless
+bucket stays unrestricted. `once = true` is per-event-row (verified:
+rows self-delete independently), so fire-once semantics are unchanged.
+VeryLazy stays separate (not a real event). Required a compile-side fix
+found by the new tests: Neovim stores `BufRead`→`BufReadPost`,
+`BufCreate`→`BufAdd`, `BufWrite`→`BufWritePre` (verified by create +
+read-back), so route keys are canonicalized in `normalize_events` — the
+grouped dispatch matches on `ev.event`.
 
 ### plan.lua: N per-trigger autocmds for ft/cmd routes — resolved (2026-09)
 

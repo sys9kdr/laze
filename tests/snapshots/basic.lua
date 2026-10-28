@@ -61,8 +61,10 @@ return {
 		},
 		events = {
 			VeryLazy = {
-				ids = {
-					"which-key",
+				{
+					ids = {
+						"which-key",
+					},
 				},
 			},
 		},

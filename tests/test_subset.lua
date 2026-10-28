@@ -57,7 +57,7 @@ local LAZY_NVIM_FIELDS = {
 	build = "fun|string|false|list of build commands",
 	-- Spec Lazy Loading
 	lazy = "boolean",
-	event = "string|string[]|{event,pattern}[]|fun",
+	event = "string|string[]|{event,pattern}|{event,pattern}[]|fun",
 	cmd = "string|string[]|fun",
 	ft = "string|string[]|fun",
 	keys = "string|string[]|LazyKeysSpec[]|fun",

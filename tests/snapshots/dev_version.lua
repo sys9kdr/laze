@@ -121,14 +121,16 @@ return {
 		cmds = {},
 		events = {
 			VeryLazy = {
-				ids = {
-					"plugin-dev-bool",
-					"plugin-dev-path",
-					"plugin-dev-fallback",
-					"plugin-dev-tag",
-					"plugin-dev-commit",
-					"plugin-dev-branch",
-					"plugin-remote-tag",
+				{
+					ids = {
+						"plugin-dev-bool",
+						"plugin-dev-path",
+						"plugin-dev-fallback",
+						"plugin-dev-tag",
+						"plugin-dev-commit",
+						"plugin-dev-branch",
+						"plugin-remote-tag",
+					},
 				},
 			},
 		},

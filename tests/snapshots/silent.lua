@@ -39,9 +39,11 @@ return {
 		cmds = {},
 		events = {
 			VeryLazy = {
-				ids = {
-					"plugin-silent",
-					"plugin-noisy",
+				{
+					ids = {
+						"plugin-silent",
+						"plugin-noisy",
+					},
 				},
 			},
 		},

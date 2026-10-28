@@ -52,8 +52,10 @@ return {
 		cmds = {},
 		events = {
 			BufReadPost = {
-				ids = {
-					"opts-plugin",
+				{
+					ids = {
+						"opts-plugin",
+					},
 				},
 			},
 		},
