@@ -2,7 +2,7 @@ return {
 	specs = {
 		{
 			"user/plugin-version",
-			version = "v1.0.0",
+			tag = "v1.0.0",
 			event = "VeryLazy",
 		},
 		{
@@ -12,7 +12,7 @@ return {
 		},
 		{
 			"user/plugin-both",
-			version = "main",
+			branch = "main",
 			data = { key = "value" },
 			event = "VeryLazy",
 		},

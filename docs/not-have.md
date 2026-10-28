@@ -5,7 +5,8 @@ code or a measured doc — not a roadmap. Sources: `lua/laze/compile.lua`
 (`UNSUPPORTED_FIELDS`, `validate_spec`, `validate_triggers`),
 `tests/test_subset.lua` (semantic notes), `docs/design.md` (Philosophy),
 `docs/migration.md`, `docs/performance.md` (Rejected sections),
-`docs/startup-lazy-activation.md` (proxy limitation).
+`docs/startup-lazy-activation.md` (proxy limitation). The canonical index of
+known differences is [known-differences.md](known-differences.md).
 
 ## Deliberate no (philosophy)
 
@@ -157,8 +158,9 @@ function; re-proposing needs new measurements, not arguments.
 ## Native already does it (vim.pack)
 
 Delegated per `docs/design.md`: vim.pack owns placement,
-installation, version resolution, dependency handling. Laze only owns
-timing and trigger wiring.
+installation, tag/ref resolution, the lockfile, and dependency handling.
+Laze owns lowering lazy.nvim ranges/refs into vim.pack's `version` field,
+plus timing and trigger wiring.
 
 - **Install / update / delete.** What: no solver, no parallel
   fetcher, no lock module.
@@ -168,11 +170,17 @@ timing and trigger wiring.
   Alternative: commit the lockfile; update via `:Laze update`
   (`vim.pack.update()`).
 
-- **Version resolution.** What: `version`/`branch`/`tag`/`commit`
-  fold into one vim.pack `version` field (commit > tag > branch;
-  `resolve_version` in `compile.lua`); `version = "*"` maps to a
-  `VersionRange`; `pin` passes through untouched.
-  Why not: state ownership — one resolver (vim.pack), not two.
+- **Version resolution.** What: `version` is a lazy.nvim semver range and
+  lowers to a vim.pack `VersionRange`; `branch`/`tag`/`commit` are refs and
+  lower to vim.pack's version string. Precedence is lazy.nvim's:
+  `commit > tag > version > branch` (`resolve_version` in `compile.lua`);
+  `version = false` falls back to `branch` / the default branch; `pin`
+  passes through untouched. A range is parsed only when it wins precedence.
+  Only single ranges are accepted; multi-ranges and whitespace-separated
+  comparator sets fail at compile time.
+  Why not: state ownership — one resolver (vim.pack), not two. vim.pack
+  errors when no tag matches a range, whereas lazy.nvim falls back to the
+  default branch; use a ref for repos without semver tags.
   Alternative: write the semver range directly:
   ```lua
   { "foo/bar", version = ">=2.0.0" }

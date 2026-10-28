@@ -22,7 +22,7 @@
 ---@field keys? string|(string|LazeKeySpec|LazeNamedKeySpec)[]
 ---@field dev? boolean|string
 ---@field dev_path? string
----@field version? string|vim.VersionRange|false
+---@field version? string|false Semver range; git refs use branch/tag/commit
 ---@field data? any
 ---@field branch? string
 ---@field tag? string

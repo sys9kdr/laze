@@ -1,6 +1,7 @@
 local TRIGGER_FIELDS = { "event", "ft", "cmd", "keys" }
 local ARRAY_TRIGGER_FIELDS = { "ft", "cmd" }
 local SOURCE_FIELDS = { "dir", "url", "name" }
+local VERSION_REF_FIELDS = { "branch", "tag", "commit" }
 
 local function normalize_array(v)
 	if v == nil then
@@ -192,30 +193,214 @@ local function normalize_events(v)
 	return {}
 end
 
---- Resolve lazy.nvim version spec to a vim.pack-compatible version value.
---- lazy.nvim: version = "*" | "2.1.0" | false | (branch|tag|commit are separate fields)
---- vim.pack:  version only accepts a string (branch/tag/commit hash) or VersionRange.
----@param spec LazeSpec
----@return string|vim.VersionRange|nil
-local function resolve_version(spec)
-	local v = spec.version
-	if v == false then
-		-- lazy.nvim: false = "use default branch" → nil here (vim.pack default)
-		return nil
+-- lazy.nvim's `version` is a semver range, not a git ref. vim.version.range
+-- is lenient enough to misparse refs ("abc123" → 123.0.0), drop everything
+-- after the first comparator ("1.2 || 1.3", ">=1.2.0 <2.0.0"), and ignore
+-- trailing junk. Validate the whole string before handing it to vim.pack so
+-- an unrepresentable range fails at compile time instead of silently
+-- narrowing. Refs belong in branch/tag/commit.
+local function is_digit(b)
+	return b ~= nil and b >= 48 and b <= 57
+end
+
+local function is_wildcard(b)
+	return b == 42 or b == 120 or b == 88 -- * x X
+end
+
+local function is_ident_byte(b)
+	return b ~= nil
+		and ((b >= 48 and b <= 57) or (b >= 65 and b <= 90) or (b >= 97 and b <= 122) or b == 45)
+end
+
+-- Scan one version token after an optional comparator. Accepts the shapes
+-- lazy.nvim/vim.version.range support: partial versions, x/X/* wildcards,
+-- prerelease, and build metadata. Returns false on any trailing bytes.
+local function is_version_token(s, i)
+	local n = #s
+	local b = s:byte(i)
+	if b == 118 or b == 86 then -- v / V
+		i = i + 1
 	end
-	if v == "*" then
-		-- lazy.nvim: "*" = "latest tag". vim.pack honors VersionRange against tags.
-		if vim.version and vim.version.range then
-			return vim.version.range("*")
+	if not is_digit(s:byte(i)) then
+		return false
+	end
+
+	local numeric = 0
+	local wildcard = false
+	while i <= n do
+		b = s:byte(i)
+		if is_digit(b) then
+			if wildcard then
+				return false -- no numeric component after a wildcard
+			end
+			repeat
+				i = i + 1
+			until not is_digit(s:byte(i))
+			numeric = numeric + 1
+		elseif is_wildcard(b) then
+			wildcard = true
+			i = i + 1
+		else
+			break
 		end
-		return nil
+		if s:byte(i) == 46 then -- "."
+			i = i + 1
+			if i > n then
+				return false
+			end
+		else
+			break
+		end
 	end
-	if v ~= nil then
-		return v
+	if numeric == 0 or numeric > 3 then
+		return false
 	end
-	-- lazy.nvim allows branch/tag/commit as independent fields; vim.pack only
-	-- has `version`. Map them: commit > tag > branch (most specific wins).
-	return spec.commit or spec.tag or spec.branch
+
+	-- Prerelease/build after a wildcard would be stripped by vim.version.range
+	-- along with the wildcard, so reject it rather than guess.
+	if wildcard and (s:byte(i) == 45 or s:byte(i) == 43) then
+		return false
+	end
+
+	local function scan_identifiers(j, stop_at_plus)
+		local start = j
+		while j <= n do
+			local bb = s:byte(j)
+			if is_ident_byte(bb) then
+				j = j + 1
+			elseif bb == 46 then -- "."
+				if j == start or s:byte(j - 1) == 46 then
+					return false
+				end
+				j = j + 1
+				if not is_ident_byte(s:byte(j)) then
+					return false
+				end
+			elseif bb == 43 and stop_at_plus then -- "+"
+				break
+			else
+				return false
+			end
+		end
+		if j == start then
+			return false
+		end
+		return j
+	end
+
+	if s:byte(i) == 45 then -- "-" prerelease
+		i = scan_identifiers(i + 1, true)
+		if i == false then
+			return false
+		end
+	end
+	if s:byte(i) == 43 then -- "+" build
+		i = scan_identifiers(i + 1, false)
+		if i == false then
+			return false
+		end
+	end
+	return i > n
+end
+
+local function is_range_operand(s, allow_comparator)
+	local i = 1
+	if allow_comparator then
+		local b = s:byte(i)
+		if b == 62 or b == 60 then -- > <
+			if s:byte(i + 1) == 61 then -- >= <=
+				i = i + 2
+			else
+				i = i + 1
+			end
+		elseif b == 94 or b == 126 or b == 61 then -- ^ ~ =
+			i = i + 1
+		end
+	end
+	return is_version_token(s, i)
+end
+
+local function looks_like_semver_range(v)
+	local n = #v
+	if n == 0 then
+		return true -- lazy.nvim and vim.version.range treat "" as "*"
+	end
+	if n == 1 and v:byte(1) == 42 then -- "*"
+		return true
+	end
+
+	-- The only whitespace accepted is a single hyphen-range separator. This
+	-- rejects compound ranges (" >=1.2.0 <2.0.0") instead of letting
+	-- vim.version.range keep only the first comparator.
+	local hyphen = v:find(" - ", 1, true)
+	if hyphen then
+		if v:find(" - ", hyphen + 3, true) then
+			return false
+		end
+		local a = v:sub(1, hyphen - 1)
+		local b = v:sub(hyphen + 3)
+		return a ~= "" and b ~= "" and is_range_operand(a, false) and is_range_operand(b, false)
+	end
+	for i = 1, n do
+		local b = v:byte(i)
+		if b == 32 or b == 9 or b == 10 or b == 13 then
+			return false
+		end
+	end
+	return is_range_operand(v, true)
+end
+
+---@param v string
+---@param idx? integer
+---@param spec_id? string
+---@return vim.VersionRange
+local function to_semver_range(v, idx, spec_id)
+	local prefix = idx and ("spec [" .. idx .. "]" .. (spec_id and (" (" .. spec_id .. ")") or "") .. ": ") or ""
+	if not looks_like_semver_range(v) then
+		error(
+			prefix
+				.. ("version %q is not a supported semver range (single ranges only; multi-range/whitespace sets are rejected; git refs belong in branch/tag/commit)"):format(
+					v
+				),
+			0
+		)
+	end
+	local range_fn = vim.version and vim.version.range
+	if type(range_fn) ~= "function" then
+		error(prefix .. "vim.version.range is required to lower version ranges", 0)
+	end
+	local ok, range = pcall(range_fn, v)
+	if not ok or range == nil then
+		error(prefix .. ("version %q is not a valid semver range"):format(v), 0)
+	end
+	return range
+end
+
+--- Resolve lazy.nvim version spec to a vim.pack-compatible version value.
+--- lazy.nvim: version = semver range string | false; branch/tag/commit are refs.
+--- vim.pack:  version accepts a git ref string or a VersionRange.
+---@param spec LazeSpec
+---@param idx? integer
+---@param range? vim.VersionRange Already validated by validate_spec
+---@return string|vim.VersionRange|nil
+local function resolve_version(spec, idx, range)
+	-- lazy.nvim precedence: commit > tag > version > branch.
+	if spec.commit ~= nil then
+		return spec.commit
+	end
+	if spec.tag ~= nil then
+		return spec.tag
+	end
+	local v = spec.version
+	if v ~= nil and v ~= false then
+		-- Field-based lowering: a version string is always a semver range,
+		-- never a git ref (refs use branch/tag/commit). Reuse the range
+		-- validated during compile instead of parsing the same string twice.
+		return range or to_semver_range(v, idx)
+	end
+	-- version = false (or omitted) means "do not pin a range"; branch still
+	-- applies, then vim.pack's default branch when neither is set.
+	return spec.branch
 end
 
 local function add_to_route(route_map, keys, plugin_id)
@@ -454,6 +639,10 @@ local function validate_triggers(spec, idx, spec_id)
 	end
 end
 
+---@param spec LazeSpec
+---@param idx integer
+---@param warned table<string, boolean>
+---@return vim.VersionRange|nil
 local function validate_spec(spec, idx, warned)
 	local src = spec[1] or spec.src
 	if not src and not spec.dir and not spec.url then
@@ -573,11 +762,29 @@ local function validate_spec(spec, idx, warned)
 	if spec.priority ~= nil and type(spec.priority) ~= "number" then
 		error("spec [" .. idx .. "] (" .. spec_id .. "): priority must be a number", 0)
 	end
-	if spec.version ~= nil and type(spec.version) ~= "string" and spec.version ~= false then
-		error("spec [" .. idx .. "] (" .. spec_id .. "): version must be a string (semver range) or false", 0)
+	local version_range
+	if spec.version ~= nil and spec.version ~= false then
+		if type(spec.version) ~= "string" then
+			error("spec [" .. idx .. "] (" .. spec_id .. "): version must be a string (semver range) or false", 0)
+		end
+		-- lazy.nvim's precedence is commit > tag > version > branch, so a
+		-- range that cannot win is not evaluated. Keep the type check above,
+		-- but only parse when version is actually eligible. This also lets
+		-- plain-Lua snapshot generation handle ref-only fixtures without a
+		-- vim.version stub. Return the object so resolve_version can reuse it
+		-- instead of parsing the same string twice.
+		if spec.commit == nil and spec.tag == nil then
+			version_range = to_semver_range(spec.version, idx, spec_id)
+		end
+	end
+	for _, f in ipairs(VERSION_REF_FIELDS) do
+		if spec[f] ~= nil and (type(spec[f]) ~= "string" or spec[f] == "") then
+			error("spec [" .. idx .. "] (" .. spec_id .. "): " .. f .. " must be a non-empty string", 0)
+		end
 	end
 
 	validate_triggers(spec, idx, spec_id)
+	return version_range
 end
 
 ---@param specs LazeSpec[]
@@ -696,7 +903,7 @@ function compile(specs, opts)
 	local warned = {}
 
 	for idx, spec in ipairs(expanded) do
-		validate_spec(spec, idx, warned)
+		local version_range = validate_spec(spec, idx, warned)
 
 		local src = spec[1] or spec.src
 		local dir = spec.dir
@@ -874,7 +1081,7 @@ function compile(specs, opts)
 				-- and must never be used for :packadd.
 				name = pkg,
 			}
-			local resolved_version = resolve_version(spec)
+			local resolved_version = resolve_version(spec, idx, version_range)
 			if resolved_version ~= nil then
 				pack_entry.version = resolved_version
 			end

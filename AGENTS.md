@@ -2,15 +2,18 @@
 
 Laze is a tiny compiler that transforms a well-defined subset of
 lazy.nvim specs into `vim.pack` specs and a minimal execution plan.
-It delegates installation, placement, version resolution, and dependency
-handling to Neovim's native `vim.pack`. Philosophy and output model:
+It delegates installation, placement, tag/ref resolution, and dependency
+handling to Neovim's native `vim.pack`; laze lowers lazy.nvim ranges/refs to
+its `version` field. Philosophy and output model:
 [docs/design.md](docs/design.md).
 
 ## Scope
 
 Implements only a subset of lazy.nvim. Everything beyond the core
 (compile → plan → setup) is an opt-in module in `lua/laze/` (`extra.lua`),
-never required by the core and free unless loaded.
+never required by the core and free unless loaded. Compatibility is pinned
+to the lazy.nvim spec documented as of 2026-08-18 (`tests/test_subset.lua`),
+not to every upstream change.
 
 Supported spec fields: [README § Spec shape](README.md#spec-shape) —
 mechanically pinned by `tests/test_subset.lua` (every laze-consumed
@@ -19,11 +22,38 @@ exception in compile.lua). Update both when the surface changes.
 
 Explicitly out of scope (do not add):
 
-* Dependency solver, plugin manager UI, install/update commands
+* Dependency solver, plugin manager UI, install/update commands in the core
+  (opt-in `:Laze` wrappers live in `lua/laze/extra.lua`)
 * `opts` abstraction, import system
 * `require()` hook interception — `module` triggers are
   `package.preload` entries (the global `require` is never touched)
 * Runtime plugin state manager, background scheduler, lifecycle framework
+
+## Subset discipline
+
+**Core principle: the target representation must not dictate source
+semantics.** laze's public spec is lazy.nvim-shaped; `vim.pack` is the target
+IR. Compile lowers one to the other. vim.pack's shape (e.g. its single
+`version` field) is an encoding detail, not a licence to redefine a lazy.nvim
+field.
+
+- Shared fields keep lazy.nvim's name, type, and meaning unless the deviation
+  is an explicit, documented, tested exception (e.g. `module`). Never overload
+  a shared field with a target-specific meaning: lazy.nvim's `version` is a
+  semver range, refs are `branch`/`tag`/`commit`; vim.pack's single `version`
+  is the lowering target. Lower explicitly; sniff only to reject a value,
+  never to reclassify it (e.g. `version = "main"` is an error, not a branch).
+- Maximize the *faithful* subset, not raw acceptance: accept as much lazy.nvim
+  surface as can be represented with identical behavior. If a case cannot be
+  represented faithfully, fail loudly (compile error) or document the exact
+  conversion — never a silent drop or best-effort approximation. A warning
+  that ignores the field is still a silent drop.
+- Extensions are outside the subset: use explicit, non-colliding names,
+  document what happens when the spec moves back to lazy.nvim, and don't let
+  them change shared-field semantics.
+- Differences are inevitable (vim.pack owns resolution). Make them explicit in
+  docs and tests. `tests/test_subset.lua` pins the surface; semantic cases
+  (precedence, range vs ref, `version = false`) need explicit tests too.
 
 ## Structure
 
@@ -32,7 +62,7 @@ lua/laze/init.lua      — Public API: compile(), build_plan(), setup(), reload_
 lua/laze/compile.lua   — Spec → IR transformation
 lua/laze/plan.lua      — Thin execution plan (trigger wiring, lazy loading)
 lua/laze/extra.lua      — Opt-in: :Laze subcommands (update/clean/health/reload) + public helpers
-docs/                  — design / extras / commands / migration / performance
+docs/                  — design / extras / commands / migration / performance / known differences
 tests/run.lua              — Test runner incl. perf suite: nvim --cmd "set rtp+=." -l tests/run.lua [perf]
 tests/test_compile.lua     — Standalone unit tests (luajit tests/test_compile.lua)
 tests/test_subset.lua      — Spec-surface conformance vs lazy.nvim docs
@@ -79,6 +109,7 @@ luajit tests/test_subset.lua                    # spec-surface conformance
 - Use the `FN` sentinel for function fields in expected output; runner deep-compares with sentinel-aware type checking
 - Regenerate snapshots: `nvim --cmd "set rtp+=." -l tests/update_snapshots.lua`
 - Perf thresholds are asserted inside `tests/run.lua perf`; benchmarks for manual profiling are documented in [docs/performance.md](docs/performance.md)
+- Known differences are canonical in [docs/known-differences.md](docs/known-differences.md); the machine-readable mirror is `tests/fixtures/known_differences.lua`. Add a stable `KD-xxx` ID and a test reference for each; `tests/test_subset.lua` enforces sync. Message policy: [#12](https://github.com/sys9kdr/laze/issues/12).
 
 ## Commit style
 
