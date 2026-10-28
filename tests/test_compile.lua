@@ -701,9 +701,6 @@ local rejection_cases = {
 	{ { "folke/x.nvim", name = "x", keys = { {} } }, "non-empty lhs", "keys entry without lhs rejected" },
 	{ { "folke/x.nvim", name = "x", keys = { { lhs = "" } } }, "non-empty lhs", "empty lhs rejected" },
 	{ { "folke/x.nvim", name = "x", keys = { { lhs = "a", mode = 42 } } }, "mode must be a string or string[]", "numeric mode rejected" },
-	{ { "folke/x.nvim", name = "x", keys = { { lhs = "a", mode = "" } } }, "mode must not be empty", "empty mode string rejected" },
-	{ { "folke/x.nvim", name = "x", keys = { { lhs = "a", mode = {} } } }, "mode must not be an empty array", "empty mode array rejected" },
-	{ { "folke/x.nvim", name = "x", keys = { { lhs = "a", mode = { "n", "" } } } }, "mode must not be empty", "empty mode inside array rejected" },
 	{ { "folke/x.nvim", name = "x", event = { { event = 42 } } }, "must have event = string", "numeric event in table rejected" },
 	{ { "folke/x.nvim", name = "x", event = { { event = { "A", 42 } } } }, "must have event = string", "non-string in event array rejected" },
 	{ { "folke/x.nvim", name = "x", event = { { event = "BufEnter", pattern = 42 } } }, "pattern must be a string", "numeric pattern rejected" },
@@ -763,6 +760,31 @@ do
 	expect(
 		#variants == 2 and variants[1].mode == "n" and variants[2].mode == "v",
 		"multi-mode keys expand into one variant per mode"
+	)
+end
+
+-- Empty mode values are lazy.nvim-compatible: "" is passed through to
+-- vim.keymap.set (multi-mode mapping), while {} resolves to no key handler
+-- but keeps the plugin lazy (so it never loads).
+do
+	local c = compile({ { "folke/x.nvim", name = "x", keys = { { lhs = "a", mode = "" } } } })
+	local variants = c.routes.keys["a"]
+	expect(#variants == 1 and variants[1].mode == "", "empty mode string is passed through")
+	expect(c.registry["x"].has_route == true, "empty mode string still marks the plugin lazy")
+end
+
+do
+	local c = compile({ { "folke/x.nvim", name = "x", keys = { { lhs = "a", mode = {} } } } })
+	expect(c.routes.keys["a"] == nil, "empty mode array creates no key route")
+	expect(c.registry["x"].has_route == true, "empty mode array still marks the plugin lazy")
+end
+
+do
+	local c = compile({ { "folke/x.nvim", name = "x", keys = { { lhs = "a", mode = { "n", "" } } } } })
+	local variants = c.routes.keys["a"]
+	expect(
+		#variants == 2 and variants[1].mode == "n" and variants[2].mode == "",
+		"empty mode inside an array is passed through"
 	)
 end
 
