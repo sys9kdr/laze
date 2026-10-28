@@ -62,7 +62,7 @@ lua/laze/init.lua      — Public API: compile(), build_plan(), setup(), reload_
 lua/laze/compile.lua   — Spec → IR transformation
 lua/laze/plan.lua      — Thin execution plan (trigger wiring, lazy loading)
 lua/laze/extra.lua      — Opt-in: :Laze subcommands (update/clean/health/reload) + public helpers
-docs/                  — design / extras / commands / migration / performance
+docs/                  — design / extras / commands / migration / performance / known differences
 tests/run.lua              — Test runner incl. perf suite: nvim --cmd "set rtp+=." -l tests/run.lua [perf]
 tests/test_compile.lua     — Standalone unit tests (luajit tests/test_compile.lua)
 tests/test_subset.lua      — Spec-surface conformance vs lazy.nvim docs
@@ -109,6 +109,7 @@ luajit tests/test_subset.lua                    # spec-surface conformance
 - Use the `FN` sentinel for function fields in expected output; runner deep-compares with sentinel-aware type checking
 - Regenerate snapshots: `nvim --cmd "set rtp+=." -l tests/update_snapshots.lua`
 - Perf thresholds are asserted inside `tests/run.lua perf`; benchmarks for manual profiling are documented in [docs/performance.md](docs/performance.md)
+- Known differences are canonical in [docs/known-differences.md](docs/known-differences.md); the machine-readable mirror is `tests/fixtures/known_differences.lua`. Add a stable `KD-xxx` ID and a test reference for each; `tests/test_subset.lua` enforces sync. Message policy: [#12](https://github.com/sys9kdr/laze/issues/12).
 
 ## Commit style
 

@@ -41,7 +41,9 @@ time or documents the exact conversion. A few fields are explicitly
 warned-and-ignored (`lazy`, `import`, `submodules`, `optional`, `specs`), and
 unsupported `keys` entry options are dropped; see
 [docs/migration.md](docs/migration.md). Extensions are outside the subset and
-use non-colliding names.
+use non-colliding names. Known differences are indexed in
+[docs/known-differences.md](docs/known-differences.md) with stable IDs and
+test references.
 
 Notable gaps: no `:Lazy` UI or install/sync surface (only the opt-in `:Laze`
 wrappers); `import`, `specs`, `optional`, `submodules`, and `lazy` are not
@@ -231,6 +233,7 @@ laze.build_plan(compiled, {
 * [Extras: maintenance commands](docs/extras.md)
 * [Custom commands: sync, dev mode, hot reload, sandbox](docs/commands.md)
 * [Migrating from lazy.nvim](docs/migration.md)
+* [Known differences from lazy.nvim](docs/known-differences.md)
 * [Performance: measured numbers, resolved items, accepted trade-offs](docs/performance.md)
 * [What laze doesn't have (and won't)](docs/not-have.md)
 
@@ -239,8 +242,10 @@ laze.build_plan(compiled, {
 **Apache-2.0** © 2026 Daiki Noda (sys9kdr).
 
 laze is **actively maintained** by Daiki Noda (sys9kdr). Core, extras,
-tests, fixtures and docs are written for laze itself — nothing is
-vendored or copied from lazy.nvim.
+tests, fixtures and docs are written for laze itself; no lazy.nvim
+implementation code is vendored or copied. The semver range vectors in
+`tests/fixtures/lazy_semver_cases.lua` are adapted from lazy.nvim's
+`tests/manage/semver_spec.lua` (Apache-2.0) and carry an attribution header.
 
 Credits:
 

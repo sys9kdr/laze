@@ -5,7 +5,8 @@ code or a measured doc — not a roadmap. Sources: `lua/laze/compile.lua`
 (`UNSUPPORTED_FIELDS`, `validate_spec`, `validate_triggers`),
 `tests/test_subset.lua` (semantic notes), `docs/design.md` (Philosophy),
 `docs/migration.md`, `docs/performance.md` (Rejected sections),
-`docs/startup-lazy-activation.md` (proxy limitation).
+`docs/startup-lazy-activation.md` (proxy limitation). The canonical index of
+known differences is [known-differences.md](known-differences.md).
 
 ## Deliberate no (philosophy)
 

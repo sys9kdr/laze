@@ -624,6 +624,34 @@ do
 	expect(c.routes.keys["<leader>m"].mode[1] == "n" and c.routes.keys["<leader>m"].mode[2] == "v", "multi-mode keys accepted")
 end
 
+do
+	local c = compile({
+		{
+			"folke/x.nvim",
+			name = "x",
+			keys = {
+				{
+					lhs = "<leader>ko",
+					rhs = "<cmd>X<CR>",
+					noremap = false,
+					nowait = true,
+					expr = true,
+					buffer = 0,
+				},
+			},
+		},
+	})
+	local route = c.routes.keys["<leader>ko"]
+	expect(
+		route ~= nil
+			and route.noremap == nil
+			and route.nowait == nil
+			and route.expr == nil
+			and route.buffer == nil,
+		"keys: unsupported vim.keymap.set options are dropped"
+	)
+end
+
 -- Dependency expansion: purity, nested drop warning, shape validation
 do
 	local specs = {

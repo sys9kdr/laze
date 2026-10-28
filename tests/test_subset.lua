@@ -318,6 +318,120 @@ else
 	fail("invalid version strings never reach vim.version.range", table.concat(invalid_called, ", "))
 end
 
+print("\n=== subset: known differences registry ===\n")
+
+-- The canonical human-readable index is docs/known-differences.md; the
+-- machine-readable mirror is tests/fixtures/known_differences.lua. Keep both
+-- in sync. Test references are either "path: static label" (the label must
+-- occur in that file) or "docs-only: reason" for delegated behavior that
+-- cannot be exercised inside laze.
+local known = require("tests.fixtures.known_differences")
+local required_fields = {
+	"id",
+	"title",
+	"area",
+	"class",
+	"notify",
+	"lazy",
+	"laze",
+	"rationale",
+	"test",
+}
+local allowed_classes = {
+	["safe-direction"] = true,
+	delegated = true,
+	extension = true,
+	encoding = true,
+	["silent-drop"] = true,
+}
+local allowed_notify = { never = true, compile = true }
+
+local kd_errors = {}
+local kd_seen = {}
+for _, kd in ipairs(known) do
+	local label = tostring(kd.id or "<missing id>")
+	for _, field in ipairs(required_fields) do
+		if type(kd[field]) ~= "string" or kd[field] == "" then
+			table.insert(kd_errors, ("%s: missing %s"):format(label, field))
+		end
+	end
+	if type(kd.id) == "string" then
+		if not kd.id:match("^KD%-%d%d%d$") then
+			table.insert(kd_errors, ("%s: id must match KD-NNN"):format(label))
+		end
+		if kd_seen[kd.id] then
+			table.insert(kd_errors, ("%s: duplicate id"):format(label))
+		end
+		kd_seen[kd.id] = true
+	end
+	if type(kd.class) == "string" and not allowed_classes[kd.class] then
+		table.insert(kd_errors, ("%s: unknown class %q"):format(label, kd.class))
+	end
+	if type(kd.notify) == "string" and not allowed_notify[kd.notify] then
+		table.insert(kd_errors, ("%s: unknown notify policy %q"):format(label, kd.notify))
+	end
+	if type(kd.test) == "string" and not kd.test:match("^docs%-only:") then
+		local file, test_label = kd.test:match("^([^:]+): (.+)$")
+		if not file then
+			table.insert(kd_errors, ("%s: test must be 'path: label' or 'docs-only: reason'"):format(label))
+		else
+			local fh = io.open(file, "r")
+			if not fh then
+				table.insert(kd_errors, ("%s: test file %q does not exist"):format(label, file))
+			else
+				local contents = fh:read("*a")
+				fh:close()
+				if not contents:find(test_label, 1, true) then
+					table.insert(kd_errors, ("%s: test label %q not found in %s"):format(label, test_label, file))
+				end
+			end
+		end
+	end
+end
+
+if #kd_errors == 0 then
+	pass(("known differences: %d entries have valid fields and test references"):format(#known))
+else
+	fail("known differences registry is valid", table.concat(kd_errors, "; "))
+end
+
+local doc_fh = io.open("docs/known-differences.md", "r")
+if not doc_fh then
+	fail("known differences docs exist", "docs/known-differences.md is missing")
+else
+	local doc = doc_fh:read("*a")
+	doc_fh:close()
+	local doc_ids = {}
+	for id in doc:gmatch("KD%-%d%d%d") do
+		doc_ids[id] = true
+	end
+	local missing, extra = {}, {}
+	for id in pairs(kd_seen) do
+		if not doc_ids[id] then
+			table.insert(missing, id)
+		end
+	end
+	for id in pairs(doc_ids) do
+		if not kd_seen[id] then
+			table.insert(extra, id)
+		end
+	end
+	table.sort(missing)
+	table.sort(extra)
+	local doc_errors = {}
+	if #missing > 0 then
+		table.insert(doc_errors, "missing from docs: " .. table.concat(missing, ", "))
+	end
+	if #extra > 0 then
+		table.insert(doc_errors, "documented but not registered: " .. table.concat(extra, ", "))
+	end
+	if #doc_errors == 0 then
+		pass("known differences: docs and registry IDs are in sync")
+	else
+		fail("known differences docs and registry IDs are in sync", table.concat(doc_errors, "; "))
+	end
+end
+
 print(("\n%d passed, %d failed\n"):format(passed, failed))
 if failed > 0 then
 	os.exit(1)
