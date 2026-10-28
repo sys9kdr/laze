@@ -61,6 +61,7 @@ registry and note the removal without reassigning the ID.
 | KD-019 | loading | extension | never | `silent` exists only on keys entries; top-level `silent` is not a lazy.nvim field. | Top-level `silent = true` suppresses require-failure notifications for that plugin. | laze's module trigger can fail at require time; `silent` lets optional integrations stay quiet. | `tests/run.lua` |
 | KD-020 | spec | silent-drop | compile | Supports `lazy`, `import`, `submodules`, `optional`, and `specs`. | Consumes them and warns once per field per compile; there is no equivalent. | laze's core is compile -> plan -> setup; spec discovery and optional resolution are outside it. | `tests/test_compile.lua` |
 | KD-021 | dependencies | silent-drop | compile | Supports nested dependency specs and their dependencies. | Warns when an inline dependency has its own `dependencies`; only the first level is registered. | laze does not implement a recursive dependency solver; dependencies load via their parents. | `tests/test_compile.lua` |
+| KD-022 | keys | safe-direction | never | Accepts `mode = ""` (passed to `vim.keymap.set`, creating a multi-mode mapping) and `mode = {}` (no key handler, but the plugin stays lazy and never loads). | Rejects empty mode strings and empty mode arrays with a compile error. | An empty mode set would silently never load; an empty mode string is not a meaningful mode name. Failing loudly keeps the trigger surface explicit. | `tests/test_compile.lua` |
 
 ## Adding an entry
 

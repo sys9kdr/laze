@@ -195,4 +195,15 @@ return {
 		rationale = "laze does not implement a recursive dependency solver; dependencies load via their parents.",
 		test = "tests/test_compile.lua: nested dependencies on inline dep specs warn",
 	},
+	{
+		id = "KD-022",
+		title = "empty keys mode",
+		area = "keys",
+		class = "safe-direction",
+		notify = "never",
+		lazy = "Accepts `mode = \"\"` (passed to `vim.keymap.set`, creating a multi-mode mapping) and `mode = {}` (no key handler, but the plugin stays lazy and never loads).",
+		laze = "Rejects empty mode strings and empty mode arrays with a compile error.",
+		rationale = "An empty mode set would silently never load; an empty mode string is not a meaningful mode name. Failing loudly keeps the trigger surface explicit.",
+		test = "tests/test_compile.lua: empty mode string rejected",
+	},
 }

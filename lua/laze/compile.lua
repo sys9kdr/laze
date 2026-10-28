@@ -667,13 +667,19 @@ local function validate_triggers(spec, idx, spec_id)
 				if item.mode ~= nil then
 					if type(item.mode) == "string" then
 						if item.mode == "" then
+							-- lazy.nvim passes "" to vim.keymap.set, which
+							-- creates a multi-mode mapping. laze rejects it
+							-- loudly: an empty mode is not a meaningful
+							-- trigger surface (KD-022).
 							bad("keys[" .. i .. "]", "mode must not be empty")
 						end
 					elseif not is_string_array(item.mode) then
 						bad("keys[" .. i .. "]", "mode must be a string or string[]")
 					elseif #item.mode == 0 then
-						-- An empty mode set would create no trigger map at all
-						-- while still marking the plugin lazy — a silent drop.
+						-- lazy.nvim accepts an empty mode set but resolves no
+						-- key handler while keeping the plugin lazy, so it
+						-- never loads. Rejecting it avoids that silent drop
+						-- (KD-022).
 						bad("keys[" .. i .. "]", "mode must not be an empty array")
 					else
 						for _, m in ipairs(item.mode) do
