@@ -483,6 +483,83 @@ do
 	end
 end
 
+-- keys route: same lhs with different modes are independent triggers —
+-- an n-mode press must not load the v-only plugin, and vice versa
+do
+	local n_loaded, v_loaded = 0, 0
+	local compiled = laze.compile({
+		{
+			dir = vim.fn.tempname(),
+			name = "key-mode-n",
+			keys = { { lhs = "<leader>nm", mode = "n" } },
+			config = function()
+				n_loaded = n_loaded + 1
+			end,
+		},
+		{
+			dir = vim.fn.tempname(),
+			name = "key-mode-v",
+			keys = { { lhs = "<leader>nm", mode = "v" } },
+			config = function()
+				v_loaded = v_loaded + 1
+			end,
+		},
+	})
+	local plan = laze.build_plan(compiled)
+	plan()
+
+	local lhs = vim.api.nvim_replace_termcodes("<leader>nm", true, false, true)
+	local function has_map(mode)
+		for _, km in ipairs(vim.api.nvim_get_keymap(mode)) do
+			if km.lhs == lhs then
+				return true
+			end
+		end
+		return false
+	end
+
+	local found_n, found_v = has_map("n"), has_map("v")
+	vim.api.nvim_feedkeys(lhs, "x", false)
+	vim.wait(50)
+	local n_after_n, v_after_n, v_survived = n_loaded, v_loaded, has_map("v")
+
+	-- Headless `nvim -l` swallows the previous message newline when visual
+	-- mode is entered; emit and flush one explicitly so the runner keeps
+	-- one line per test.
+	io.write("\n")
+	io.flush()
+	vim.cmd("normal! v")
+	vim.api.nvim_feedkeys(lhs, "x", false)
+	vim.wait(50)
+	vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<Esc>", true, false, true), "x", false)
+	local n_after_v, v_after_v = n_loaded, v_loaded
+
+	if found_n and found_v and n_after_n == 1 and v_after_n == 0 and v_survived and n_after_v == 1 and v_after_v == 1 then
+		print("  ✓ keys route: same lhs + different modes fire independently (n press ≠ v plugin)")
+		passed = passed + 1
+	else
+		print(
+			(
+				"  ✗ keys route: mode variants — maps n:%s v:%s after n: n=%d v=%d v_map=%s after v: n=%d v=%d"
+			):format(
+				tostring(found_n),
+				tostring(found_v),
+				n_after_n,
+				v_after_n,
+				tostring(v_survived),
+				n_after_v,
+				v_after_v
+			)
+		)
+		failed = failed + 1
+	end
+	pcall(vim.keymap.del, "n", lhs)
+	pcall(vim.keymap.del, "v", lhs)
+	-- Restore the message newline swallowed while visual mode was active.
+	io.write("\n")
+	io.flush()
+end
+
 -- keys route: plugin's own keymap takes over after the trigger fires
 -- (regression: the trigger map must be deleted BEFORE loading — keymap.del
 -- removes every map for the lhs, which would also kill the plugin's map)
@@ -630,6 +707,37 @@ do
 		failed = failed + 1
 	end
 	vim.keymap.del("n", "<leader>sk2")
+end
+
+do
+	local lhs = vim.api.nvim_replace_termcodes("<leader>sm", true, false, true)
+	local function has_map(mode)
+		for _, km in ipairs(vim.api.nvim_get_keymap(mode)) do
+			if km.lhs == lhs then
+				return true
+			end
+		end
+		return false
+	end
+	local c1 = laze.compile({
+		{
+			dir = vim.fn.tempname(),
+			name = "stale-key-multi",
+			keys = { { lhs = "<leader>sm", mode = { "n", "v" } } },
+		},
+	})
+	laze.build_plan(c1)()
+	local before = has_map("n") and has_map("v")
+	local c2 = laze.compile({ { dir = vim.fn.tempname(), name = "stale-none3" } })
+	laze.build_plan(c2)()
+	local stale = has_map("n") or has_map("v")
+	if before and not stale then
+		print("  ✓ rebuild: removed multi-mode key trigger cleared in every mode")
+		passed = passed + 1
+	else
+		print(("  ✗ rebuild: multi-mode key — before:%s stale:%s"):format(tostring(before), tostring(stale)))
+		failed = failed + 1
+	end
 end
 
 -- dir plugins are excluded from pack and loaded via packadd/rtp by the plan
@@ -1850,7 +1958,7 @@ do
 	vim.notify = function(msg, _)
 		table.insert(msgs, msg)
 	end
-	laze.compile({
+	local compiled = laze.compile({
 		{ "test/ev-a", event = { { event = "BufRead", pattern = "*.lua" } } },
 		{ "test/ev-b", event = { { event = "BufRead", pattern = "*.vim" } } },
 		{ "test/key-a", keys = { { lhs = "<leader>cc", rhs = ":A<CR>" } } },
@@ -1866,11 +1974,23 @@ do
 			key_warn = true
 		end
 	end
-	if ev_warn and key_warn then
-		print("  ✓ trigger conflicts: event-pattern and shared-lhs merges warn")
+	local key_variants = compiled.routes.keys["<leader>cc"]
+	local first_kept = key_variants ~= nil
+		and #key_variants == 1
+		and key_variants[1].mode == "n"
+		and key_variants[1].rhs == ":A<CR>"
+		and #key_variants[1].ids == 2
+	if ev_warn and key_warn and first_kept then
+		print("  ✓ trigger conflicts: event-pattern and shared-lhs merges warn; first key rhs/opts kept")
 		passed = passed + 1
 	else
-		print(("  ✗ trigger conflicts: event:%s keys:%s"):format(tostring(ev_warn), tostring(key_warn)))
+		print(
+			("  ✗ trigger conflicts: event:%s keys:%s first_kept:%s"):format(
+				tostring(ev_warn),
+				tostring(key_warn),
+				tostring(first_kept)
+			)
+		)
 		failed = failed + 1
 	end
 end

@@ -437,43 +437,62 @@ local function add_to_event_route(route_map, events, plugin_id)
 	end
 end
 
---- Same lhs from two specs: the trigger map is shared, so mode/rhs/desc/
---- silent must agree — warn and keep the first instead of silently
---- dropping the second spec's values.
-local function same_mode(a, b)
-	if type(a) ~= type(b) then
-		return false
-	end
-	if type(a) ~= "table" then
-		return a == b
-	end
-	if #a ~= #b then
-		return false
-	end
-	for i = 1, #a do
-		if a[i] ~= b[i] then
-			return false
-		end
-	end
-	return true
-end
-
+--- Key routes are per (lhs, mode) variant: `routes.keys[lhs]` is an array
+--- with one entry per normalized mode (a `mode` array expands to one
+--- variant per mode, in declaration order). Each variant is an independent
+--- trigger map, so an n-mode press can never fire a v-only declaration and
+--- vice versa. Variants sharing lhs+mode must agree on rhs/desc/silent:
+--- the trigger map is shared, so warn and keep the first instead of
+--- silently dropping the second spec's values.
 local function add_to_key_route(route_map, keys, plugin_id)
 	for i = 1, #keys do
 		local ke = keys[i]
 		local lhs = ke.lhs
-		if not route_map[lhs] then
-			route_map[lhs] = { mode = ke.mode, ids = {}, rhs = ke.rhs, desc = ke.desc, silent = ke.silent }
-		else
-			local cur = route_map[lhs]
-			if not same_mode(cur.mode, ke.mode) or cur.rhs ~= ke.rhs or cur.desc ~= ke.desc or cur.silent ~= ke.silent then
-				vim.notify(
-					("laze: keys %q is shared by multiple plugins with different mode/rhs/opts — keeping the first"):format(lhs),
-					vim.log.levels.WARN
-				)
+		local variants = route_map[lhs]
+		if not variants then
+			variants = {}
+			route_map[lhs] = variants
+		end
+		local modes = type(ke.mode) == "table" and ke.mode or { ke.mode }
+		local seen_modes = {}
+		for j = 1, #modes do
+			local mode = modes[j]
+			-- `mode = { "n", "n" }`: one variant, not two maps for one lhs.
+			if not seen_modes[mode] then
+				seen_modes[mode] = true
+				local variant
+				for k = 1, #variants do
+					if variants[k].mode == mode then
+						variant = variants[k]
+						break
+					end
+				end
+				if not variant then
+					variant = { mode = mode, ids = {}, rhs = ke.rhs, desc = ke.desc, silent = ke.silent }
+					table.insert(variants, variant)
+				elseif variant.rhs ~= ke.rhs or variant.desc ~= ke.desc or variant.silent ~= ke.silent then
+					vim.notify(
+						("laze: keys %q in mode %q is shared by multiple plugins with different rhs/opts — keeping the first"):format(
+							lhs,
+							mode
+						),
+						vim.log.levels.WARN
+					)
+				end
+				-- A plugin may declare the same (lhs, mode) more than once;
+				-- its id still appears once (it is loaded at most once).
+				local duplicate = false
+				for k = 1, #variant.ids do
+					if variant.ids[k] == plugin_id then
+						duplicate = true
+						break
+					end
+				end
+				if not duplicate then
+					table.insert(variant.ids, plugin_id)
+				end
 			end
 		end
-		table.insert(route_map[lhs].ids, plugin_id)
 	end
 end
 
@@ -625,9 +644,21 @@ local function validate_triggers(spec, idx, spec_id)
 				end
 				if item.mode ~= nil then
 					if type(item.mode) == "string" then
-						-- ok
+						if item.mode == "" then
+							bad("keys[" .. i .. "]", "mode must not be empty")
+						end
 					elseif not is_string_array(item.mode) then
 						bad("keys[" .. i .. "]", "mode must be a string or string[]")
+					elseif #item.mode == 0 then
+						-- An empty mode set would create no trigger map at all
+						-- while still marking the plugin lazy — a silent drop.
+						bad("keys[" .. i .. "]", "mode must not be an empty array")
+					else
+						for _, m in ipairs(item.mode) do
+							if m == "" then
+								bad("keys[" .. i .. "]", "mode must not be empty")
+							end
+						end
 					end
 				end
 			elseif type(item) ~= "string" then

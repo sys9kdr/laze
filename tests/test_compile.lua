@@ -121,6 +121,7 @@ local compile_fixtures = {
 	"deps_dedup",
 	"event_pattern",
 	"keys_opts",
+	"keys_variants",
 	"cond_enabled",
 }
 
@@ -566,6 +567,9 @@ local rejection_cases = {
 	{ { "folke/x.nvim", name = "x", keys = { {} } }, "non-empty lhs", "keys entry without lhs rejected" },
 	{ { "folke/x.nvim", name = "x", keys = { { lhs = "" } } }, "non-empty lhs", "empty lhs rejected" },
 	{ { "folke/x.nvim", name = "x", keys = { { lhs = "a", mode = 42 } } }, "mode must be a string or string[]", "numeric mode rejected" },
+	{ { "folke/x.nvim", name = "x", keys = { { lhs = "a", mode = "" } } }, "mode must not be empty", "empty mode string rejected" },
+	{ { "folke/x.nvim", name = "x", keys = { { lhs = "a", mode = {} } } }, "mode must not be an empty array", "empty mode array rejected" },
+	{ { "folke/x.nvim", name = "x", keys = { { lhs = "a", mode = { "n", "" } } } }, "mode must not be empty", "empty mode inside array rejected" },
 	{ { "folke/x.nvim", name = "x", event = { { event = 42 } } }, "must have event = string", "numeric event in table rejected" },
 	{ { "folke/x.nvim", name = "x", event = { { event = { "A", 42 } } } }, "must have event = string", "non-string in event array rejected" },
 	{ { "folke/x.nvim", name = "x", event = { { event = "BufEnter", pattern = 42 } } }, "pattern must be a string", "numeric pattern rejected" },
@@ -616,12 +620,16 @@ end
 do
 	local c = compile({ { "folke/x.nvim", name = "x", keys = { { "<leader>x", "<cmd>X<CR>" } } } })
 	expect(c.registry["x"].has_route == true, "tuple keys entry still accepted")
-	expect(c.routes.keys["<leader>x"].rhs == "<cmd>X<CR>", "tuple keys rhs routed")
+	expect(c.routes.keys["<leader>x"][1].rhs == "<cmd>X<CR>", "tuple keys rhs routed")
 end
 
 do
 	local c = compile({ { "folke/x.nvim", name = "x", keys = { { lhs = "<leader>m", mode = { "n", "v" } } } } })
-	expect(c.routes.keys["<leader>m"].mode[1] == "n" and c.routes.keys["<leader>m"].mode[2] == "v", "multi-mode keys accepted")
+	local variants = c.routes.keys["<leader>m"]
+	expect(
+		#variants == 2 and variants[1].mode == "n" and variants[2].mode == "v",
+		"multi-mode keys expand into one variant per mode"
+	)
 end
 
 do
@@ -641,7 +649,7 @@ do
 			},
 		},
 	})
-	local route = c.routes.keys["<leader>ko"]
+	local route = c.routes.keys["<leader>ko"][1]
 	expect(
 		route ~= nil
 			and route.noremap == nil
@@ -650,6 +658,133 @@ do
 			and route.buffer == nil,
 		"keys: unsupported vim.keymap.set options are dropped"
 	)
+end
+
+-- Key variants: one trigger per (lhs, mode), independent across specs.
+do
+	local c = compile({
+		{ "A/first", name = "first", keys = "x" },
+		{ "B/second", name = "second", keys = { { lhs = "x", mode = "v" } } },
+	})
+	local variants = c.routes.keys["x"]
+	expect(#variants == 2, "same lhs across specs: one variant per mode")
+	expect(
+		variants[1].mode == "n" and variants[1].ids[1] == "first",
+		"n variant keeps only the n declaration"
+	)
+	expect(
+		variants[2].mode == "v" and variants[2].ids[1] == "second",
+		"v variant keeps only the v declaration"
+	)
+end
+
+do
+	local c = compile({
+		{
+			"user/both",
+			name = "both",
+			keys = {
+				{ lhs = "x", mode = "n", rhs = "<cmd>N<CR>" },
+				{ lhs = "x", mode = "v", rhs = "<cmd>V<CR>" },
+			},
+		},
+	})
+	local variants = c.routes.keys["x"]
+	expect(#variants == 2, "same lhs within one spec: one variant per mode")
+	expect(
+		variants[1].mode == "n" and variants[1].rhs == "<cmd>N<CR>" and variants[2].mode == "v" and variants[2].rhs == "<cmd>V<CR>",
+		"within-spec variants keep their own rhs"
+	)
+	expect(#variants[1].ids == 1 and #variants[2].ids == 1, "within-spec variants route the plugin once each")
+end
+
+do
+	local c = compile({
+		{
+			"user/array",
+			name = "array",
+			keys = { { lhs = "x", mode = { "n", "n", "v", "x" }, rhs = "<cmd>X<CR>" } },
+		},
+	})
+	local variants = c.routes.keys["x"]
+	expect(#variants == 3, "duplicate modes in an array collapse into one variant")
+	expect(
+		variants[1].mode == "n" and variants[2].mode == "v" and variants[3].mode == "x",
+		"mode-array order preserved"
+	)
+end
+
+-- Same lhs + same mode: shared trigger map, first declaration's rhs/opts
+-- win; every declaring plugin still loads on the key.
+do
+	local msgs = {}
+	vim.notify = function(msg, _)
+		table.insert(msgs, msg)
+	end
+	local c = compile({
+		{ "A/first", name = "first", keys = { { lhs = "x", rhs = "<cmd>First<CR>", desc = "first" } } },
+		{ "B/second", name = "second", keys = { { lhs = "x", rhs = "<cmd>Second<CR>" } } },
+	})
+	vim.notify = function() end
+	local variants = c.routes.keys["x"]
+	expect(#variants == 1, "same lhs + same mode: single shared variant")
+	expect(variants[1].rhs == "<cmd>First<CR>" and variants[1].desc == "first", "same lhs + same mode: first rhs/opts kept")
+	expect(#variants[1].ids == 2 and variants[1].ids[1] == "first" and variants[1].ids[2] == "second", "same-mode variant loads every declaring plugin")
+	local warned = false
+	for _, m in ipairs(msgs) do
+		if m:find("shared by multiple plugins", 1, true) then
+			warned = true
+		end
+	end
+	expect(warned, "same lhs + same mode with different rhs warns")
+end
+
+do
+	local msgs = {}
+	vim.notify = function(msg, _)
+		table.insert(msgs, msg)
+	end
+	local c = compile({
+		{ "A/first", name = "first", keys = { { lhs = "x", mode = "v", rhs = "<cmd>X<CR>" } } },
+		{ "B/second", name = "second", keys = { { lhs = "x", mode = "n", rhs = "<cmd>X<CR>" } } },
+	})
+	vim.notify = function() end
+	local variants = c.routes.keys["x"]
+	expect(#variants == 2, "same lhs + different modes: both variants survive")
+	local warned = false
+	for _, m in ipairs(msgs) do
+		if m:find("shared by multiple plugins", 1, true) then
+			warned = true
+		end
+	end
+	expect(not warned, "same lhs + different modes does not warn")
+end
+
+do
+	local msgs = {}
+	vim.notify = function(msg, _)
+		table.insert(msgs, msg)
+	end
+	local c = compile({
+		{
+			"user/dup",
+			name = "dup",
+			keys = {
+				{ lhs = "x", mode = "n", rhs = "<cmd>A<CR>" },
+				{ lhs = "x", mode = "n", rhs = "<cmd>A<CR>" },
+			},
+		},
+	})
+	vim.notify = function() end
+	local variant = c.routes.keys["x"][1]
+	expect(#variant.ids == 1, "same plugin declaring the same variant twice routes it once")
+	local warned = false
+	for _, m in ipairs(msgs) do
+		if m:find("shared by multiple plugins", 1, true) then
+			warned = true
+		end
+	end
+	expect(not warned, "identical duplicate variant does not warn")
 end
 
 -- Dependency expansion: purity, nested drop warning, shape validation

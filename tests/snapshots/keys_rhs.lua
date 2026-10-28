@@ -56,37 +56,47 @@ return {
 		fts = {},
 		keys = {
 			[",,dv"] = {
-				ids = {
-					"keys-rhs-str",
+				{
+					ids = {
+						"keys-rhs-str",
+					},
+					mode = "n",
+					rhs = ":DiffviewOpen<CR>",
 				},
-				mode = "n",
-				rhs = ":DiffviewOpen<CR>",
 			},
 			[",,gb"] = {
-				ids = {
-					"keys-rhs-fn",
+				{
+					ids = {
+						"keys-rhs-fn",
+					},
+					mode = "n",
+					rhs = FN,
 				},
-				mode = "n",
-				rhs = FN,
 			},
 			[",,o"] = {
-				ids = {
-					"keys-rhs-fn",
+				{
+					ids = {
+						"keys-rhs-fn",
+					},
+					mode = "n",
+					rhs = FN,
 				},
-				mode = "n",
-				rhs = FN,
 			},
 			[",,x"] = {
-				ids = {
-					"keys-mixed",
+				{
+					ids = {
+						"keys-mixed",
+					},
+					mode = "v",
 				},
-				mode = "v",
 			},
 			["<leader>a"] = {
-				ids = {
-					"keys-mixed",
+				{
+					ids = {
+						"keys-mixed",
+					},
+					mode = "n",
 				},
-				mode = "n",
 			},
 		},
 		modules = {},
