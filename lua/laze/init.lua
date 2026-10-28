@@ -22,18 +22,18 @@
 ---@field keys? string|(string|LazeKeySpec|LazeNamedKeySpec)[]
 ---@field dev? boolean|string
 ---@field dev_path? string
----@field version? string|false Semver range; git refs use branch/tag/commit
+---@field version? string|false Semver range; git refs use branch/tag/commit. Ignored for dir/dev sources.
 ---@field data? any
 ---@field branch? string
 ---@field tag? string
 ---@field commit? string
 ---@field pin? boolean
----@field build? string|fun()|false
+---@field build? string|fun(plugin: table)|false|(string|fun(plugin: table))[]
 ---@field module? string|string[]|false
----@field main? string
----@field opts? table
----@field init? fun()
----@field config? fun()
+---@field main? string Module used by opts/config = true; resolved at load when omitted
+---@field opts? table|fun(plugin: table, opts: table):table?
+---@field init? fun(plugin: table)
+---@field config? fun(plugin: table, opts: table)|true
 ---@field cond? fun(): boolean|boolean
 ---@field enabled? fun(): boolean|boolean
 ---@field silent? boolean
@@ -50,16 +50,16 @@
 ---@field src string
 ---@field dir? string Local dir plugin path (excluded from pack; loaded via :packadd)
 ---@field module? string|string[]
----@field main? string Module for opts (explicit; never guessed)
----@field opts? table Passed to require(main).setup(opts) at load
----@field init? fun()
----@field config? fun()
+---@field main? string Explicit module for opts/config = true; nil means resolve at load
+---@field opts? table|fun(plugin: table, opts: table):table?
+---@field init? fun(plugin: table)
+---@field config? fun(plugin: table, opts: table)
 ---@field cond? fun(): boolean
 ---@field enabled boolean
 ---@field silent boolean
 ---@field after? string[]
 ---@field dev_path? string
----@field build? string|fun()
+---@field build? string|fun(plugin: table)|(string|fun(plugin: table))[]
 ---@field priority? number
 ---@field has_route boolean Plugin has at least one lazy-load trigger
 ---@field is_dep boolean Plugin is referenced as an `after` dependency (never eager)
@@ -113,6 +113,47 @@ function M.setup(specs, opts)
 	opts = opts or {}
 	local compiled = _compile.compile(specs, opts)
 
+	--- Run one lazy.nvim build item. A string starting with ":" is an Ex
+	--- command, any other string is a shell command in the plugin directory,
+	--- and a function receives a lazy.nvim-shaped plugin object.
+	---@param item string|fun(plugin: table)
+	---@param plugin table
+	---@param cwd string
+	---@return boolean ok
+	---@return string? err
+	local function run_build_item(item, plugin, cwd)
+		if type(item) == "function" then
+			local ok, err = pcall(item, plugin)
+			return ok, ok and nil or tostring(err)
+		elseif item:sub(1, 1) == ":" then
+			local ok, err = pcall(vim.cmd, item)
+			return ok, ok and nil or tostring(err)
+		end
+		local result = vim.system({ "sh", "-c", item }, { cwd = cwd }):wait()
+		if result.code ~= 0 then
+			return false, ("exit %d: %s"):format(result.code, result.stderr or "")
+		end
+		return true
+	end
+
+	---@param build string|fun(plugin: table)|(string|fun(plugin: table))[]
+	---@param plugin table
+	---@param cwd string
+	---@return boolean ok
+	---@return string? err
+	local function run_build(build, plugin, cwd)
+		if type(build) == "table" then
+			for _, item in ipairs(build) do
+				local ok, err = run_build_item(item, plugin, cwd)
+				if not ok then
+					return false, err
+				end
+			end
+			return true
+		end
+		return run_build_item(build, plugin, cwd)
+	end
+
 	-- vim.pack has no build concept: subscribe to PackChanged and execute
 	-- the spec's `build` after install/update (lazy.nvim-compatible).
 	-- The augroup MUST be registered before vim.pack.add below: PackChanged
@@ -151,38 +192,19 @@ function M.setup(specs, opts)
 						pcall(vim.cmd.packadd, data.spec.name)
 					end
 				end
-				local run = function()
-				if type(build) == "function" then
-					local ok, err = pcall(build)
-					if not ok then
-						vim.notify(
-							("laze: build failed for %s: %s"):format(data.spec.name, tostring(err)),
-							vim.log.levels.WARN
-						)
-					end
-				elseif build:sub(1, 1) == ":" then
-					pcall(vim.cmd, build)
-				else
-					local result = vim.system({ "sh", "-c", build }, { cwd = data.path }):wait()
-					if result.code ~= 0 then
-						vim.notify(
-							("laze: build failed for %s (exit %d): %s"):format(
-								data.spec.name,
-								result.code,
-								result.stderr or ""
-							),
-							vim.log.levels.WARN
-						)
-					end
+				local plugin = { name = data.spec.name, dir = data.path, spec = data.spec }
+				local ok, build_ok, err = pcall(run_build, build, plugin, data.path)
+				if not ok then
+					vim.notify(
+						("laze: build failed for %s: %s"):format(data.spec.name, tostring(build_ok)),
+						vim.log.levels.WARN
+					)
+				elseif not build_ok then
+					vim.notify(
+						("laze: build failed for %s: %s"):format(data.spec.name, tostring(err)),
+						vim.log.levels.WARN
+					)
 				end
-			end
-			local ok = pcall(run)
-			if not ok then
-				vim.notify(
-					("laze: build failed for %s: %s"):format(data.spec.name, "error in build hook"),
-					vim.log.levels.WARN
-				)
-			end
 		end,
 		})
 	end

@@ -191,9 +191,10 @@ print("\n=== subset: semantic notes (soft) ===\n")
 
 local notes = {
 	"module: lazy.nvim accepts only false (opt-out of auto require-loading). laze accepts string|string[] as opt-in require triggers; module=false in a laze spec simply means 'no triggers'.",
-	"version: lazy.nvim = semver range (a string like '*' or '>=2.0.0', or false); branch/tag/commit are git refs. laze lowers a version string to vim.version.range and a ref to a vim.pack version string, with lazy.nvim precedence commit > tag > version > branch. version=false falls through to branch (or vim.pack's default). Only a single range is accepted (no '||' or whitespace-separated comparator sets); a prebuilt vim.VersionRange is rejected. A range overridden by tag/commit is not parsed.",
-	"config = true: valid in lazy.nvim (implies opts support); laze raises a clear error instead of silently misbehaving — safe direction.",
-	"build: lazy.nvim accepts false (skip build) and a list of commands. laze accepts false (no-op, same as omitting it) and a single string/function; the list form is rejected with a compile error — safe direction.",
+	"version: lazy.nvim = semver range (a string like '*' or '>=2.0.0', or false); branch/tag/commit are git refs. laze lowers a version string to vim.version.range and a ref to a vim.pack version string, with lazy.nvim precedence commit > tag > version > branch. version=false falls through to branch (or vim.pack's default). Only a single range is accepted (no '||' or whitespace-separated comparator sets); a prebuilt vim.VersionRange is rejected. A range overridden by tag/commit is not parsed. dir and active dev sources ignore version/refs entirely (lazy.nvim treats them as local checkouts).",
+	"config = true: valid in lazy.nvim (implies opts support); laze resolves main like lazy.nvim and calls require(main).setup(opts).",
+	"opts: lazy.nvim accepts a table or a function mutator; laze accepts both and resolves the function at load time with (plugin, opts).",
+	"build: lazy.nvim accepts false (skip build) and a list of commands. laze accepts false (no-op, same as omitting it), a string/function, and a list of strings/functions.",
 	"priority: honored for eager ordering — eager plugins load highest-first with id as tie-break, matching lazy.nvim's start-plugin reordering. Dependencies (`after`) never order eagerly: they load via their parents.",
 	"keys entries: laze keeps lhs/rhs/mode/desc/silent; other vim.keymap.set options (noremap, nowait, expr, callback, buffer) are silently dropped.",
 	"function-shaped triggers (event/cmd/ft/keys = fun(self, list)): valid in lazy.nvim (evaluated at startup). laze REJECTS them with a compile error — silently ignoring them would turn the plugin eager. Rejecting is the safe direction: a laze config never contains them, and migrating laze → lazy.nvim is unaffected.",
@@ -401,8 +402,11 @@ if not doc_fh then
 else
 	local doc = doc_fh:read("*a")
 	doc_fh:close()
+	-- Only the active registry counts. The resolved-differences section
+	-- deliberately keeps old IDs for history without reusing them.
+	local active = doc:match("## Active registry(.-)## Resolved differences") or doc
 	local doc_ids = {}
-	for id in doc:gmatch("KD%-%d%d%d") do
+	for id in active:gmatch("KD%-%d%d%d") do
 		doc_ids[id] = true
 	end
 	local missing, extra = {}, {}
