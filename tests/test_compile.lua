@@ -996,6 +996,9 @@ do
 end
 
 do
+	-- lazy.nvim merges fragments for the same plugin (see the vendored
+	-- tests/core/plugin_spec.lua "plugin opts" cases); laze rejects instead
+	-- (KD-022) rather than guessing the merged config/opts/trigger shape.
 	local ok, err = pcall(compile, {
 		{ "folke/a.nvim", name = "dup-id" },
 		{ "folke/b.nvim", name = "dup-id" },

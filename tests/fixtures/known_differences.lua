@@ -195,4 +195,15 @@ return {
 		rationale = "laze does not implement a recursive dependency solver; dependencies load via their parents.",
 		test = "tests/test_compile.lua: nested dependencies on inline dep specs warn",
 	},
+	{
+		id = "KD-022",
+		title = "duplicate spec fragments",
+		area = "spec",
+		class = "safe-direction",
+		notify = "never",
+		lazy = "Merges fragments for the same plugin (opts/config/dependencies/triggers) into one spec.",
+		laze = "Rejects duplicate ids with a compile error.",
+		rationale = "Merging fragments changes config/opts precedence and trigger composition; laze keeps compile deterministic and fails loudly instead of silently dropping a fragment.",
+		test = "tests/test_compile.lua: duplicate id rejected (was a silent overwrite)",
+	},
 }
