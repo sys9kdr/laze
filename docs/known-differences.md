@@ -61,6 +61,7 @@ registry and note the removal without reassigning the ID.
 | KD-019 | loading | extension | never | `silent` exists only on keys entries; top-level `silent` is not a lazy.nvim field. | Top-level `silent = true` suppresses require-failure notifications for that plugin. | laze's module trigger can fail at require time; `silent` lets optional integrations stay quiet. | `tests/run.lua` |
 | KD-020 | spec | silent-drop | compile | Supports `lazy`, `import`, `submodules`, `optional`, and `specs`. | Consumes them and warns once per field per compile; there is no equivalent. | laze's core is compile -> plan -> setup; spec discovery and optional resolution are outside it. | `tests/test_compile.lua` |
 | KD-021 | dependencies | silent-drop | compile | Supports nested dependency specs and their dependencies. | Warns when an inline dependency has its own `dependencies`; only the first level is registered. | laze does not implement a recursive dependency solver; dependencies load via their parents. | `tests/test_compile.lua` |
+| KD-022 | spec | safe-direction | never | Merges fragments for the same plugin (opts/config/dependencies/triggers) into one spec. | Rejects duplicate ids with a compile error. | Merging fragments changes config/opts precedence and trigger composition; laze keeps compile deterministic and fails loudly instead of silently dropping a fragment. | `tests/test_compile.lua` |
 
 ## Adding an entry
 
@@ -72,5 +73,8 @@ registry and note the removal without reassigning the ID.
 4. Add or point at an executable test. Use a static label that appears in the
    test file, or `docs-only: <reason>` when the difference is delegated to
    `vim.pack` and cannot be exercised in laze.
-5. Run `luajit tests/test_subset.lua`. It fails if the registry and this file
+5. When the lazy.nvim side is covered by an upstream test, cite the vendored
+   oracle in [`tests/vendor/lazy.nvim/README.md`](../tests/vendor/lazy.nvim/README.md)
+   instead of relying on a hand-written observation.
+6. Run `luajit tests/test_subset.lua`. It fails if the registry and this file
    drift apart.

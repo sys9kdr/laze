@@ -72,6 +72,7 @@ tests/fixtures/            — Input specs (*.lua); _sentinel.lua = FN sentinel
 tests/snapshots/           — Auto-generated expected outputs (compare against)
 tests/benchmarks/          — Manual benchmarks (commands in docs/performance.md)
 tests/profile/             — Manual profile harness with real plugins
+tests/vendor/              — Third-party test oracles (lazy.nvim, Apache-2.0; see NOTICE)
 ```
 
 Types (LuaCATS) are defined in code: `lua/laze/init.lua` (`LazeSpec`,
@@ -104,6 +105,10 @@ nvim --cmd "set rtp+=." -l tests/run.lua perf   # perf regression suite only
 luajit tests/test_compile.lua                   # unit, no nvim needed
 luajit tests/test_subset.lua                    # spec-surface conformance
 ```
+
+- Vendored lazy.nvim tests (behavioral oracle, not CI):
+  `LAZY_DIR=/tmp/lazy.nvim tests/vendor/lazy.nvim/run.sh`.
+  License and provenance: `tests/vendor/lazy.nvim/LICENSE` / `NOTICE`.
 
 - Fixture pattern: `fixtures/foo.lua` (input specs) + `snapshots/foo.lua` (expected `LazeCompiled`)
 - Use the `FN` sentinel for function fields in expected output; runner deep-compares with sentinel-aware type checking

@@ -244,14 +244,18 @@ laze.build_plan(compiled, {
 **Apache-2.0** © 2026 Daiki Noda (sys9kdr).
 
 laze is **actively maintained** by Daiki Noda (sys9kdr). Core, extras,
-tests, fixtures and docs are written for laze itself; no lazy.nvim
+docs and the laze-specific tests are written for laze itself; no lazy.nvim
 implementation code is vendored or copied. The semver range vectors in
 `tests/fixtures/lazy_semver_cases.lua` are adapted from lazy.nvim's
 `tests/manage/semver_spec.lua` (Apache-2.0) and carry an attribution header.
+A small part of lazy.nvim's own test suite is vendored under
+`tests/vendor/lazy.nvim/` as a behavioral oracle for known-difference
+audits (Apache-2.0; see its `LICENSE` and `NOTICE`). It is not part of the
+laze runtime or CI.
 
 Credits:
 
-* **lazy.nvim** (Apache-2.0, © Folke Lemaitre) — laze's spec surface is a deliberate subset of lazy.nvim's declarative spec format, its name derivation (`Spec.get_name`) informed laze's id/pkg derivation, and the migration-compatibility goal (escape hatch first) is directly inspired by it. https://github.com/folke/lazy.nvim
+* **lazy.nvim** (Apache-2.0, © Folke Lemaitre) — laze's spec surface is a deliberate subset of lazy.nvim's declarative spec format, its name derivation (`Spec.get_name`) informed laze's id/pkg derivation, and the migration-compatibility goal (escape hatch first) is directly inspired by it. Its semver, keys and plugin-spec tests are vendored under `tests/vendor/lazy.nvim/` for compatibility audits. https://github.com/folke/lazy.nvim
 * **Neovim / `vim.pack`** (Apache-2.0) — installation, placement, tag/ref resolution, and the lockfile are delegated to `vim.pack`; laze lowers lazy.nvim ranges/refs to its `version` field.
 
 See AGENTS.md for design invariants and conventions.
