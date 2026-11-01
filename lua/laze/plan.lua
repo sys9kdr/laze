@@ -196,6 +196,21 @@ local function build_plan(compiled, opts)
 		end
 	end
 
+	-- cond may be a function (lazy.nvim) or a boolean constant. A function
+	-- returning false skips the load; a throwing cond is a plan-level
+	-- error: warn and skip (never throw in plan).
+	local function cond_passes(id, entry)
+		if type(entry.cond) == "function" then
+			local ok, res = pcall(entry.cond)
+			if not ok then
+				vim.notify(("laze: cond hook failed for %s: %s"):format(id, tostring(res)), vim.log.levels.WARN)
+				return false
+			end
+			return res ~= false
+		end
+		return entry.cond ~= false
+	end
+
 	local function load_plugin(id)
 		if loaded[id] then
 			return
@@ -208,22 +223,7 @@ local function build_plan(compiled, opts)
 		if not enabled_ok[id] then
 			return
 		end
-		-- cond may be a function (lazy.nvim) or a boolean constant. A
-		-- function returning false skips the load; a throwing cond is a
-		-- plan-level error: warn and skip (never throw in plan).
-		local cond_ok = true
-		if type(entry.cond) == "function" then
-			local ok, res = pcall(entry.cond)
-			if not ok then
-				vim.notify(("laze: cond hook failed for %s: %s"):format(id, tostring(res)), vim.log.levels.WARN)
-				cond_ok = false
-			else
-				cond_ok = res ~= false
-			end
-		else
-			cond_ok = entry.cond ~= false
-		end
-		if not cond_ok then
+		if not cond_passes(id, entry) then
 			return
 		end
 
@@ -657,37 +657,64 @@ local function build_plan(compiled, opts)
 		for lhs, variants in pairs(routes.keys) do
 			for _, entry in ipairs(variants) do
 				local mode = entry.mode
-				local ids = entry.ids
 				local rhs = entry.rhs
-				local keymap_opts = { desc = entry.desc or "laze: load on key" }
-				if entry.silent ~= nil then
-					keymap_opts.silent = entry.silent
+				-- `enabled` is fixed at plan build: a variant whose plugins are
+				-- all disabled gets no trigger map at all.
+				local ids = {}
+				for _, id in ipairs(entry.ids) do
+					if enabled_ok[id] then
+						table.insert(ids, id)
+					end
 				end
-				table.insert(installed_keys, { mode = mode, lhs = lhs, desc = keymap_opts.desc })
-				vim.keymap.set(mode, lhs, function()
-					if rhs == nil then
-						-- No rhs: the plugin's own keymap takes over after load.
-						-- Delete the trigger NOW — at this point it is the only
-						-- map for this lhs in this mode (other mode variants
-						-- are separate maps and must stay). Deleting after
-						-- loading would remove the freshly registered plugin
-						-- map too (vim.keymap.del removes every map for the
-						-- lhs in the mode).
-						pcall(vim.keymap.del, mode, lhs)
+				if #ids > 0 then
+					local keymap_opts = { desc = entry.desc or "laze: load on key" }
+					if entry.silent ~= nil then
+						keymap_opts.silent = entry.silent
 					end
-					for _, id in ipairs(ids) do
-						load_with_deps(id)
-					end
-					if rhs == nil then
-						-- Replay the key: the plugin's map (registered during
-						-- load) handles it.
-						vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes(lhs, true, false, true), "", true)
-					elseif type(rhs) == "function" then
-						rhs()
-					else
-						vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes(rhs, true, false, true), "", true)
-					end
-				end, keymap_opts)
+					table.insert(installed_keys, { mode = mode, lhs = lhs, desc = keymap_opts.desc })
+					vim.keymap.set(mode, lhs, function()
+						-- `cond` is evaluated lazily, so it can only be checked
+						-- now. If every owner is skipped by cond, the key must
+						-- behave as if the plugin never declared it: drop the
+						-- trigger and replay the key (never run the rhs).
+						local active = false
+						for _, id in ipairs(ids) do
+							local reg = registry[id]
+							if loaded[id] or (reg and cond_passes(id, reg)) then
+								active = true
+								break
+							end
+						end
+						if rhs == nil or not active then
+							-- No rhs: the plugin's own keymap takes over after load.
+							-- Delete the trigger NOW — at this point it is the only
+							-- map for this lhs in this mode (other mode variants
+							-- are separate maps and must stay). Deleting after
+							-- loading would remove the freshly registered plugin
+							-- map too (vim.keymap.del removes every map for the
+							-- lhs in the mode).
+							pcall(vim.keymap.del, mode, lhs)
+						end
+						if active then
+							for _, id in ipairs(ids) do
+								load_with_deps(id)
+							end
+						end
+						if rhs == nil or not active then
+							-- Replay the key: the plugin's map (registered during
+							-- load) handles it. Insert the replay BEFORE keys already
+							-- queued behind the trigger ('i'): with the default append,
+							-- `gcA` would process `A` first (append at EOL) and then
+							-- insert the replayed `gc` literally instead of firing the
+							-- plugin's longer `gcA` mapping.
+							vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes(lhs, true, false, true), "i", true)
+						elseif type(rhs) == "function" then
+							rhs()
+						else
+							vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes(rhs, true, false, true), "i", true)
+						end
+					end, keymap_opts)
+				end
 			end
 		end
 
