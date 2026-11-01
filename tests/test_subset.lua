@@ -401,8 +401,11 @@ if not doc_fh then
 else
 	local doc = doc_fh:read("*a")
 	doc_fh:close()
+	-- Only the active registry counts. The resolved-differences section
+	-- deliberately keeps old IDs for history without reusing them.
+	local active = doc:match("## Active registry(.-)## Resolved differences") or doc
 	local doc_ids = {}
-	for id in doc:gmatch("KD%-%d%d%d") do
+	for id in active:gmatch("KD%-%d%d%d") do
 		doc_ids[id] = true
 	end
 	local missing, extra = {}, {}

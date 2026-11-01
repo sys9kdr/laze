@@ -14,6 +14,7 @@ return {
 	registry = {
 		["plugin-noisy"] = {
 			after = {},
+			eager = false,
 			enabled = true,
 			has_route = true,
 			id = "plugin-noisy",
@@ -25,6 +26,7 @@ return {
 		},
 		["plugin-silent"] = {
 			after = {},
+			eager = false,
 			enabled = true,
 			has_route = true,
 			id = "plugin-silent",

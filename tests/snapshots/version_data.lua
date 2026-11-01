@@ -27,6 +27,7 @@ return {
 	registry = {
 		["plugin-both"] = {
 			after = {},
+			eager = false,
 			enabled = true,
 			has_route = true,
 			id = "plugin-both",
@@ -38,6 +39,7 @@ return {
 		},
 		["plugin-data"] = {
 			after = {},
+			eager = false,
 			enabled = true,
 			has_route = true,
 			id = "plugin-data",
@@ -49,6 +51,7 @@ return {
 		},
 		["plugin-version"] = {
 			after = {},
+			eager = false,
 			enabled = true,
 			has_route = true,
 			id = "plugin-version",

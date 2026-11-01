@@ -30,8 +30,8 @@ and the message-policy design in issue
 
 * `never` — docs-only. Warning on every use would be noise (for example, an
   `encoding` difference in every version spec).
-* `compile` — the difference should be surfaced at compile time. Some entries
-  already warn (`KD-020`, `KD-021`); `KD-016` is the first planned addition.
+* `compile` — the difference should be surfaced at compile time. `KD-020`
+  already warns; `KD-016` is the first planned addition.
 
 The registry is metadata, not runtime behavior. It does not read this file or
 the test fixture at runtime.
@@ -59,8 +59,16 @@ registry and note the removal without reassigning the ID.
 | KD-017 | source | extension | never | Documents `dev` as boolean; a string is truthy and uses `config.dev.path`. | A string `dev` is used as the per-plugin dev directory. | laze has no global `dev.path`; `dev_path`/string `dev` make the local source explicit. | `tests/test_compile.lua` |
 | KD-018 | dependencies | extension | never | Has no top-level `after` field; use `dependencies` for ordering. | `after = { ... }` orders loading after named plugins; dependency-derived `after` is merged. | laze uses `after` for explicit ordering without making a plugin a dependency. | `tests/test_compile.lua` |
 | KD-019 | loading | extension | never | `silent` exists only on keys entries; top-level `silent` is not a lazy.nvim field. | Top-level `silent = true` suppresses require-failure notifications for that plugin. | laze's module trigger can fail at require time; `silent` lets optional integrations stay quiet. | `tests/run.lua` |
-| KD-020 | spec | silent-drop | compile | Supports `lazy`, `import`, `submodules`, `optional`, and `specs`. | Consumes them and warns once per field per compile; there is no equivalent. | laze's core is compile -> plan -> setup; spec discovery and optional resolution are outside it. | `tests/test_compile.lua` |
-| KD-021 | dependencies | silent-drop | compile | Supports nested dependency specs and their dependencies. | Warns when an inline dependency has its own `dependencies`; only the first level is registered. | laze does not implement a recursive dependency solver; dependencies load via their parents. | `tests/test_compile.lua` |
+| KD-020 | spec | silent-drop | compile | Supports `import`, `submodules`, `optional`, and `specs`. | `import`, `optional`, and `specs` warn once per compile and are ignored. `submodules = true` matches vim.pack; `submodules = false` warns because vim.pack always fetches submodules. | laze's core is compile -> plan -> setup; spec discovery and optional resolution are outside it. | `tests/test_compile.lua` |
+
+## Resolved differences
+
+These IDs were resolved and removed from the active registry. IDs are stable
+and are never reused.
+
+| ID | Area | Resolution |
+| --- | --- | --- |
+| KD-021 | dependencies | Nested dependency specs are expanded recursively (deepest first), registered once, and shared deps are deduplicated. |
 
 ## Adding an entry
 

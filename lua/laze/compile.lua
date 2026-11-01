@@ -554,16 +554,19 @@ local CONSUMED_KEYS = {
 --- field per compile so users know the config will not behave identically
 --- on both managers (a notify costs ~180 us — no per-spec repeat).
 local UNSUPPORTED_FIELDS = {
-	submodules = "no equivalent; vim.pack fetches submodules by default",
+	submodules = "vim.pack always fetches submodules; `submodules = false` cannot be honored",
 	optional = "deps are always required; remove 'optional'",
 	import = "lazy.nvim-only; load spec files yourself and pass the tables to setup",
-	lazy = "no equivalent; plugins without triggers are eager",
 	specs = "no equivalent; inline your specs instead",
 }
 
 local function warn_unsupported(spec, idx, spec_id, warned)
 	for field, reason in pairs(UNSUPPORTED_FIELDS) do
-		if spec[field] ~= nil and not warned[field] then
+		-- `submodules = true` (and the default) already matches vim.pack,
+		-- which runs `git submodule update --init --recursive`. Only the
+		-- opt-out is a real difference.
+		local differs = field ~= "submodules" or spec.submodules == false
+		if spec[field] ~= nil and differs and not warned[field] then
 			warned[field] = true
 			vim.notify(
 				("laze: spec [%d] (%s): '%s' is not supported by laze (%s)"):format(idx, spec_id, field, reason),
@@ -749,6 +752,12 @@ local function validate_spec(spec, idx, warned)
 	if spec.enabled ~= nil and type(spec.enabled) ~= "function" and type(spec.enabled) ~= "boolean" then
 		error("spec [" .. idx .. "] (" .. spec_id .. "): enabled must be a function or boolean", 0)
 	end
+	if spec.lazy ~= nil and type(spec.lazy) ~= "boolean" then
+		error("spec [" .. idx .. "] (" .. spec_id .. "): lazy must be a boolean", 0)
+	end
+	if spec.submodules ~= nil and type(spec.submodules) ~= "boolean" then
+		error("spec [" .. idx .. "] (" .. spec_id .. "): submodules must be a boolean", 0)
+	end
 		if spec.after ~= nil then
 		if type(spec.after) ~= "table" then
 			error("spec [" .. idx .. "] (" .. spec_id .. "): after must be an array of plugin ids", 0)
@@ -875,59 +884,59 @@ function compile(specs, opts)
 	-- its input (the same spec table passed to lazy.nvim afterwards would
 	-- carry a laze-only `after` field).
 	local dep_after = {}
-	for idx, spec in ipairs(specs) do
-		if spec.dependencies then
-			-- Guard shapes here, before any derive/expand: validate_spec runs
-			-- later (over `expanded`) and a malformed value would crash with
-			-- a raw "attempt to index" error in this pass otherwise.
-			if type(spec.dependencies) ~= "string" and type(spec.dependencies) ~= "table" then
-				error("spec [" .. idx .. "]: dependencies must be a string, name array, or spec array", 0)
-			end
-			local deps = type(spec.dependencies) == "table" and spec.dependencies or { spec.dependencies }
-			local dep_names = {}
-			for i, dep in ipairs(deps) do
-				if type(dep) ~= "string" and type(dep) ~= "table" then
-					error("spec [" .. idx .. "]: dependencies[" .. i .. "] must be a string or spec table", 0)
-				end
-				local dep_spec = type(dep) == "string" and { dep } or dep
-				-- Same derivation as the compile loop below: dir/url-only
-				-- inline deps must resolve to the same id the registry uses.
-				local dep_name = dep_spec.name
-					or derive_name(dep_spec[1] or dep_spec.src or dep_spec.dir or dep_spec.url or "")
-				if dep_spec.dependencies then
-					-- Dependencies of dependencies are not expanded
-					-- (documented as shallow) — warn so the silent drop is
-					-- not a surprise (lazy.nvim expands them).
-					vim.notify(
-						("laze: dependency %q (inline spec) has its own `dependencies` field — nested dependencies are not expanded; move it to the top-level spec list"):format(
-							dep_name
-						),
-						vim.log.levels.WARN
-					)
-				end
-				-- The same dep listed twice in one array is wired once.
-				local already_named = false
-				for _, n in ipairs(dep_names) do
-					if n == dep_name then
-						already_named = true
-						break
-					end
-				end
-				if not already_named and spec_names[dep_name] then
-					-- Dep already defined elsewhere as a full spec: reference
-					-- it via `after` only, don't re-register (lazy.nvim behavior).
-					table.insert(dep_names, dep_name)
-				elseif not already_named and not expanded_names[dep_name] then
-					table.insert(dep_names, dep_name)
-					table.insert(expanded, dep_spec)
-					expanded_names[dep_name] = true
-				elseif not already_named then
-					-- Dep already expanded from another spec's dependencies.
-					table.insert(dep_names, dep_name)
-				end
-			end
-			dep_after[spec] = dep_names
+
+	--- Expand one spec's dependencies recursively. Inline dependency specs
+	--- are registered once and their own dependencies are expanded first,
+	--- so `after` always points at a registered id. Names already defined
+	--- at the top level are referenced, not re-registered (lazy.nvim's
+	--- "fragments" merge is outside laze's subset).
+	---@param spec table
+	---@param label string
+	local function expand_dependencies(spec, label)
+		if spec.dependencies == nil then
+			return
 		end
+		-- Guard shapes here, before any derive/expand: validate_spec runs
+		-- later (over `expanded`) and a malformed value would crash with
+		-- a raw "attempt to index" error in this pass otherwise.
+		if type(spec.dependencies) ~= "string" and type(spec.dependencies) ~= "table" then
+			error(label .. ": dependencies must be a string, name array, or spec array", 0)
+		end
+		local deps = type(spec.dependencies) == "table" and spec.dependencies or { spec.dependencies }
+		local dep_names = {}
+		for i, dep in ipairs(deps) do
+			if type(dep) ~= "string" and type(dep) ~= "table" then
+				error(label .. ": dependencies[" .. i .. "] must be a string or spec table", 0)
+			end
+			local dep_spec = type(dep) == "string" and { dep } or dep
+			-- Same derivation as the compile loop below: dir/url-only
+			-- inline deps must resolve to the same id the registry uses.
+			local dep_name = dep_spec.name
+				or derive_name(dep_spec[1] or dep_spec.src or dep_spec.dir or dep_spec.url or "")
+			-- The same dep listed twice in one array is wired once.
+			local already_named = false
+			for _, n in ipairs(dep_names) do
+				if n == dep_name then
+					already_named = true
+					break
+				end
+			end
+			if not already_named then
+				table.insert(dep_names, dep_name)
+				if not spec_names[dep_name] and not expanded_names[dep_name] then
+					-- Mark before recursing so a dependency cycle references
+					-- the in-flight spec instead of recursing forever.
+					expanded_names[dep_name] = true
+					expand_dependencies(dep_spec, ("dependency %q"):format(dep_name))
+					table.insert(expanded, dep_spec)
+				end
+			end
+		end
+		dep_after[spec] = dep_names
+	end
+
+	for idx, spec in ipairs(specs) do
+		expand_dependencies(spec, "spec [" .. idx .. "]")
 		table.insert(expanded, spec)
 	end
 
@@ -1103,6 +1112,7 @@ function compile(specs, opts)
 			priority = type(spec.priority) == "number" and spec.priority or 50,
 			dev = norm.dev,
 			dev_path = norm.dev_path,
+			lazy = spec.lazy,
 			has_route = false, -- set below
 			-- not is_local and pkg or nil — NOT "is_local and nil or pkg"
 			-- (that Lua gotcha always evaluates to pkg: nil can't flow
@@ -1198,8 +1208,14 @@ function compile(specs, opts)
 			is_dep[dep_id] = true
 		end
 	end
-	for id in pairs(registry) do
-		registry[id].is_dep = is_dep[id] == true
+	for id, entry in pairs(registry) do
+		entry.is_dep = is_dep[id] == true
+		-- lazy.nvim's `lazy` flag is an explicit override:
+		--   false -> eager even when triggers/dependency status say lazy
+		--   true  -> never eager, even without triggers
+		--   nil   -> laze's default: eager only without triggers and not a dep
+		entry.eager = entry.lazy == false
+			or (entry.lazy ~= true and not entry.has_route and not entry.is_dep)
 	end
 
 	return {

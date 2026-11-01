@@ -13,9 +13,9 @@ At load time, laze only requires module names explicitly declared via `module`. 
 
 ## When does a plugin's code run?
 
-* **Eager** (no triggers, not a `dependencies` dep): the installed directory is added to the runtimepath at setup (`:packadd!`), so the startup `plugin/` and `after/plugin/` phases source its files exactly once. `init` (if any) and `config` run from the plan at setup time.
-* **Lazy** (has a trigger, or is a `dependencies` dep of a lazy plugin): **nothing** runs at startup — the plugin is not even on the runtimepath. When its trigger fires after startup, the plan `:packadd`s it (sourcing `plugin/` and `ftdetect/`), sources its `after/plugin/` scripts, then runs `init` → `module` requires → `config`. If a trigger fires during startup, laze adds it to a closure-local pending queue and finalizes it at `VimEnter`; this avoids a lazy opt package being left on the runtimepath with its `plugin/` files unsourced.
-* `dependencies` of a lazy plugin stay off the runtimepath too; they activate immediately before the parent.
+* **Eager** (no triggers, not a `dependencies` dep, or `lazy = false`): the installed directory is added to the runtimepath at setup (`:packadd!`), so the startup `plugin/` and `after/plugin/` phases source its files exactly once. `init` (if any) and `config` run from the plan at setup time.
+* **Lazy** (has a trigger, is a `dependencies` dep of a lazy plugin, or `lazy = true`): **nothing** runs at startup — the plugin is not even on the runtimepath. When its trigger fires after startup, the plan `:packadd`s it (sourcing `plugin/` and `ftdetect/`), sources its `after/plugin/` scripts, then runs `init` → `module` requires → `config`. If a trigger fires during startup, laze adds it to a closure-local pending queue and finalizes it at `VimEnter`; this avoids a lazy opt package being left on the runtimepath with its `plugin/` files unsourced.
+* `dependencies` of a lazy plugin stay off the runtimepath too (unless they set `lazy = false`); they activate immediately before the parent.
 
 ### The activation invariant
 

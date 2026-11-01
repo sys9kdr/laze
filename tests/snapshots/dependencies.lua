@@ -18,6 +18,7 @@ return {
 	registry = {
 		["dep2-custom"] = {
 			after = {},
+			eager = false,
 			enabled = true,
 			has_route = false,
 			id = "dep2-custom",
@@ -29,6 +30,7 @@ return {
 		},
 		["plugin-dep1"] = {
 			after = {},
+			eager = false,
 			enabled = true,
 			has_route = false,
 			id = "plugin-dep1",
@@ -43,6 +45,7 @@ return {
 				"plugin-dep1",
 				"dep2-custom",
 			},
+			eager = true,
 			enabled = true,
 			has_route = false,
 			id = "plugin-main",

@@ -66,6 +66,7 @@ local fixtures = {
 	"priority_build",
 	"opts_main",
 	"dev_version",
+	"lazy_flag",
 }
 
 local function serialize(val, indent)
