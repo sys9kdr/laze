@@ -40,11 +40,38 @@ offline.
 | Upstream test | Relevant laze coverage |
 | --- | --- |
 | `tests/manage/semver_spec.lua` | `tests/fixtures/lazy_semver_cases.lua`, `tests/run.lua`; KD-002, KD-003, KD-005 |
-| `tests/core/plugin_spec.lua` — URL/name | `derive_name`/`pkg_name` tests in `tests/test_compile.lua`; no KD |
-| `tests/core/plugin_spec.lua` — dependencies | dependency tests in `tests/test_compile.lua` and `tests/run.lua`; KD-021 |
+| `tests/core/plugin_spec.lua` — URL/name and spec lists | `derive_name`/`pkg_name` and bare-string/nested-list tests in `tests/test_compile.lua`; no KD |
+| `tests/core/plugin_spec.lua` — dependencies | dependency tests in `tests/test_compile.lua` and `tests/run.lua` (name/source matching, disabled/cond pruning); KD-021 |
 | `tests/core/plugin_spec.lua` — optional | KD-020 |
 | `tests/core/plugin_spec.lua` — duplicate fragments / opts | KD-022 |
-| `tests/handlers/keys_spec.lua` | key notation aliases are not yet covered by a KD or a laze test; candidate for a follow-up |
+| `tests/handlers/keys_spec.lua` | raw-lhs route test in `tests/test_compile.lua`; KD-023 |
+
+## Audit findings
+
+The first run against the pinned commit (2026-10-31) passed all 139 upstream
+cases and produced these laze changes:
+
+- **Spec lists:** bare source strings, nested lists, and a single spec table
+  are accepted, mirroring `Spec:normalize`; sparse lists are rejected rather
+  than silently truncated.
+- **Dependencies:** a dependency is matched by explicit name, derived name,
+  and resolved source. A renamed top-level spec (for example
+  `{ "foo/baz", name = "bar" }`) is no longer registered twice when
+  another spec depends on `"foo/baz"`.
+- **Disabled/cond-false parents:** their dependency fragments are not
+  registered, matching lazy.nvim's `enabled = false` / `cond = false` cases.
+
+Still intentionally different (see the KD registry):
+
+- duplicate spec fragments are merged by lazy.nvim and rejected by laze
+  (KD-022);
+- `optional = true` does not make dependencies optional in laze (KD-020);
+- nested dependencies are not expanded (KD-021);
+- key notation aliases are separate raw-lhs routes, so two spellings can
+  replace each other's trigger map (KD-023);
+- a table-valued `config = { ... }` is lazy.nvim's deprecated opts form and
+  is still a compile error in laze. This is a candidate for the opts/main
+  work in PR #15 rather than a new KD yet.
 
 ## What this does not cover
 

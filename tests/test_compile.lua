@@ -655,6 +655,57 @@ do
 end
 
 do
+	-- lazy.nvim resolves a dependency fragment by URL as well as by name, so
+	-- a renamed top-level spec must not be registered a second time under its
+	-- repo-derived id (tests/vendor/lazy.nvim/tests/core/plugin_spec.lua).
+	local c = compile({
+		{ "foo/baz", name = "bar" },
+		{ "foo/fee", dependencies = { "foo/baz" } },
+	})
+	expect(c.registry["bar"] ~= nil and c.registry["baz"] == nil, "dependencies: renamed top-level spec not duplicated")
+	expect(c.registry["fee"].after[1] == "bar", "dependencies: URL match wires the renamed id")
+	expect(#c.pack == 2, "dependencies: renamed top-level spec has one pack entry")
+
+	local by_name = compile({
+		{ "foo/baz", name = "bar" },
+		{ "foo/fee", dependencies = { "bar" } },
+	})
+	expect(by_name.registry["fee"].after[1] == "bar", "dependencies: name match still wires the renamed id")
+	expect(#by_name.pack == 2, "dependencies: name match has one pack entry")
+
+	local aliases = compile({
+		{ "foo/baz", name = "bar" },
+		{ "foo/fee", dependencies = { "foo/baz", "bar" } },
+	})
+	expect(#aliases.registry["fee"].after == 1, "dependencies: two aliases for one spec are wired once")
+end
+
+do
+	-- Exact lazy.nvim dependency fixture: a bare string top-level spec and a
+	-- short dependency name that resolves to it.
+	local c = compile({
+		{ "foo/bar", dependencies = { { "dep1" }, "foo/dep2" } },
+		"foo/dep1",
+	})
+	expect(c.registry["bar"].after[1] == "dep1" and c.registry["bar"].after[2] == "dep2", "dependencies: bare string spec resolves")
+	expect(c.registry["dep1"].src == "https://github.com/foo/dep1", "dependencies: short name resolves to top-level src")
+	expect(#c.pack == 3, "dependencies: exact lazy fixture has three pack entries")
+end
+
+do
+	-- lazy.nvim ignores fragments from disabled/cond-false plugins, including
+	-- their dependency fragments (tests/vendor/lazy.nvim/tests/core/plugin_spec.lua).
+	local disabled = compile({ { "foo/disabled", enabled = false, dependencies = { "foo/bar" } } })
+	expect(disabled.registry["disabled"] ~= nil and disabled.registry["bar"] == nil, "disabled spec deps not registered")
+	expect(#disabled.pack == 1, "disabled spec dep has no pack entry")
+	local conditional = compile({ { "foo/conditional", cond = false, dependencies = { "foo/bar" } } })
+	expect(conditional.registry["conditional"] ~= nil and conditional.registry["bar"] == nil, "cond=false spec deps not registered")
+	expect(#conditional.pack == 1, "cond=false spec dep has no pack entry")
+	local active = compile({ { "foo/active", dependencies = { "foo/bar" } } })
+	expect(active.registry["bar"] ~= nil, "active spec deps still registered")
+end
+
+do
 	local c = compile({ { dir = "/tmp/plugin", name = "localp" } })
 	expect(#c.pack == 0, "dir plugin: no pack entry")
 	expect(c.registry["localp"].pkg == nil, "dir plugin: no pkg")
@@ -755,6 +806,16 @@ do
 	local c = compile({ { "folke/x.nvim", name = "x", keys = { { "<leader>x", "<cmd>X<CR>" } } } })
 	expect(c.registry["x"].has_route == true, "tuple keys entry still accepted")
 	expect(c.routes.keys["<leader>x"][1].rhs == "<cmd>X<CR>", "tuple keys rhs routed")
+end
+
+do
+	-- KD-023: notation aliases are separate raw-lhs routes. Neovim's keymap
+	-- table treats them as one key, so the later map replaces the earlier.
+	local c = compile({
+		{ "foo/a", name = "a", keys = "<C-h>" },
+		{ "foo/b", name = "b", keys = "<c-H>" },
+	})
+	expect(c.routes.keys["<C-h>"] ~= nil and c.routes.keys["<c-H>"] ~= nil, "key notation aliases are separate routes")
 end
 
 do
@@ -1012,10 +1073,31 @@ do
 	local sparse = { [1] = s1, [3] = { "folke/b.nvim", name = "sparse-b" } }
 	local ok4, err4 = pcall(compile, sparse)
 	expect(not ok4 and err4 and err4:find("must not be sparse", 1, true) ~= nil, "sparse spec array rejected (ipairs would drop [3])")
-	local ok5, err5 = pcall(compile, { "folke/a.nvim" })
-	expect(not ok5 and err5 and err5:find("must be a spec table", 1, true) ~= nil, "non-table element rejected")
+	local ok5, err5 = pcall(compile, { 42 })
+	expect(not ok5 and err5 and err5:find("must be a spec table or string", 1, true) ~= nil, "non-table element rejected")
 	local ok6, err6 = pcall(compile, { { "folke/a.nvim", name = "dup-name", build = 42 } })
 	expect(not ok6 and err6 and err6:find("build must be a string", 1, true) ~= nil, "invalid build still caught before duplicate check")
+end
+
+do
+	-- lazy.nvim's Spec:normalize accepts bare source strings and nested spec
+	-- lists. laze mirrors that shape (see tests/vendor/lazy.nvim/tests/core/plugin_spec.lua).
+	local c1 = compile({ "folke/a.nvim" })
+	expect(c1.registry["a"] ~= nil, "bare string spec accepted")
+	local c2 = compile({ { "folke/a.nvim" } })
+	expect(c2.registry["a"] ~= nil, "single nested list accepted")
+	local c3 = compile({ { { "folke/a.nvim" } } })
+	expect(c3.registry["a"] ~= nil, "deeply nested list accepted")
+	local c4 = compile({ "folke/a.nvim", "folke/b.nvim" })
+	expect(c4.registry["a"] ~= nil and c4.registry["b"] ~= nil, "bare string list expands")
+	local c5 = compile({ "folke/a.nvim", name = "single" })
+	expect(c5.registry["single"] ~= nil, "single spec table accepted")
+	local c6 = compile({ { "folke/a.nvim", dependencies = { "folke/b.nvim" } } })
+	expect(c6.registry["a"].after[1] == "b", "nested list with dependencies accepted")
+	local ok, err = pcall(compile, { { [1] = { "folke/a.nvim" }, [3] = { "folke/b.nvim" } } })
+	expect(not ok and err and err:find("must not be sparse", 1, true) ~= nil, "sparse nested list rejected")
+	local ok2, err2 = pcall(compile, { "folke/a.nvim", [3] = "folke/b.nvim" })
+	expect(not ok2 and err2 and err2:find("must not be sparse", 1, true) ~= nil, "sparse bare list rejected")
 end
 
 do

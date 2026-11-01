@@ -206,4 +206,15 @@ return {
 		rationale = "Merging fragments changes config/opts precedence and trigger composition; laze keeps compile deterministic and fails loudly instead of silently dropping a fragment.",
 		test = "tests/test_compile.lua: duplicate id rejected (was a silent overwrite)",
 	},
+	{
+		id = "KD-023",
+		title = "key notation aliases",
+		area = "keys",
+		class = "silent-drop",
+		notify = "never",
+		lazy = "Treats notation aliases as one handler id (`nvim_replace_termcodes`); `<C-h>` and `<c-H>` share a trigger and every declaring plugin loads.",
+		laze = "Routes keys by the raw `lhs`; two spellings create two trigger maps, and Neovim's keymap table lets the later `vim.keymap.set` replace the earlier one.",
+		rationale = "Normalizing would add a termcode pass and change route keys; laze keeps the raw lhs and documents the alias edge case.",
+		test = "tests/test_compile.lua: key notation aliases are separate routes",
+	},
 }

@@ -840,51 +840,121 @@ local function validate_spec(spec, idx, warned)
 	return version_range
 end
 
----@param specs LazeSpec[]
+-- lazy.nvim's Util.is_list: a table whose keys are exactly 1..n. Empty
+-- tables are lists too. This is what makes `{ { "foo/bar" } }` a nested
+-- spec list rather than a spec with a table source.
+local function is_list(t)
+	local i = 0
+	for _ in pairs(t) do
+		i = i + 1
+		if t[i] == nil then
+			return false
+		end
+	end
+	return true
+end
+
+--- Flatten lazy.nvim-shaped spec lists: a bare source string is shorthand
+--- for `{ src }`, and a list may contain nested lists. Spec tables are kept
+--- by reference (compile never mutates them). Mirrors Spec:normalize in
+--- lazy.nvim so a config that works there does not crash here.
+---@param spec any
+---@param out LazeSpec[]
+---@param label string
+local function flatten_spec(spec, out, label)
+	if type(spec) == "string" then
+		table.insert(out, { spec })
+		return
+	end
+	if type(spec) ~= "table" then
+		error("compile: " .. label .. " must be a spec table or string", 0)
+	end
+
+	local list = is_list(spec)
+	if #spec > 1 or list then
+		if not list then
+			error("compile: " .. label .. " must not be sparse", 0)
+		end
+		for i = 1, #spec do
+			flatten_spec(spec[i], out, label .. "[" .. i .. "]")
+		end
+		return
+	end
+
+	-- Numeric-only keys that are not a dense list are a sparse list (for
+	-- example { [1] = "foo", [3] = "bar" }). ipairs would silently drop the
+	-- trailing element, so reject it instead.
+	local numeric, string = false, false
+	for k in pairs(spec) do
+		if type(k) == "number" then
+			numeric = true
+		elseif type(k) == "string" then
+			string = true
+		end
+	end
+	if numeric and not string then
+		error("compile: " .. label .. " must not be sparse", 0)
+	end
+
+	if spec[1] ~= nil or spec.src ~= nil or spec.dir ~= nil or spec.url ~= nil then
+		table.insert(out, spec)
+		return
+	end
+
+	error("compile: " .. label .. " must be a spec table or string", 0)
+end
+
+---@param specs LazeSpec[]|string|LazeSpec
 ---@param opts? { dev_root?: string }
 ---@return LazeCompiled
 function compile(specs, opts)
-	if type(specs) ~= "table" or #specs == 0 then
+	if specs == nil then
 		error("compile: expected a non-empty array of specs", 0)
 	end
-	-- #specs only counts the dense prefix: {[1]=a,[3]=b} has # == 1 and
-	-- ipairs would silently drop b — reject any non-array keys outright.
-	local count = 0
-	for _ in pairs(specs) do
-		count = count + 1
+	local flattened = {}
+	flatten_spec(specs, flattened, "specs")
+	if #flattened == 0 then
+		error("compile: expected a non-empty array of specs", 0)
 	end
-	if count ~= #specs then
-		error("compile: spec array must not be sparse", 0)
-	end
-	for i = 1, #specs do
-		if type(specs[i]) ~= "table" then
-			error("compile: specs[" .. i .. "] must be a spec table", 0)
-		end
-	end
+	specs = flattened
 
 	local dev_root = (opts and opts.dev_root) or "~/dev"
 
-	-- Pass 1: index top-level names so dependency expansion can reference
-	-- specs already defined by the user instead of re-registering them.
+	-- Pass 1: index top-level names and resolved sources so dependency
+	-- expansion can reference specs already defined by the user instead of
+	-- re-registering them. lazy.nvim matches fragments by name and by URL;
+	-- the source index is what keeps `{ "foo/baz", name = "bar" }` from
+	-- being duplicated as `baz` when another spec depends on `"foo/baz"`.
 	local spec_names = {}
+	local spec_srcs = {}
 	for _, spec in ipairs(specs) do
 		local base = spec[1] or spec.src or spec.dir or spec.url
-		if spec.name then
-			spec_names[spec.name] = true
-		elseif base then
-			spec_names[derive_name(base)] = true
+		local name = spec.name or (base and derive_name(base))
+		if name then
+			spec_names[name] = true
+		end
+		if base then
+			local ok, resolved = pcall(resolve_src, spec[1] or spec.src, spec.dir, spec.url)
+			if ok and resolved and name then
+				spec_srcs[resolved] = name
+			end
 		end
 	end
 
 	local expanded = {}
 	local expanded_names = {}
+	local expanded_srcs = {}
 	-- Dependency-derived `after` names live in a side table, NOT on the
 	-- user's spec tables: compile is a pure transform and must not mutate
 	-- its input (the same spec table passed to lazy.nvim afterwards would
 	-- carry a laze-only `after` field).
 	local dep_after = {}
 	for idx, spec in ipairs(specs) do
-		if spec.dependencies then
+		-- lazy.nvim does not register dependencies of a plugin that is
+		-- disabled at compile time (`enabled = false` / `cond = false`).
+		-- Function-valued cond/enabled cannot be decided here, so keep the
+		-- old expansion for those and let the plan skip the parent.
+		if spec.dependencies and spec.enabled ~= false and spec.cond ~= false then
 			-- Guard shapes here, before any derive/expand: validate_spec runs
 			-- later (over `expanded`) and a malformed value would crash with
 			-- a raw "attempt to index" error in this pass otherwise.
@@ -900,8 +970,15 @@ function compile(specs, opts)
 				local dep_spec = type(dep) == "string" and { dep } or dep
 				-- Same derivation as the compile loop below: dir/url-only
 				-- inline deps must resolve to the same id the registry uses.
-				local dep_name = dep_spec.name
-					or derive_name(dep_spec[1] or dep_spec.src or dep_spec.dir or dep_spec.url or "")
+				local dep_base = dep_spec[1] or dep_spec.src or dep_spec.dir or dep_spec.url
+				local dep_name = dep_spec.name or derive_name(dep_base or "")
+				local dep_src
+				if dep_base then
+					local ok, resolved = pcall(resolve_src, dep_spec[1] or dep_spec.src, dep_spec.dir, dep_spec.url)
+					if ok then
+						dep_src = resolved
+					end
+				end
 				if dep_spec.dependencies then
 					-- Dependencies of dependencies are not expanded
 					-- (documented as shallow) — warn so the silent drop is
@@ -913,25 +990,31 @@ function compile(specs, opts)
 						vim.log.levels.WARN
 					)
 				end
-				-- The same dep listed twice in one array is wired once.
+				-- Prefer an existing top-level spec by name, then by resolved
+				-- source (a renamed spec must not be re-registered under its
+				-- repo-derived name), then an already-expanded dependency.
+				local existing_top = (spec_names[dep_name] and dep_name) or (dep_src and spec_srcs[dep_src])
+				local existing_expanded = (dep_src and expanded_srcs[dep_src])
+					or (expanded_names[dep_name] and dep_name)
+				local target = existing_top or existing_expanded or dep_name
+				-- The same dep listed twice in one array (including two
+				-- aliases that resolve to the same plugin) is wired once.
 				local already_named = false
 				for _, n in ipairs(dep_names) do
-					if n == dep_name then
+					if n == target then
 						already_named = true
 						break
 					end
 				end
-				if not already_named and spec_names[dep_name] then
-					-- Dep already defined elsewhere as a full spec: reference
-					-- it via `after` only, don't re-register (lazy.nvim behavior).
-					table.insert(dep_names, dep_name)
-				elseif not already_named and not expanded_names[dep_name] then
-					table.insert(dep_names, dep_name)
-					table.insert(expanded, dep_spec)
-					expanded_names[dep_name] = true
-				elseif not already_named then
-					-- Dep already expanded from another spec's dependencies.
-					table.insert(dep_names, dep_name)
+				if not already_named then
+					table.insert(dep_names, target)
+					if not existing_top and not existing_expanded then
+						table.insert(expanded, dep_spec)
+						expanded_names[dep_name] = true
+						if dep_src then
+							expanded_srcs[dep_src] = dep_name
+						end
+					end
 				end
 			end
 			dep_after[spec] = dep_names
