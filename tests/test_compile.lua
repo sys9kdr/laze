@@ -582,6 +582,13 @@ do
 		return ok and c.pack[1] or nil
 	end
 
+	local ok_default, default_dev = pcall(compile, { { "user/default-dev.nvim", name = "default-dev", dev = true } })
+	local home = os.getenv("HOME") or ""
+	expect(
+		ok_default and default_dev.pack[1].src == home .. "/projects/default-dev",
+		"dev=true default root is ~/projects (lazy.nvim-compatible)"
+	)
+
 	local bool_dev = dev_pack({ "user/dev-bool.nvim", name = "dev-bool", dev = true, version = ">=1.0.0" })
 	expect(bool_dev and bool_dev.src == "/home/user/dev/dev-bool", "dev=true + version: src is the dev path")
 	expect(bool_dev and bool_dev.version == nil, "dev=true + version: no version on the pack entry")

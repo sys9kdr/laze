@@ -194,12 +194,12 @@ Passed directly to `vim.pack.Spec`.
 ## `dev` / `dev_path` — local dev clones
 
 ```lua
-{ "folke/flash.nvim", dev = true },          -- <dev_root>/<name> (default ~/dev)
+{ "folke/flash.nvim", dev = true },          -- <dev_root>/<name> (default ~/projects)
 { "folke/lazydev.nvim", dev = "~/work/lazydev.nvim" }, -- or an explicit path
 
 {
   "my/plugin",
-  dev_path = "~/dev/my-plugin",  -- just metadata: your own commands decide what to do with it
+  dev_path = "~/projects/my-plugin",  -- just metadata: your own commands decide what to do with it
 }
 ```
 

@@ -862,7 +862,7 @@ function compile(specs, opts)
 		end
 	end
 
-	local dev_root = (opts and opts.dev_root) or "~/dev"
+	local dev_root = (opts and opts.dev_root) or "~/projects"
 
 	-- Pass 1: index top-level names so dependency expansion can reference
 	-- specs already defined by the user instead of re-registering them.

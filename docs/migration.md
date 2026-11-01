@@ -20,6 +20,8 @@ laze accepts lazy.nvim's declarative spec shape on purpose (escape hatch first).
 
 Accepted range forms: `*`, `""`, partial versions (`1`, `1.2`), `x`/`X`/`*` wildcards (`1.2.x`), comparators `^ ~ > >= < <= =`, hyphen ranges (`1.2.3 - 2.0.0`), and prerelease/build. Only one range is accepted; multi-ranges (`||`) and whitespace-separated comparator sets are rejected. The only whitespace allowed inside a range is the ` - ` hyphen separator. A prebuilt `vim.VersionRange` is not accepted; pass the range string.
 
+**Dev notes** — `dev = true` resolves to `<dev_root>/<name>`; the default `dev_root` is `~/projects`, matching lazy.nvim's `config.dev.path` default. Override it with `setup(specs, { dev_root = "~/src" })` or `compile(specs, { dev_root = ... })`.
+
 A non-range version string (e.g. `version = "main"`) is rejected — use `branch`/`tag`/`commit` for refs. vim.pack errors when no tag matches the range; lazy.nvim falls back to the default branch, so use a ref for repos without semver tags.
 
 **Silently degraded**

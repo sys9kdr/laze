@@ -27,7 +27,7 @@ vim.api.nvim_create_user_command("LazeDev", function(args)
     vim.notify("laze: plugin '" .. name .. "' not found", vim.log.levels.WARN)
     return
   end
-  local dev_path = entry.dev_path or (vim.fn.expand("~/dev/") .. name)
+  local dev_path = entry.dev_path or (vim.fn.expand("~/projects/") .. name)
   if vim.fn.isdirectory(dev_path) == 0 then
     vim.notify("laze: dev path not found: " .. dev_path, vim.log.levels.WARN)
     return
