@@ -2307,6 +2307,26 @@ do
 	vim.keymap.del("n", lhs)
 end
 
+-- VeryLazy: `User VeryLazy` is emitted even when no spec uses event = "VeryLazy"
+do
+	local ran = 0
+	local id = vim.api.nvim_create_autocmd("User", {
+		pattern = "VeryLazy",
+		callback = function()
+			ran = ran + 1
+		end,
+	})
+	laze.build_plan(laze.compile({ { dir = vim.fn.tempname(), name = "vl-none", event = "BufReadPost" } }))()
+	vim.api.nvim_del_autocmd(id)
+	if ran == 1 then
+		print("  ✓ VeryLazy: User VeryLazy emitted without any VeryLazy spec")
+		passed = passed + 1
+	else
+		print("  ✗ VeryLazy: user autocmd ran " .. ran .. " times without a VeryLazy spec")
+		failed = failed + 1
+	end
+end
+
 -- VeryLazy: fires immediately in headless (no UIEnter possible), exactly once
 do
 	local ran = 0

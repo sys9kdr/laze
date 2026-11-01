@@ -476,8 +476,6 @@ local function build_plan(compiled, opts)
 	end
 
 	return function()
-		local verylazy_ids
-
 		-- Clear the previous plan's keymaps first: unlike autocmd groups
 		-- (cleared below even when empty), keymaps have no group to clear.
 		-- Only delete maps still carrying the trigger desc — after a load
@@ -504,6 +502,17 @@ local function build_plan(compiled, opts)
 		local fts_group = vim.api.nvim_create_augroup("laze_fts", { clear = true })
 		local cmds_group = vim.api.nvim_create_augroup("laze_cmds", { clear = true })
 
+		-- `User VeryLazy` is emitted unconditionally (lazy.nvim parity), even
+		-- when no spec declares `event = "VeryLazy"`, so user autocmds keyed
+		-- on it always run.
+		vim.api.nvim_create_autocmd("UIEnter", {
+			group = vim.api.nvim_create_augroup("laze_verylazy", { clear = true }),
+			once = true,
+			callback = function()
+				vim.api.nvim_exec_autocmds("User", { pattern = "VeryLazy" })
+			end,
+		})
+
 		if next(routes.events) then
 			local group = events_group
 			-- routes.events[event] is a list of pattern variants (one per
@@ -517,22 +526,15 @@ local function build_plan(compiled, opts)
 			local border = {}
 			for event, variants in pairs(routes.events) do
 				if event == "VeryLazy" then
-					-- Synthetic event (lazy.nvim maps it to User VeryLazy);
-					-- any pattern variant still fires the one VeryLazy load.
-					verylazy_ids = verylazy_ids or {}
+					-- Synthetic event (lazy.nvim maps it to User VeryLazy; the
+					-- UIEnter emitter is installed above). Any pattern variant
+					-- still fires the one VeryLazy load.
+					local verylazy_ids = {}
 					for _, variant in ipairs(variants) do
 						for _, id in ipairs(variant.ids) do
 							table.insert(verylazy_ids, id)
 						end
 					end
-					local function fire_verylazy()
-						vim.api.nvim_exec_autocmds("User", { pattern = "VeryLazy" })
-					end
-					vim.api.nvim_create_autocmd("UIEnter", {
-						group = group,
-						once = true,
-						callback = fire_verylazy,
-					})
 					vim.api.nvim_create_autocmd("User", {
 						group = group,
 						pattern = "VeryLazy",
@@ -716,7 +718,7 @@ local function build_plan(compiled, opts)
 		-- (UI not yet entered). If the plan is built after startup —
 		-- vim_did_enter ~= 0 — UIEnter has already fired (or, headless,
 		-- will never fire) and the one-shot would be dead: fire immediately.
-		if verylazy_ids and (vim.v.vim_did_enter ~= 0 or #vim.api.nvim_list_uis() == 0) then
+		if vim.v.vim_did_enter ~= 0 or #vim.api.nvim_list_uis() == 0 then
 			vim.api.nvim_exec_autocmds("User", { pattern = "VeryLazy" })
 		end
 	end
