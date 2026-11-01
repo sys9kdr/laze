@@ -117,15 +117,9 @@ local function build_plan(compiled, opts)
 	end
 
 	local function run_hooks(id, entry, start)
-		if entry.init then
-			local ok_init, err_init = pcall(entry.init)
-			if not ok_init then
-				loaded[id] = "failed"
-				vim.notify("laze: init failed for " .. id .. ": " .. tostring(err_init), vim.log.levels.WARN)
-				if on_fail then on_fail(id, err_init) end
-				return
-			end
-		end
+		-- `init` is not run here: it runs once at startup (lazy.nvim parity),
+		-- before any plugin loads. See the startup pass in the returned plan
+		-- function.
 		local modules = entry.module
 		if type(modules) == "string" then modules = { modules } end
 		if type(modules) == "table" then
@@ -427,6 +421,24 @@ local function build_plan(compiled, opts)
 
 	return function()
 		local verylazy_ids
+
+		-- lazy.nvim parity: `init` runs once at startup for every enabled
+		-- plugin, before any plugin loads, so it can set options or register
+		-- which-key specs regardless of when the plugin itself loads. A
+		-- failing `init` warns and does not stop the plugin from loading.
+		local init_ids = {}
+		for id, entry in pairs(registry) do
+			if entry.init and enabled_ok[id] then
+				table.insert(init_ids, id)
+			end
+		end
+		table.sort(init_ids)
+		for _, id in ipairs(init_ids) do
+			local ok_init, err_init = pcall(registry[id].init)
+			if not ok_init then
+				vim.notify(("laze: init failed for %s: %s"):format(id, tostring(err_init)), vim.log.levels.WARN)
+			end
+		end
 
 		-- Clear the previous plan's keymaps first: unlike autocmd groups
 		-- (cleared below even when empty), keymaps have no group to clear.

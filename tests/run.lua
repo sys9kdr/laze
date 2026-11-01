@@ -1784,8 +1784,9 @@ do
 end
 
 -- on_load / on_fail hooks: called with numeric duration for loaded plugins,
--- on_fail for init failures and module-require failures; silent suppresses
--- the failure notification for its own plugin.
+-- on_fail for module-require failures; silent suppresses the failure
+-- notification for its own plugin. A failing init warns but does not fail the
+-- plugin (lazy.nvim parity).
 do
 	local loads, fails, notifs = {}, {}, {}
 	local compiled = laze.compile({
@@ -1810,17 +1811,17 @@ do
 	pcall(require, "laze.nope.silent")
 	pcall(require, "laze.nope.loud")
 	vim.notify = orig_notify
-	if #loads == 1 and loads[1] == "hook-ok:number" then
-		print("  ✓ on_load: called once with numeric duration for the loaded plugin")
+	if #loads == 2 and loads[1] == "hook-fail:number" and loads[2] == "hook-ok:number" then
+		print("  ✓ on_load: called with numeric duration for the loaded plugins")
 		passed = passed + 1
 	else
 		print("  ✗ on_load: got " .. #loads .. " entries")
 		failed = failed + 1
 	end
-	local fail_ok = #fails == 3
-	local ordered = fails[1] == "hook-fail" and fails[2] == "hook-silent" and fails[3] == "hook-modfail"
+	local fail_ok = #fails == 2
+	local ordered = fails[1] == "hook-silent" and fails[2] == "hook-modfail"
 	if fail_ok and ordered then
-		print("  ✓ on_fail: init failure + both module-require failures reported")
+		print("  ✓ on_fail: both module-require failures reported (init failure is not a load failure)")
 		passed = passed + 1
 	else
 		print("  ✗ on_fail: got " .. #fails .. " entries")
@@ -1847,6 +1848,42 @@ do
 		passed = passed + 1
 	else
 		print("  ✗ non-silent failure: notification missing")
+		failed = failed + 1
+	end
+end
+
+-- init runs once at startup, before any plugin loads, even for a lazy plugin
+do
+	local order = {}
+	local compiled = laze.compile({
+		{
+			dir = vim.fn.tempname(),
+			name = "init-lazy",
+			cmd = "LazeInitLazyCmd",
+			init = function()
+				table.insert(order, "init")
+			end,
+			config = function()
+				table.insert(order, "config")
+			end,
+		},
+		{
+			dir = vim.fn.tempname(),
+			name = "init-off",
+			enabled = false,
+			init = function()
+				table.insert(order, "init-off")
+			end,
+		},
+	})
+	laze.build_plan(compiled)()
+	local before_trigger = vim.deepcopy(order)
+	pcall(vim.cmd, "LazeInitLazyCmd")
+	if #before_trigger == 1 and before_trigger[1] == "init" and table.concat(order, ",") == "init,config" then
+		print("  ✓ init: runs once at startup for a lazy plugin, before its config; disabled plugins skipped")
+		passed = passed + 1
+	else
+		print("  ✗ init: order was " .. table.concat(order, ",") .. " (before trigger: " .. table.concat(before_trigger, ",") .. ")")
 		failed = failed + 1
 	end
 end
