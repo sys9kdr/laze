@@ -147,15 +147,6 @@ local function build_plan(compiled, opts)
 			end
 			return
 		end
-		if entry.init then
-			local ok_init, err_init = pcall(entry.init)
-			if not ok_init then
-				loaded[id] = "failed"
-				vim.notify("laze: init failed for " .. id .. ": " .. tostring(err_init), vim.log.levels.WARN)
-				if on_fail then on_fail(id, err_init) end
-				return
-			end
-		end
 		local modules = entry.module
 		if type(modules) == "string" then modules = { modules } end
 		if type(modules) == "table" then
@@ -475,7 +466,30 @@ local function build_plan(compiled, opts)
 		end
 	end
 
+	local init_ran = false
 	return function()
+		local verylazy_ids
+
+		-- lazy.nvim parity: `init` runs once at startup for every enabled
+		-- plugin, before any plugin loads. The plan closure can be invoked
+		-- more than once, so keep this pass one-shot per plan.
+		if not init_ran then
+			init_ran = true
+			local init_ids = {}
+			for id, entry in pairs(registry) do
+				if entry.init and enabled_ok[id] then
+					table.insert(init_ids, id)
+				end
+			end
+			table.sort(init_ids)
+			for _, id in ipairs(init_ids) do
+				local ok_init, err_init = pcall(registry[id].init)
+				if not ok_init then
+					vim.notify(("laze: init failed for %s: %s"):format(id, tostring(err_init)), vim.log.levels.WARN)
+				end
+			end
+		end
+
 		-- Clear the previous plan's keymaps first: unlike autocmd groups
 		-- (cleared below even when empty), keymaps have no group to clear.
 		-- Only delete maps still carrying the trigger desc — after a load

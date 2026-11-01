@@ -70,8 +70,8 @@ return {
 		class = "extension",
 		notify = "never",
 		lazy = "`module = false` opts out of automatic require-loading; lazy.nvim does not accept module strings as triggers.",
-		laze = "`module = string|string[]` is an opt-in require trigger via package.preload; `module = false` means no triggers.",
-		rationale = "laze never patches global require; preload entries provide explicit, single-shot triggers.",
+		laze = "`module = string|string[]` is an opt-in require trigger via package.preload; `module = false` means no triggers. A lazy plugin's init cannot require its undeclared module before activation.",
+		rationale = "laze never patches global require; preload entries provide explicit, single-shot triggers, including from init.",
 		test = "tests/test_compile.lua: module trigger: has_route",
 	},
 	{
