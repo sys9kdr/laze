@@ -134,6 +134,21 @@ local function build_plan(compiled, opts)
 		end
 	end
 
+	-- Re-fire an event after a trigger load, so autocmds the plugin registers
+	-- while loading see the event/buffer that caused the load (e.g. an ft
+	-- plugin's FileType handler would otherwise miss the buffer). Re-entrancy
+	-- is guarded so the trigger dispatcher itself doesn't recurse.
+	local refiring = {}
+	local function refire_event(event, exec_opts)
+		if refiring[event] then
+			return
+		end
+		refiring[event] = true
+		exec_opts.modeline = false
+		pcall(vim.api.nvim_exec_autocmds, event, exec_opts)
+		refiring[event] = nil
+	end
+
 	-- With `opts.partial` the hooks run but the plugin stays "pending_startup":
 	-- used when a startup `require()` needs a configured plugin right away.
 	-- The hooks run at most once; the VimEnter finalizer then only marks the
@@ -184,6 +199,11 @@ local function build_plan(compiled, opts)
 				end
 				run_hooks(id, pending.entry, pending.start)
 			end
+		end
+		-- Startup-requested ft plugins registered their autocmds during
+		-- finalization; re-fire FileType so they see the current buffer.
+		if routes.fts[vim.bo.filetype] then
+			refire_event("FileType", { buffer = vim.api.nvim_get_current_buf() })
 		end
 	end
 
@@ -579,12 +599,17 @@ local function build_plan(compiled, opts)
 					pattern = b.pattern,
 					once = true,
 					callback = function(ev)
+						local matched = false
 						for _, route in ipairs(b.routes) do
 							if route.event == ev.event then
+								matched = true
 								for _, id in ipairs(route.ids) do
 									load_with_deps(id)
 								end
 							end
+						end
+						if matched then
+							refire_event(ev.event, { pattern = ev.match, data = ev.data })
 						end
 					end,
 				})
@@ -607,6 +632,7 @@ local function build_plan(compiled, opts)
 						for _, id in ipairs(current_ids) do
 							load_with_deps(id)
 						end
+						refire_event("FileType", { buffer = ev.buf })
 					end
 				end,
 			})
