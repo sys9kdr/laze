@@ -241,7 +241,19 @@ function, not microbenchmarked in isolation):
 
 ## Open items
 
-None. New hot paths must land with a perf regression test in
+### compile.lua: `keys` are walked three times (measured, low priority)
+
+A keys-heavy spec pays for three passes over the same list: `normalize_keys`
+(shape normalization), `validate_triggers` (lhs/mode/rhs checks), and
+`add_to_key_route` (route insertion). Measured 2026-11 on a 100-spec
+compile: 0.22 ms plain vs 0.49 ms with 5 keys per spec (~2.7 µs/spec,
+~0.54 µs per key entry). Folding validation into `normalize_keys` would
+remove one pass, an estimated ~0.08 ms per 100 specs — well under the
+20 ms threshold and invisible next to trigger installation, so this stays
+a note, not a change. Revisit only if the keys surface grows (e.g.
+`keys.ft` buffer-local maps, #29).
+
+New hot paths must land with a perf regression test in
 `tests/run.lua perf` (asserted thresholds) or a note here explaining
 why the threshold doesn't apply.
 
@@ -263,7 +275,12 @@ nvim -u NONE --headless -l tests/benchmarks/compile_only.lua
 nvim -u NONE --headless -l tests/benchmarks/compile_compare.lua
 ```
 
-Latest manual run (2026-10, Neovim 0.12.6, 4 real dir plugins):
+Latest manual run (2026-11, Neovim 0.12.6, after the keys `rhs = false` /
+`<nop>` fix): `compile_only` cold 4.9–6.1 ms / warm 3.35 ms; `compile_compare`
+laze 4.6–5.5 ms vs lazy.nvim 18–57 ms. The absolute numbers moved with the
+machine, not the patch: the fix adds one comparison per key entry.
+
+Earlier run (2026-10, 4 real dir plugins):
 `compile_only` cold 1.30–1.33 ms / warm 0.92–0.96 ms; `compile_compare`
 laze ~1.2 ms vs lazy.nvim 4.8–21 ms (the high end is a first-run outlier).
 All four specs are `dir`, so laze does no `vim.pack.add`: this compares

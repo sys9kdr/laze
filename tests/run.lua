@@ -424,6 +424,41 @@ do
 	end
 end
 
+-- keys route: <nop> is a no-op map and does not load the plugin
+do
+	local ran = 0
+	local compiled = laze.compile({
+		{
+			dir = vim.fn.tempname(),
+			name = "nop-key",
+			keys = { { "<leader>np", "<nop>" } },
+			config = function()
+				ran = ran + 1
+			end,
+		},
+	})
+	local plan = laze.build_plan(compiled)
+	plan()
+	local lhs = vim.api.nvim_replace_termcodes("<leader>np", true, false, true)
+	local found = false
+	for _, km in ipairs(vim.api.nvim_get_keymap("n")) do
+		if km.lhs == lhs then
+			found = true
+			break
+		end
+	end
+	vim.api.nvim_feedkeys(lhs, "x", false)
+	vim.wait(50)
+	if found and ran == 0 then
+		print("  ✓ keys route: <nop> maps but never loads")
+		passed = passed + 1
+	else
+		print(("  ✗ keys route: <nop> mapped:%s ran:%d"):format(tostring(found), ran))
+		failed = failed + 1
+	end
+	pcall(vim.keymap.del, "n", lhs)
+end
+
 -- keys route: explicit mode
 do
 	local compiled = laze.compile({

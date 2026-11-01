@@ -744,6 +744,8 @@ local rejection_cases = {
 	{ { 42, name = "x" }, "[1]/src must be a non-empty string", "numeric src rejected" },
 	{ { "folke/x.nvim", name = "x", keys = { 42 } }, "keys[1] must be a string", "numeric keys element rejected" },
 	{ { "folke/x.nvim", name = "x", keys = { { lhs = 42 } } }, "non-empty lhs", "numeric lhs rejected" },
+	{ { "folke/x.nvim", name = "x", keys = { { lhs = "a", rhs = 42 } } }, "rhs must be a string, function, or false", "numeric rhs rejected" },
+	{ { "folke/x.nvim", name = "x", keys = { { lhs = "a", rhs = true } } }, "rhs must be a string, function, or false", "boolean true rhs rejected" },
 }
 
 for _, case in ipairs(rejection_cases) do
@@ -755,6 +757,21 @@ do
 	local c = compile({ { "folke/x.nvim", name = "x", keys = { { "<leader>x", "<cmd>X<CR>" } } } })
 	expect(c.registry["x"].has_route == true, "tuple keys entry still accepted")
 	expect(c.routes.keys["<leader>x"][1].rhs == "<cmd>X<CR>", "tuple keys rhs routed")
+end
+
+do
+	-- lazy.nvim: rhs = false removes the key handler; ""/<nop> is a no-op map.
+	local no = compile({ { "foo/a", name = "a", keys = { { "<leader>no", false } } } })
+	expect(no.routes.keys["<leader>no"] == nil, "rhs=false removes the key route")
+	local no_named = compile({ { "foo/b", name = "b", keys = { { lhs = "<leader>no2", rhs = false } } } })
+	expect(no_named.routes.keys["<leader>no2"] == nil, "named rhs=false removes the key route")
+	local nop = compile({ { "foo/c", name = "c", keys = { { "<leader>np", "<nop>" } } } })
+	local nop_route = nop.routes.keys["<leader>np"]
+	expect(nop_route ~= nil and nop_route[1].rhs == "<nop>", "nop key route retained")
+	-- With every key handler removed, the spec has no trigger left: like
+	-- lazy.nvim it becomes eager instead of staying unreachable.
+	local eager = compile({ { "foo/d", name = "d", keys = { { "<leader>no3", false } } } })
+	expect(eager.registry["d"].has_route == false, "all-false keys leaves no route")
 end
 
 do

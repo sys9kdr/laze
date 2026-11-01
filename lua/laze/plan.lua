@@ -607,12 +607,18 @@ local function build_plan(compiled, opts)
 				local mode = entry.mode
 				local ids = entry.ids
 				local rhs = entry.rhs
+				-- lazy.nvim treats "" and <nop> as no-op maps: the mapping exists
+				-- but must not load the plugin.
+				local is_nop = type(rhs) == "string" and (rhs == "" or rhs:lower() == "<nop>")
 				local keymap_opts = { desc = entry.desc or "laze: load on key" }
 				if entry.silent ~= nil then
 					keymap_opts.silent = entry.silent
 				end
 				table.insert(installed_keys, { mode = mode, lhs = lhs, desc = keymap_opts.desc })
 				vim.keymap.set(mode, lhs, function()
+					if is_nop then
+						return
+					end
 					if rhs == nil then
 						-- No rhs: the plugin's own keymap takes over after load.
 						-- Delete the trigger NOW — at this point it is the only

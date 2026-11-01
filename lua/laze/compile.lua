@@ -136,15 +136,23 @@ local function normalize_keys(v)
 			if type(item) == "string" then
 				table.insert(result, { lhs = item, mode = "n" })
 			elseif type(item) == "table" then
-				table.insert(result, {
-					lhs = item.lhs or item[1],
-					mode = item.mode or "n",
-					-- rhs: string (feedkeys) or function (opaque callback)
-					rhs = item.rhs or item[2],
-					-- lazy.nvim key options (passed to vim.keymap.set)
-					desc = item.desc,
-					silent = item.silent,
-				})
+				-- lazy.nvim: rhs = false (or vim.NIL) removes the key handler
+				-- entirely; it is not a takeover trigger.
+				local rhs = item.rhs
+				if rhs == nil then
+					rhs = item[2]
+				end
+				if rhs ~= false and not (vim.NIL ~= nil and rhs == vim.NIL) then
+					table.insert(result, {
+						lhs = item.lhs or item[1],
+						mode = item.mode or "n",
+						-- rhs: string (feedkeys) or function (opaque callback)
+						rhs = rhs,
+						-- lazy.nvim key options (passed to vim.keymap.set)
+						desc = item.desc,
+						silent = item.silent,
+					})
+				end
 			end
 		end
 		return result
@@ -663,6 +671,21 @@ local function validate_triggers(spec, idx, spec_id)
 				local lhs = item.lhs or item[1]
 				if type(lhs) ~= "string" or lhs == "" then
 					bad("keys[" .. i .. "]", "must have a non-empty lhs (string)")
+				end
+				-- lazy.nvim: rhs is string | fun() | false (false removes the
+				-- handler). vim.NIL is how an empty keymap value decodes.
+				local rhs = item.rhs
+				if rhs == nil then
+					rhs = item[2]
+				end
+				if
+					rhs ~= nil
+					and rhs ~= false
+					and type(rhs) ~= "string"
+					and type(rhs) ~= "function"
+					and not (vim.NIL ~= nil and rhs == vim.NIL)
+				then
+					bad("keys[" .. i .. "]", "rhs must be a string, function, or false")
 				end
 				if item.mode ~= nil then
 					if type(item.mode) == "string" then
