@@ -729,6 +729,61 @@ do
 	vim.fn.delete(dir, "rf")
 end
 
+-- ft / event triggers re-fire the triggering event after loading, so autocmds
+-- the plugin registers in config see the buffer that caused the load
+do
+	local seen_ft, seen_ev = {}, {}
+	local compiled = laze.compile({
+		{
+			dir = vim.fn.tempname(),
+			name = "refire-ft",
+			ft = "laze_refire_ft",
+			config = function()
+				vim.api.nvim_create_autocmd("FileType", {
+					pattern = "laze_refire_ft",
+					callback = function(ev)
+						table.insert(seen_ft, ev.buf)
+					end,
+				})
+			end,
+		},
+		{
+			dir = vim.fn.tempname(),
+			name = "refire-ev",
+			event = { event = "BufFilePost", pattern = "laze_refire_*" },
+			config = function()
+				vim.api.nvim_create_autocmd("BufFilePost", {
+					pattern = "laze_refire_*",
+					callback = function(ev)
+						table.insert(seen_ev, ev.buf)
+					end,
+				})
+			end,
+		},
+	})
+	laze.build_plan(compiled)()
+
+	local buf = vim.api.nvim_create_buf(true, false)
+	vim.bo[buf].filetype = "laze_refire_ft"
+	if #seen_ft == 1 and seen_ft[1] == buf then
+		print("  ✓ ft route: plugin's FileType handler sees the buffer that loaded it (once)")
+		passed = passed + 1
+	else
+		print("  ✗ ft route: re-fire — handler saw " .. vim.inspect(seen_ft))
+		failed = failed + 1
+	end
+
+	vim.api.nvim_exec_autocmds("BufFilePost", { pattern = "laze_refire_x" })
+	if #seen_ev == 1 then
+		print("  ✓ event route: plugin's handler sees the event that loaded it (once)")
+		passed = passed + 1
+	else
+		print("  ✗ event route: re-fire — handler saw " .. vim.inspect(seen_ev))
+		failed = failed + 1
+	end
+	pcall(vim.api.nvim_buf_delete, buf, { force = true })
+end
+
 -- event route: autocmd is registered
 do
 	local compiled = laze.compile({
