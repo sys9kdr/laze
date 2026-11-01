@@ -1348,6 +1348,52 @@ end, { nargs = "*", bang = true, range = true })
 	vim.fn.delete(root, "rf")
 end
 
+-- module trigger required during startup: the plugin is configured before
+-- require() returns, and its plugin/ files are still sourced exactly once.
+-- Spawned session, because it depends on the real startup phases.
+-- Skipped under `fast`.
+if not fast_only then
+	local root = vim.fn.tempname() .. "_lazemodstart"
+	local plug = root .. "/plug"
+	vim.fn.mkdir(plug .. "/lua", "p")
+	vim.fn.mkdir(plug .. "/plugin", "p")
+	local function write(path, content)
+		local fd = io.open(path, "w")
+		fd:write(content)
+		fd:close()
+	end
+	write(plug .. "/lua/lazemodstart.lua", "return { answer = 42 }\n")
+	write(plug .. "/plugin/lazemodstart.lua", "vim.g.lazemodstart_sourced = (vim.g.lazemodstart_sourced or 0) + 1\n")
+
+	local result = root .. "/result"
+	local init_file = root .. "/init.lua"
+	write(
+		init_file,
+		("vim.opt.rtp:prepend(%q)\n"):format(vim.fn.getcwd())
+			.. 'local laze = require("laze")\n'
+			.. "local configured = false\n"
+			.. "laze.build_plan(laze.compile({\n"
+			.. ('  { dir = %q, name = "lazemodstart", module = "lazemodstart", config = function() configured = true end },\n'):format(plug)
+			.. "}))()\n"
+			.. 'local mod = require("lazemodstart")\n'
+			.. "local at_require = tostring(configured) .. ':' .. mod.answer\n"
+			.. 'vim.api.nvim_create_autocmd("VimEnter", { once = true, callback = function()\n'
+			.. ("  vim.fn.writefile({ at_require .. ':' .. tostring(configured) .. ':' .. (vim.g.lazemodstart_sourced or 0) }, %q)\n"):format(result)
+			.. '  vim.cmd("qa!")\n'
+			.. "end })\n"
+	)
+	vim.system({ vim.v.progpath, "-u", init_file, "--headless" }, { timeout = 30000 }):wait()
+	local got = vim.fn.filereadable(result) == 1 and vim.fn.readfile(result)[1] or "<missing>"
+	if got == "true:42:true:1" then
+		print("  ✓ module trigger at startup: configured before require returns, plugin/ sourced once")
+		passed = passed + 1
+	else
+		print(("  ✗ module trigger at startup: got %s (expected true:42:true:1)"):format(got))
+		failed = failed + 1
+	end
+	vim.fn.delete(root, "rf")
+end
+
 -- build: PackChanged → string/:cmd/function build forms. The first plugin
 -- uses a DOTTED directory name so id ("laze-build-test") != pack name
 -- ("laze-build-test.nvim") — a regression guard for the builds map being
