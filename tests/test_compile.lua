@@ -701,6 +701,7 @@ local rejection_cases = {
 	{ { "folke/x.nvim", name = "x", keys = { {} } }, "non-empty lhs", "keys entry without lhs rejected" },
 	{ { "folke/x.nvim", name = "x", keys = { { lhs = "" } } }, "non-empty lhs", "empty lhs rejected" },
 	{ { "folke/x.nvim", name = "x", keys = { { lhs = "a", mode = 42 } } }, "mode must be a string or string[]", "numeric mode rejected" },
+	{ { "folke/x.nvim", name = "x", keys = { { lhs = "a", ft = "http" } } }, "keys[1].ft is not supported", "keys ft rejected" },
 	{ { "folke/x.nvim", name = "x", event = { { event = 42 } } }, "must have event = string", "numeric event in table rejected" },
 	{ { "folke/x.nvim", name = "x", event = { { event = { "A", 42 } } } }, "must have event = string", "non-string in event array rejected" },
 	{ { "folke/x.nvim", name = "x", event = { { event = "BufEnter", pattern = 42 } } }, "pattern must be a string", "numeric pattern rejected" },

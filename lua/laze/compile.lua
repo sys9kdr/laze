@@ -667,6 +667,12 @@ local function validate_triggers(spec, idx, spec_id)
 				if type(lhs) ~= "string" or lhs == "" then
 					bad("keys[" .. i .. "]", "must have a non-empty lhs (string)")
 				end
+				if item.ft ~= nil then
+					bad(
+						"keys[" .. i .. "].ft",
+						"is not supported — use a top-level ft trigger, or install buffer-local maps from init"
+					)
+				end
 				-- lazy.nvim does not validate the contents of mode:
 				-- mode = "" is passed to vim.keymap.set (which creates a
 				-- multi-mode mapping), and mode = {} resolves to no key
