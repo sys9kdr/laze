@@ -108,6 +108,11 @@ That's it. Everything else in laze is declarative spec fields, opt-in extras, an
 
 ## Spec shape
 
+The spec list follows lazy.nvim's shape: each entry may be a spec table, a
+bare source string (`"folke/which-key.nvim"`), or a nested list of those.
+A single spec table is also accepted. Nested lists are flattened before
+compilation; sparse lists are rejected instead of silently dropping entries.
+
 Supported fields:
 
 * `[1]` or `src`
@@ -153,7 +158,7 @@ Accepted value shapes:
 
 Notes:
 
-* `dependencies` is a **shallow, non-recursive** syntax sugar: each dependency is registered as a separate spec and mapped to `after`. No config/trigger inheritance, no transitive resolution — an inline dep spec that carries its own `dependencies` field gets a compile-time warning (move it to the top-level spec list). Dependencies are **never eager**: they load with their parents — eagerly when the parent is eager, lazily when the parent is lazy (lazy.nvim-compatible: *"Dependencies are always lazy-loaded unless specified otherwise"*). To load a dep independently, give it its own trigger (e.g. `event = "InsertEnter"`).
+* `dependencies` is a **shallow, non-recursive** syntax sugar: each dependency is registered as a separate spec and mapped to `after`. A dependency is matched by explicit `name`, derived name, or resolved source, so a renamed top-level spec is referenced instead of registered a second time. Dependencies of an `enabled = false` or `cond = false` spec are not registered (lazy.nvim behavior). No config/trigger inheritance, no transitive resolution — an inline dep spec that carries its own `dependencies` field gets a compile-time warning (move it to the top-level spec list). Dependencies are **never eager**: they load with their parents — eagerly when the parent is eager, lazily when the parent is lazy (lazy.nvim-compatible: *"Dependencies are always lazy-loaded unless specified otherwise"*). To load a dep independently, give it its own trigger (e.g. `event = "InsertEnter"`).
 * `[1]`/`src` is content-aware: absolute and `.`-prefixed paths (`./foo`, `../foo`) are treated as local dirs, `~` expands, `https://`/`git@` URLs as-is, anything else is expanded to `https://github.com/<src>`. A bare relative path like `foo/bar` is NOT a local dir — it becomes a GitHub URL.
 * `name` is used for internal routing (routes, after deps) and defaults to the plugin's repository name with `.nvim`/`.lua` stripped (lazy.nvim-compatible: `folke/which-key.nvim` → `which-key`). The installed directory (`pack/<pkg>/opt/<name>`) and `:packadd` use the *full* repository name (vim.pack's own derivation) — for `which-key.nvim` that directory is `which-key.nvim`, matching existing installs. It is **not** passed directly to `require` — laze only requires module names explicitly declared via `module`.
 * `silent = true` suppresses `vim.notify` warnings when `require` fails (e.g. for optional plugins).
@@ -244,14 +249,18 @@ laze.build_plan(compiled, {
 **Apache-2.0** © 2026 Daiki Noda (sys9kdr).
 
 laze is **actively maintained** by Daiki Noda (sys9kdr). Core, extras,
-tests, fixtures and docs are written for laze itself; no lazy.nvim
+docs and the laze-specific tests are written for laze itself; no lazy.nvim
 implementation code is vendored or copied. The semver range vectors in
 `tests/fixtures/lazy_semver_cases.lua` are adapted from lazy.nvim's
 `tests/manage/semver_spec.lua` (Apache-2.0) and carry an attribution header.
+A small part of lazy.nvim's own test suite is vendored under
+`tests/vendor/lazy.nvim/` as a behavioral oracle for known-difference
+audits (Apache-2.0; see its `LICENSE` and `NOTICE`). It is not part of the
+laze runtime or CI.
 
 Credits:
 
-* **lazy.nvim** (Apache-2.0, © Folke Lemaitre) — laze's spec surface is a deliberate subset of lazy.nvim's declarative spec format, its name derivation (`Spec.get_name`) informed laze's id/pkg derivation, and the migration-compatibility goal (escape hatch first) is directly inspired by it. https://github.com/folke/lazy.nvim
+* **lazy.nvim** (Apache-2.0, © Folke Lemaitre) — laze's spec surface is a deliberate subset of lazy.nvim's declarative spec format, its name derivation (`Spec.get_name`) informed laze's id/pkg derivation, and the migration-compatibility goal (escape hatch first) is directly inspired by it. Its semver, keys and plugin-spec tests are vendored under `tests/vendor/lazy.nvim/` for compatibility audits. https://github.com/folke/lazy.nvim
 * **Neovim / `vim.pack`** (Apache-2.0) — installation, placement, tag/ref resolution, and the lockfile are delegated to `vim.pack`; laze lowers lazy.nvim ranges/refs to its `version` field.
 
 See AGENTS.md for design invariants and conventions.
