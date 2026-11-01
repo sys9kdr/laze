@@ -75,6 +75,13 @@ startup* (`entry.has_route` or `entry.is_dep`):
      handling and callbacks as an ordinary post-startup load.
    - Change the entry state to loaded (or failed).
 
+Exception: if a `module` trigger is `require()`d during startup, the plugin's
+declared module requires and `config` run right then, before `require` returns.
+Its `init` already ran during setup. The entry stays `pending_startup` until
+VimEnter (where it is only marked loaded). Plugins added before Neovim's own
+startup `plugin/` phase are sourced by that phase; the finalizer only sources
+plugins added after it began.
+
 The plan owns a closure-local queue keyed by plugin id. It registers one
 one-shot `VimEnter` callback to drain it in dependency-first insertion order.
 Repeated triggers before VimEnter only enqueue a plugin once.

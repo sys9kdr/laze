@@ -359,6 +359,58 @@ do
 	end
 end
 
+-- Disabled plugins (cond = false / enabled = false) must not leave live key
+-- triggers: no map for `enabled`, and a cond-skipped trigger never runs its rhs
+do
+	local rhs_ran = false
+	local compiled = laze.compile({
+		{
+			dir = vim.fn.getcwd(),
+			name = "keys-cond-off",
+			cond = false,
+			keys = {
+				{
+					"<F13>",
+					function()
+						rhs_ran = true
+					end,
+				},
+				{ "<F14>" },
+			},
+		},
+		{ dir = vim.fn.getcwd(), name = "keys-enabled-off", enabled = false, keys = { { "<F15>" } } },
+	})
+	laze.build_plan(compiled)()
+
+	local function mapped(lhs)
+		return vim.fn.maparg(lhs, "n") ~= ""
+	end
+	if not mapped("<F15>") then
+		print("  ✓ keys: enabled = false installs no trigger map")
+		passed = passed + 1
+	else
+		print("  ✗ keys: enabled = false still installed a trigger map")
+		failed = failed + 1
+	end
+
+	vim.fn.maparg("<F13>", "n", false, true).callback()
+	vim.fn.maparg("<F14>", "n", false, true).callback()
+	if not rhs_ran and not mapped("<F13>") and not mapped("<F14>") then
+		print("  ✓ keys: cond = false skips rhs and removes the trigger")
+		passed = passed + 1
+	else
+		print(
+			("  ✗ keys: cond = false (rhs_ran=%s, F13 mapped=%s, F14 mapped=%s)"):format(
+				tostring(rhs_ran),
+				tostring(mapped("<F13>")),
+				tostring(mapped("<F14>"))
+			)
+		)
+		failed = failed + 1
+	end
+	vim.api.nvim_feedkeys("", "x", false) -- drain replayed keys
+end
+
 -- FileType dispatcher is registered for ft routes (single "*" entry),
 -- fires only for the matching filetype, and ignores unrelated ones
 do
@@ -726,6 +778,53 @@ do
 		failed = failed + 1
 	end
 	vim.keymap.del("n", lhs)
+	vim.fn.delete(dir, "rf")
+end
+
+-- keys route: the replay runs before keys already queued behind the trigger
+-- (regression: first use of a longer plugin map like Comment.nvim's `gcA`.
+-- If the replay is appended, the queued `A` runs first and `gc` is inserted
+-- literally instead of the plugin's `gcA` mapping firing.)
+do
+	local dir = vim.fn.tempname() .. "_keyreplay"
+	vim.fn.mkdir(dir .. "/lua", "p")
+	local basename = dir:match("([^/]+)$")
+	local fd = io.open(dir .. "/lua/" .. basename .. ".lua", "w")
+	fd:write("return { loaded = true }\n")
+	fd:close()
+	local lhs = vim.api.nvim_replace_termcodes("<leader>kp", true, false, true)
+	local longer_ran = false
+	local compiled = laze.compile({
+		{
+			dir = dir,
+			name = "key-replay-order",
+			keys = { { lhs = "<leader>kp" } },
+			config = function()
+				vim.keymap.set("n", "<leader>kpA", function()
+					longer_ran = true
+				end)
+			end,
+		},
+	})
+	local plan = laze.build_plan(compiled)
+	plan()
+	pcall(vim.cmd, "silent! stopinsert")
+	vim.api.nvim_buf_set_lines(0, 0, -1, false, { "keep" })
+	vim.api.nvim_win_set_cursor(0, { 1, 0 })
+	-- `A` is already queued when the trigger callback loads the plugin.
+	vim.api.nvim_feedkeys(lhs .. "A", "x", false)
+	vim.wait(50)
+	local line = vim.api.nvim_get_current_line()
+	if longer_ran and line == "keep" then
+		print("  ✓ keys route: replay precedes queued continuation keys")
+		passed = passed + 1
+	else
+		print(("  ✗ keys route: replay order — longer:%s line:%q"):format(tostring(longer_ran), line))
+		failed = failed + 1
+	end
+	pcall(vim.cmd, "silent! stopinsert")
+	pcall(vim.keymap.del, "n", "<leader>kpA")
+	pcall(vim.keymap.del, "n", lhs)
 	vim.fn.delete(dir, "rf")
 end
 
@@ -1345,6 +1444,52 @@ end, { nargs = "*", bang = true, range = true })
 		failed = failed + 1
 	end
 
+	vim.fn.delete(root, "rf")
+end
+
+-- module trigger required during startup: the plugin is configured before
+-- require() returns, and its plugin/ files are still sourced exactly once.
+-- Spawned session, because it depends on the real startup phases.
+-- Skipped under `fast`.
+if not fast_only then
+	local root = vim.fn.tempname() .. "_lazemodstart"
+	local plug = root .. "/plug"
+	vim.fn.mkdir(plug .. "/lua", "p")
+	vim.fn.mkdir(plug .. "/plugin", "p")
+	local function write(path, content)
+		local fd = io.open(path, "w")
+		fd:write(content)
+		fd:close()
+	end
+	write(plug .. "/lua/lazemodstart.lua", "return { answer = 42 }\n")
+	write(plug .. "/plugin/lazemodstart.lua", "vim.g.lazemodstart_sourced = (vim.g.lazemodstart_sourced or 0) + 1\n")
+
+	local result = root .. "/result"
+	local init_file = root .. "/init.lua"
+	write(
+		init_file,
+		("vim.opt.rtp:prepend(%q)\n"):format(vim.fn.getcwd())
+			.. 'local laze = require("laze")\n'
+			.. "local configured = false\n"
+			.. "laze.build_plan(laze.compile({\n"
+			.. ('  { dir = %q, name = "lazemodstart", module = "lazemodstart", config = function() configured = true end },\n'):format(plug)
+			.. "}))()\n"
+			.. 'local mod = require("lazemodstart")\n'
+			.. "local at_require = tostring(configured) .. ':' .. mod.answer\n"
+			.. 'vim.api.nvim_create_autocmd("VimEnter", { once = true, callback = function()\n'
+			.. ("  vim.fn.writefile({ at_require .. ':' .. tostring(configured) .. ':' .. (vim.g.lazemodstart_sourced or 0) }, %q)\n"):format(result)
+			.. '  vim.cmd("qa!")\n'
+			.. "end })\n"
+	)
+	vim.system({ vim.v.progpath, "-u", init_file, "--headless" }, { timeout = 30000 }):wait()
+	local got = vim.fn.filereadable(result) == 1 and vim.fn.readfile(result)[1] or "<missing>"
+	if got == "true:42:true:1" then
+		print("  ✓ module trigger at startup: configured before require returns, plugin/ sourced once")
+		passed = passed + 1
+	else
+		print(("  ✗ module trigger at startup: got %s (expected true:42:true:1)"):format(got))
+		failed = failed + 1
+	end
 	vim.fn.delete(root, "rf")
 end
 
@@ -2296,6 +2441,26 @@ do
 	end
 	vim.g.laze_rhs_replayed = nil
 	vim.keymap.del("n", lhs)
+end
+
+-- VeryLazy: `User VeryLazy` is emitted even when no spec uses event = "VeryLazy"
+do
+	local ran = 0
+	local id = vim.api.nvim_create_autocmd("User", {
+		pattern = "VeryLazy",
+		callback = function()
+			ran = ran + 1
+		end,
+	})
+	laze.build_plan(laze.compile({ { dir = vim.fn.tempname(), name = "vl-none", event = "BufReadPost" } }))()
+	vim.api.nvim_del_autocmd(id)
+	if ran == 1 then
+		print("  ✓ VeryLazy: User VeryLazy emitted without any VeryLazy spec")
+		passed = passed + 1
+	else
+		print("  ✗ VeryLazy: user autocmd ran " .. ran .. " times without a VeryLazy spec")
+		failed = failed + 1
+	end
 end
 
 -- VeryLazy: fires immediately in headless (no UIEnter possible), exactly once

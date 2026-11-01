@@ -15,6 +15,9 @@ At load time, laze only requires module names explicitly declared via `module`. 
 
 * **Eager** (no triggers, not a `dependencies` dep): the installed directory is added to the runtimepath at setup (`:packadd!`), so the startup `plugin/` and `after/plugin/` phases source its files exactly once. `config` runs from the plan at setup time.
 * **`init`** runs once during setup for every enabled plugin, before any plugin loads (lazy.nvim parity); a failing `init` warns and the plugin still loads.
+  Since laze does not hook global `require`, an `init` for a lazy plugin cannot
+  require that plugin's module before it is activated unless the module is
+  explicitly declared with `module`; otherwise defer the require to `config`.
 * **Lazy** (has a trigger, or is a `dependencies` dep of a lazy plugin): **nothing** runs at startup — the plugin is not even on the runtimepath. When its trigger fires after startup, the plan `:packadd`s it (sourcing `plugin/` and `ftdetect/`), sources its `after/plugin/` scripts, then runs `module` requires → `config`. If a trigger fires during startup, laze adds it to a closure-local pending queue and finalizes it at `VimEnter`; this avoids a lazy opt package being left on the runtimepath with its `plugin/` files unsourced.
 * `dependencies` of a lazy plugin stay off the runtimepath too; they activate immediately before the parent.
 

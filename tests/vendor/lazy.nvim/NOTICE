@@ -1,0 +1,17 @@
+lazy.nvim
+Copyright (c) Folke Lemaitre and contributors
+Licensed under the Apache License, Version 2.0.
+
+This directory contains test files vendored from lazy.nvim for compatibility
+audits. No lazy.nvim implementation code is included.
+
+Source: https://github.com/folke/lazy.nvim
+Pinned commit: 306a05526ada86a7b30af95c5cc81ffba93fef97
+Vendored files:
+  tests/minit.lua
+  tests/manage/semver_spec.lua
+  tests/handlers/keys_spec.lua
+  tests/core/plugin_spec.lua
+
+Modifications: a provenance header was added to each file; test logic is
+unchanged.
