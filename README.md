@@ -209,7 +209,7 @@ A dev path is a local checkout, so laze never lowers `version`/`branch`/`tag`/`c
 
 ## `VeryLazy`
 
-`VeryLazy` is a convenience post-startup event.
+`VeryLazy` is a convenience post-startup event. `User VeryLazy` is always emitted, even if no spec uses `event = "VeryLazy"`, so your own autocmds on it run too.
 
 In GUI mode it fires on `UIEnter`. In headless mode — or whenever the plan is built after startup (`vim_did_enter ~= 0`, when a one-shot `UIEnter` autocmd would be dead) — it fires immediately after the execution plan is set up.
 
