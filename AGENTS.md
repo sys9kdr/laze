@@ -1,121 +1,94 @@
 # AGENTS.md — laze.nvim
 
-Laze is a tiny compiler that transforms a well-defined subset of
-lazy.nvim specs into `vim.pack` specs and a minimal execution plan.
-It delegates installation, placement, tag/ref resolution, and dependency
-handling to Neovim's native `vim.pack`; laze lowers lazy.nvim ranges/refs to
-its `version` field. Philosophy and output model:
-[docs/design.md](docs/design.md).
+Laze compiles a documented subset of lazy.nvim specs into `vim.pack` specs and
+a small execution plan. Neovim owns installation, placement, ref resolution,
+and dependency handling. See [docs/design.md](docs/design.md) for the output
+model and design rationale.
 
-## Scope
+## Project boundaries
 
-Implements only a subset of lazy.nvim. Everything beyond the core
-(compile → plan → setup) is an opt-in module in `lua/laze/` (`extra.lua`),
-never required by the core and free unless loaded. Compatibility is pinned
-to the lazy.nvim spec documented as of 2026-08-18 (`tests/test_subset.lua`),
-not to every upstream change.
+- The public spec stays lazy.nvim-shaped; `vim.pack` is only the target IR.
+  Lower shared fields explicitly and preserve their lazy.nvim meaning.
+- Prefer faithful support. If behavior cannot be represented, reject it or
+  document the exact conversion; do not silently drop or approximate it.
+- Features beyond compile → plan → setup belong in opt-in `lua/laze/extra.lua`.
+- Do not add a dependency solver, core manager UI/commands, `opts` abstraction,
+  imports, `require()` interception, or runtime state/scheduling framework.
+- Compatibility follows the pinned spec surface in `tests/test_subset.lua`,
+  not every upstream lazy.nvim change.
 
-Supported spec fields: [README § Spec shape](README.md#spec-shape) —
-mechanically pinned by `tests/test_subset.lua` (every laze-consumed
-field must be a documented lazy.nvim spec field or a justified
-exception in compile.lua). Update both when the surface changes.
+The supported fields are listed in [README § Spec shape](README.md#spec-shape).
+When changing that surface, update the README, compiler, and subset tests
+together. Laze-specific exceptions need an explanation in the compiler and
+documentation of their lazy.nvim portability.
 
-Explicitly out of scope (do not add):
+## Where behavior is specified
 
-* Dependency solver, plugin manager UI, install/update commands in the core
-  (opt-in `:Laze` wrappers live in `lua/laze/extra.lua`)
-* `opts` abstraction, import system
-* `require()` hook interception — `module` triggers are
-  `package.preload` entries (the global `require` is never touched)
-* Runtime plugin state manager, background scheduler, lifecycle framework
+Keep exact, machine-checkable behavior in tests. Use these sources when changing
+behavior instead of copying their full inventories into this guide:
 
-## Subset discipline
+- Spec fields, conversions, and known differences: `tests/test_subset.lua`,
+  `tests/fixtures/known_differences.lua`, and
+  [docs/known-differences.md](docs/known-differences.md).
+- Pure compilation, validation, dependency expansion, and deterministic output:
+  `tests/test_compile.lua` and `tests/snapshots/`.
+- Trigger routing, loading, reloads, and runtime behavior:
+  `tests/run.lua`.
+- Startup activation and exactly-once plugin/after-plugin sourcing:
+  the spawned-session startup-phase checks in `tests/run.lua`. Preserve the
+  invariant described in [docs/design.md](docs/design.md#the-activation-invariant).
 
-**Core principle: the target representation must not dictate source
-semantics.** laze's public spec is lazy.nvim-shaped; `vim.pack` is the target
-IR. Compile lowers one to the other. vim.pack's shape (e.g. its single
-`version` field) is an encoding detail, not a licence to redefine a lazy.nvim
-field.
+When a behavior changes, update or add its test and the relevant user-facing
+docs. Do not rely on this file as the only record of a runtime contract.
 
-- Shared fields keep lazy.nvim's name, type, and meaning unless the deviation
-  is an explicit, documented, tested exception (e.g. `module`). Never overload
-  a shared field with a target-specific meaning: lazy.nvim's `version` is a
-  semver range, refs are `branch`/`tag`/`commit`; vim.pack's single `version`
-  is the lowering target. Lower explicitly; sniff only to reject a value,
-  never to reclassify it (e.g. `version = "main"` is an error, not a branch).
-- Maximize the *faithful* subset, not raw acceptance: accept as much lazy.nvim
-  surface as can be represented with identical behavior. If a case cannot be
-  represented faithfully, fail loudly (compile error) or document the exact
-  conversion — never a silent drop or best-effort approximation. A warning
-  that ignores the field is still a silent drop.
-- Extensions are outside the subset: use explicit, non-colliding names,
-  document what happens when the spec moves back to lazy.nvim, and don't let
-  them change shared-field semantics.
-- Differences are inevitable (vim.pack owns resolution). Make them explicit in
-  docs and tests. `tests/test_subset.lua` pins the surface; semantic cases
-  (precedence, range vs ref, `version = false`) need explicit tests too.
+## Implementation guardrails
 
-## Structure
+- Keep compilation pure: never mutate input spec tables; keep derived state in
+  side tables; repeated compilation of the same input must be deterministic.
+- Keep plan state closure-local. The documented module-local exceptions are
+  setup's saved specs/options for `reload_all()` and installed preload tracking
+  for clearing stale module triggers.
+- Plan callbacks must not throw: handle failures with `pcall` and report through
+  `vim.notify(..., vim.log.levels.WARN)`.
+- Preserve the startup activation split: before `VimEnter`, eager plugins use
+  `:packadd!` so startup phases source files once; after startup, use `:packadd`
+  and manually source the plugin's own `after/plugin/` files.
+- Keep dependencies lazy unless a parent activates them. `after` dependencies
+  load recursively, with cycle detection.
+- Reject unsupported function-shaped triggers at compile time; turning one into
+  no trigger can accidentally make a plugin eager.
 
-```
-lua/laze/init.lua      — Public API: compile(), build_plan(), setup(), reload_all()
-lua/laze/compile.lua   — Spec → IR transformation
-lua/laze/plan.lua      — Thin execution plan (trigger wiring, lazy loading)
-lua/laze/extra.lua      — Opt-in: :Laze subcommands (update/clean/health/reload) + public helpers
-docs/                  — design / extras / commands / migration / performance / known differences
-tests/run.lua              — Test runner incl. perf suite: nvim --cmd "set rtp+=." -l tests/run.lua [perf]
-tests/test_compile.lua     — Standalone unit tests (luajit tests/test_compile.lua)
-tests/test_subset.lua      — Spec-surface conformance vs lazy.nvim docs
-tests/test_e2e.lua         — Manual e2e harness with real plugins (run instructions in file header)
-tests/update_snapshots.lua — Snapshot generator (regenerates tests/snapshots/*.lua)
-tests/fixtures/            — Input specs (*.lua); _sentinel.lua = FN sentinel
-tests/snapshots/           — Auto-generated expected outputs (compare against)
-tests/benchmarks/          — Manual benchmarks (commands in docs/performance.md)
-tests/profile/             — Manual profile harness with real plugins
-tests/vendor/              — Third-party test oracles (lazy.nvim, Apache-2.0; see NOTICE)
-```
+## Tooling and checks
 
-Types (LuaCATS) are defined in code: `lua/laze/init.lua` (`LazeSpec`,
-`LazeCompiled`, `LazeEntry`, `LazeRoutes`, `LazePlan`).
+Selene is the provisional lint candidate; adoption and CI wiring are tracked in
+[Issue #35](https://github.com/sys9kdr/laze/issues/35). Do not assume a lint
+command or config exists until that issue is implemented. Once wired, keep the
+version pinned and document a local install path that does not require Rust.
 
-## Conventions
-
-- Pure transforms in compile, minimal logic in plan
-- compile must never mutate input spec tables (dependency-derived `after` names live in a side table); re-compiling the same specs must be deterministic
-- No global state; plan uses closure-local state (`loaded` table). Documented exceptions: (1) `setup()` keeps the last specs/opts (module-local in init.lua) so `reload_all()` can rebuild the plan; (2) plan.lua keeps `installed_preloads` module-local so a rebuilt plan can clear stale `package.preload` entries on reload. The plan itself stays closure-local.
-- Error handling via `pcall` + `vim.notify(..., vim.log.levels.WARN)` — never throw in plan
-- `cond: nil` → no condition (always load). `cond` returning `false` → skip load. Plugins with no triggers and `cond = false` stay unloaded permanently.
-- Activation: `setup()` splits the pack by `has_route`/`is_dep` — eager plugins via `vim.pack.add(..., { load = false })` (`:packadd!`, startup phases source their files), lazy plugins via a no-op `load` fun (never on rtp). The plan is the sole activator — **activation invariant**: `vim_did_enter == 0` → `:packadd!` only (the startup `plugin/`/`after/plugin/` phases source files exactly once); `vim_did_enter ~= 0` → `:packadd` + manual sourcing of the plugin's own `after/plugin/` files. Breaking this yields double-source or missing files; the startup-phase test in `tests/run.lua` asserts it via spawned sessions (keep it green).
-- "Eager" = no trigger AND not referenced as an `after` dep (`has_route`/`is_dep`, computed at compile time and shared by `setup()`'s pack split and the plan's eager list).
-- Dependencies are never eager on their own: they load via their parents (`is_dep`). Matches lazy.nvim's "dependencies are always lazy-loaded unless specified otherwise". A dependency is matched by explicit name, derived name, and resolved source; dependencies of `enabled = false` / `cond = false` specs are not registered.
-- Spec validation: unknown fields are passed through to `vim.pack.Spec`, error on type mismatch
-- Trigger shapes (`event`/`ft`/`cmd`/`keys`): accept `string`/`string[]` (+ lazy.nvim's `{event, pattern}` for `event`, `{lhs, mode?|[{string}]...}` for `keys`); function-shaped triggers are rejected with a compile error — silently normalizing them to "no trigger" would turn a lazy plugin eager (`validate_triggers` in compile.lua)
-- Trigger self-destruct: commands use `CmdUndefined` autocmd (stateless), keys delete the trigger map *before* loading (del removes every map for the lhs in that mode — deleting after load would kill the plugin's own map) and then `nvim_feedkeys` the replay. Key routes are per `(lhs, mode)` variant: `routes.keys[lhs]` is an array, one entry per normalized mode (mode arrays expand at compile time), so per-mode deletion stays correct and an n-mode press never fires a v-only declaration.
-- Module triggers: single-shot `package.preload` entries; the preload fn clears nvim's in-flight `package.loaded` sentinel before loading so the declared module is actually requirable (regression-tested in run.lua)
-- `VeryLazy` → fires `User VeryLazy` via `UIEnter` (GUI, one-shot), or immediately when the plan runs post-startup (`vim_did_enter ~= 0`) or headless (`nvim_list_uis()` empty) — the one-shot would otherwise be dead
-- `priority` (number, default 50) orders the eager load: higher first, tie-break id — lazy.nvim-compatible colorscheme-first workflow
-- `after` deps: recursive with cycle detection
-
-## Tests
+Run the relevant checks before submitting code:
 
 ```sh
-nvim --cmd "set rtp+=." -l tests/run.lua        # integration (incl. spawned sessions + perf)
-nvim --cmd "set rtp+=." -l tests/run.lua fast   # single session (skips spawned startup/build/pkg tests)
-nvim --cmd "set rtp+=." -l tests/run.lua perf   # perf regression suite only
-luajit tests/test_compile.lua                   # unit, no nvim needed
-luajit tests/test_subset.lua                    # spec-surface conformance
+luajit tests/test_compile.lua
+luajit tests/test_subset.lua
+nvim --cmd "set rtp+=." -l tests/run.lua
 ```
 
-- Vendored lazy.nvim tests (behavioral oracle, not CI):
-  `LAZY_DIR=/tmp/lazy.nvim tests/vendor/lazy.nvim/run.sh`.
-  License and provenance: `tests/vendor/lazy.nvim/LICENSE` / `NOTICE`.
+`tests/run.lua fast` skips spawned-session checks; `tests/run.lua perf` runs
+only performance regression checks. Regenerate snapshots with:
 
-- Fixture pattern: `fixtures/foo.lua` (input specs) + `snapshots/foo.lua` (expected `LazeCompiled`)
-- Use the `FN` sentinel for function fields in expected output; runner deep-compares with sentinel-aware type checking
-- Regenerate snapshots: `nvim --cmd "set rtp+=." -l tests/update_snapshots.lua`
-- Perf thresholds are asserted inside `tests/run.lua perf`; benchmarks for manual profiling are documented in [docs/performance.md](docs/performance.md)
-- Known differences are canonical in [docs/known-differences.md](docs/known-differences.md); the machine-readable mirror is `tests/fixtures/known_differences.lua`. Add a stable `KD-xxx` ID and a test reference for each; `tests/test_subset.lua` enforces sync. Message policy: [#12](https://github.com/sys9kdr/laze/issues/12).
+```sh
+nvim --cmd "set rtp+=." -l tests/update_snapshots.lua
+```
 
-## Commit style
+## Changes to the supported surface
 
-- Present tense, concise, single line + optional body
+- Every laze-consumed spec field must be documented by lazy.nvim or justified
+  as an explicit exception in `lua/laze/compile.lua`.
+- Keep known-difference entries synchronized between the docs and fixture; add
+  a stable `KD-xxx` ID and a test reference for each, following
+  [the message policy](https://github.com/sys9kdr/laze/issues/12).
+- Use the `FN` sentinel in snapshots for function fields.
+
+## Commits
+
+Use a concise, present-tense subject; add a body only when it clarifies intent.
