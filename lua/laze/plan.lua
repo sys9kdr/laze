@@ -67,6 +67,24 @@ local function build_plan(compiled, opts)
 	local startup_cmd_calls = {}
 	local startup_cmd_proxy_desc = "laze: defer command until VimEnter"
 
+	-- Neovim's startup plugin/ phase sources every directory on 'runtimepath'
+	-- when it begins. Packs activated before that point are sourced by Neovim
+	-- itself; packs activated during/after it must be sourced by the VimEnter
+	-- finalizer. Track the transition so the finalizer never double-sources.
+	local startup_plugin_phase_started = false
+	if vim.v.vim_did_enter == 0 then
+		local group = vim.api.nvim_create_augroup("laze_startup_phase", { clear = true })
+		vim.api.nvim_create_autocmd("SourcePre", {
+			group = group,
+			callback = function(ev)
+				if ev.match:find("[/\\]plugin[/\\]") then
+					startup_plugin_phase_started = true
+					return true -- delete this autocmd
+				end
+			end,
+		})
+	end
+
 	-- Resolve `enabled` once at plan build time: lazy.nvim allows a function
 	-- that is evaluated when the spec is processed. A function returning
 	-- false means "not enabled". NOT `type(...) == "function" and f() or
@@ -131,15 +149,18 @@ local function build_plan(compiled, opts)
 		refiring[event] = nil
 	end
 
-	local function run_hooks(id, entry, start)
-		if entry.init then
-			local ok_init, err_init = pcall(entry.init)
-			if not ok_init then
-				loaded[id] = "failed"
-				vim.notify("laze: init failed for " .. id .. ": " .. tostring(err_init), vim.log.levels.WARN)
-				if on_fail then on_fail(id, err_init) end
-				return
+	-- With `opts.partial` the hooks run but the plugin stays "pending_startup":
+	-- used when a startup `require()` needs a configured plugin right away.
+	-- The hooks run at most once; the VimEnter finalizer then only marks the
+	-- plugin loaded.
+	local function run_hooks(id, entry, start, opts)
+		local pending = startup_pending[id]
+		if pending and pending.hooks_ran then
+			if not (opts and opts.partial) then
+				loaded[id] = true
+				if on_load and start then on_load(id, (vim.uv.hrtime() - start) / 1e6) end
 			end
+			return
 		end
 		local modules = entry.module
 		if type(modules) == "string" then modules = { modules } end
@@ -158,6 +179,8 @@ local function build_plan(compiled, opts)
 			local ok_cfg, err_cfg = pcall(entry.config)
 			if not ok_cfg then vim.notify("laze: config failed for " .. id .. ": " .. tostring(err_cfg), vim.log.levels.WARN) end
 		end
+		if pending then pending.hooks_ran = true end
+		if opts and opts.partial then return end
 		loaded[id] = true
 		if on_load and start then on_load(id, (vim.uv.hrtime() - start) / 1e6) end
 	end
@@ -166,9 +189,10 @@ local function build_plan(compiled, opts)
 		for _, id in ipairs(startup_pending_order) do
 			local pending = startup_pending[id]
 			if pending and loaded[id] == "pending_startup" then
-				-- `:packadd!` deliberately skipped these files. Lazy opt packages
-				-- can be added after Neovim's startup scan, so source them now.
-				if pending.dir then
+				-- `:packadd!` deliberately skipped these files. Packs added
+				-- before Neovim's startup plugin/ phase are sourced by that
+				-- phase; only late additions need manual sourcing here.
+				if pending.dir and pending.source_later then
 					source_glob(pending.dir, "/plugin/**/*.{lua,vim}")
 					source_glob(pending.dir, "/ftdetect/*.vim")
 					source_after_plugin(pending.dir)
@@ -183,6 +207,21 @@ local function build_plan(compiled, opts)
 		end
 	end
 
+	-- cond may be a function (lazy.nvim) or a boolean constant. A function
+	-- returning false skips the load; a throwing cond is a plan-level
+	-- error: warn and skip (never throw in plan).
+	local function cond_passes(id, entry)
+		if type(entry.cond) == "function" then
+			local ok, res = pcall(entry.cond)
+			if not ok then
+				vim.notify(("laze: cond hook failed for %s: %s"):format(id, tostring(res)), vim.log.levels.WARN)
+				return false
+			end
+			return res ~= false
+		end
+		return entry.cond ~= false
+	end
+
 	local function load_plugin(id)
 		if loaded[id] then
 			return
@@ -195,22 +234,7 @@ local function build_plan(compiled, opts)
 		if not enabled_ok[id] then
 			return
 		end
-		-- cond may be a function (lazy.nvim) or a boolean constant. A
-		-- function returning false skips the load; a throwing cond is a
-		-- plan-level error: warn and skip (never throw in plan).
-		local cond_ok = true
-		if type(entry.cond) == "function" then
-			local ok, res = pcall(entry.cond)
-			if not ok then
-				vim.notify(("laze: cond hook failed for %s: %s"):format(id, tostring(res)), vim.log.levels.WARN)
-				cond_ok = false
-			else
-				cond_ok = res ~= false
-			end
-		else
-			cond_ok = entry.cond ~= false
-		end
-		if not cond_ok then
+		if not cond_passes(id, entry) then
 			return
 		end
 
@@ -274,7 +298,13 @@ local function build_plan(compiled, opts)
 
 		if during_startup and (entry.has_route or entry.is_dep) then
 			loaded[id] = "pending_startup"
-			startup_pending[id] = { entry = entry, dir = plugin_dir, start = start }
+			startup_pending[id] = {
+				entry = entry,
+				dir = plugin_dir,
+				start = start,
+				hooks_ran = false,
+				source_later = startup_plugin_phase_started,
+			}
 			table.insert(startup_pending_order, id)
 			if not startup_finalizer_installed then
 				startup_finalizer_installed = true
@@ -441,12 +471,44 @@ local function build_plan(compiled, opts)
 			for _, id in ipairs(ids) do
 				load_with_deps(id)
 			end
-			return original_require(modname)
+			local mod = original_require(modname)
+			for _, id in ipairs(ids) do
+				local pending = loaded[id] == "pending_startup" and startup_pending[id]
+				if pending and not pending.hooks_ran then
+					-- A startup require() needs a configured plugin before it
+					-- returns. Run the hooks now; plugin/ scripts are still left
+					-- to the startup phase / VimEnter finalizer, so the
+					-- source-exactly-once invariant holds.
+					run_hooks(id, pending.entry, pending.start, { partial = true })
+				end
+			end
+			return mod
 		end
 	end
 
+	local init_ran = false
 	return function()
 		local verylazy_ids
+
+		-- lazy.nvim parity: `init` runs once at startup for every enabled
+		-- plugin, before any plugin loads. The plan closure can be invoked
+		-- more than once, so keep this pass one-shot per plan.
+		if not init_ran then
+			init_ran = true
+			local init_ids = {}
+			for id, entry in pairs(registry) do
+				if entry.init and enabled_ok[id] then
+					table.insert(init_ids, id)
+				end
+			end
+			table.sort(init_ids)
+			for _, id in ipairs(init_ids) do
+				local ok_init, err_init = pcall(registry[id].init)
+				if not ok_init then
+					vim.notify(("laze: init failed for %s: %s"):format(id, tostring(err_init)), vim.log.levels.WARN)
+				end
+			end
+		end
 
 		-- Clear the previous plan's keymaps first: unlike autocmd groups
 		-- (cleared below even when empty), keymaps have no group to clear.
@@ -474,6 +536,17 @@ local function build_plan(compiled, opts)
 		local fts_group = vim.api.nvim_create_augroup("laze_fts", { clear = true })
 		local cmds_group = vim.api.nvim_create_augroup("laze_cmds", { clear = true })
 
+		-- `User VeryLazy` is emitted unconditionally (lazy.nvim parity), even
+		-- when no spec declares `event = "VeryLazy"`, so user autocmds keyed
+		-- on it always run.
+		vim.api.nvim_create_autocmd("UIEnter", {
+			group = vim.api.nvim_create_augroup("laze_verylazy", { clear = true }),
+			once = true,
+			callback = function()
+				vim.api.nvim_exec_autocmds("User", { pattern = "VeryLazy" })
+			end,
+		})
+
 		if next(routes.events) then
 			local group = events_group
 			-- routes.events[event] is a list of pattern variants (one per
@@ -487,22 +560,15 @@ local function build_plan(compiled, opts)
 			local border = {}
 			for event, variants in pairs(routes.events) do
 				if event == "VeryLazy" then
-					-- Synthetic event (lazy.nvim maps it to User VeryLazy);
-					-- any pattern variant still fires the one VeryLazy load.
-					verylazy_ids = verylazy_ids or {}
+					-- Synthetic event (lazy.nvim maps it to User VeryLazy; the
+					-- UIEnter emitter is installed above). Any pattern variant
+					-- still fires the one VeryLazy load.
+					local verylazy_ids = {}
 					for _, variant in ipairs(variants) do
 						for _, id in ipairs(variant.ids) do
 							table.insert(verylazy_ids, id)
 						end
 					end
-					local function fire_verylazy()
-						vim.api.nvim_exec_autocmds("User", { pattern = "VeryLazy" })
-					end
-					vim.api.nvim_create_autocmd("UIEnter", {
-						group = group,
-						once = true,
-						callback = fire_verylazy,
-					})
 					vim.api.nvim_create_autocmd("User", {
 						group = group,
 						pattern = "VeryLazy",
@@ -631,37 +697,64 @@ local function build_plan(compiled, opts)
 		for lhs, variants in pairs(routes.keys) do
 			for _, entry in ipairs(variants) do
 				local mode = entry.mode
-				local ids = entry.ids
 				local rhs = entry.rhs
-				local keymap_opts = { desc = entry.desc or "laze: load on key" }
-				if entry.silent ~= nil then
-					keymap_opts.silent = entry.silent
+				-- `enabled` is fixed at plan build: a variant whose plugins are
+				-- all disabled gets no trigger map at all.
+				local ids = {}
+				for _, id in ipairs(entry.ids) do
+					if enabled_ok[id] then
+						table.insert(ids, id)
+					end
 				end
-				table.insert(installed_keys, { mode = mode, lhs = lhs, desc = keymap_opts.desc })
-				vim.keymap.set(mode, lhs, function()
-					if rhs == nil then
-						-- No rhs: the plugin's own keymap takes over after load.
-						-- Delete the trigger NOW — at this point it is the only
-						-- map for this lhs in this mode (other mode variants
-						-- are separate maps and must stay). Deleting after
-						-- loading would remove the freshly registered plugin
-						-- map too (vim.keymap.del removes every map for the
-						-- lhs in the mode).
-						pcall(vim.keymap.del, mode, lhs)
+				if #ids > 0 then
+					local keymap_opts = { desc = entry.desc or "laze: load on key" }
+					if entry.silent ~= nil then
+						keymap_opts.silent = entry.silent
 					end
-					for _, id in ipairs(ids) do
-						load_with_deps(id)
-					end
-					if rhs == nil then
-						-- Replay the key: the plugin's map (registered during
-						-- load) handles it.
-						vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes(lhs, true, false, true), "", true)
-					elseif type(rhs) == "function" then
-						rhs()
-					else
-						vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes(rhs, true, false, true), "", true)
-					end
-				end, keymap_opts)
+					table.insert(installed_keys, { mode = mode, lhs = lhs, desc = keymap_opts.desc })
+					vim.keymap.set(mode, lhs, function()
+						-- `cond` is evaluated lazily, so it can only be checked
+						-- now. If every owner is skipped by cond, the key must
+						-- behave as if the plugin never declared it: drop the
+						-- trigger and replay the key (never run the rhs).
+						local active = false
+						for _, id in ipairs(ids) do
+							local reg = registry[id]
+							if loaded[id] or (reg and cond_passes(id, reg)) then
+								active = true
+								break
+							end
+						end
+						if rhs == nil or not active then
+							-- No rhs: the plugin's own keymap takes over after load.
+							-- Delete the trigger NOW — at this point it is the only
+							-- map for this lhs in this mode (other mode variants
+							-- are separate maps and must stay). Deleting after
+							-- loading would remove the freshly registered plugin
+							-- map too (vim.keymap.del removes every map for the
+							-- lhs in the mode).
+							pcall(vim.keymap.del, mode, lhs)
+						end
+						if active then
+							for _, id in ipairs(ids) do
+								load_with_deps(id)
+							end
+						end
+						if rhs == nil or not active then
+							-- Replay the key: the plugin's map (registered during
+							-- load) handles it. Insert the replay BEFORE keys already
+							-- queued behind the trigger ('i'): with the default append,
+							-- `gcA` would process `A` first (append at EOL) and then
+							-- insert the replayed `gc` literally instead of firing the
+							-- plugin's longer `gcA` mapping.
+							vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes(lhs, true, false, true), "i", true)
+						elseif type(rhs) == "function" then
+							rhs()
+						else
+							vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes(rhs, true, false, true), "i", true)
+						end
+					end, keymap_opts)
+				end
 			end
 		end
 
@@ -692,7 +785,7 @@ local function build_plan(compiled, opts)
 		-- (UI not yet entered). If the plan is built after startup —
 		-- vim_did_enter ~= 0 — UIEnter has already fired (or, headless,
 		-- will never fire) and the one-shot would be dead: fire immediately.
-		if verylazy_ids and (vim.v.vim_did_enter ~= 0 or #vim.api.nvim_list_uis() == 0) then
+		if vim.v.vim_did_enter ~= 0 or #vim.api.nvim_list_uis() == 0 then
 			vim.api.nvim_exec_autocmds("User", { pattern = "VeryLazy" })
 		end
 	end

@@ -36,7 +36,7 @@ The fix must also preserve these properties:
 
 - A plugin's `plugin/`, `ftdetect/`, and `after/plugin/` files must not be
   sourced twice.
-- `init`, module requires, and `config` must run only after the plugin runtime
+- Module requires and `config` must run only after the plugin runtime
   files needed by them are available.
 - Command routes continue to be based on `CmdUndefined`; no permanent command
   stubs are installed during normal operation.
@@ -65,15 +65,22 @@ startup* (`entry.has_route` or `entry.is_dep`):
    - Add the package directory with `:packadd!` (or the local-directory
      runtimepath fallback).
    - Mark the plan entry as `pending_startup`, not fully loaded.
-   - Do not run `init`, module requires, or `config` yet.
+   - Do not run module requires or `config` yet. (`init` already ran during setup.)
 
 2. **Finalize once at VimEnter**
 
    - Source that package's `plugin/**/*.{lua,vim}` and `ftdetect/*.vim` files.
    - Source its `after/plugin/**/*.{lua,vim}` files.
-   - Run `init`, explicit `module` requires, and `config` using the same error
+   - Run explicit `module` requires and `config` using the same error
      handling and callbacks as an ordinary post-startup load.
    - Change the entry state to loaded (or failed).
+
+Exception: if a `module` trigger is `require()`d during startup, the plugin's
+declared module requires and `config` run right then, before `require` returns.
+Its `init` already ran during setup. The entry stays `pending_startup` until
+VimEnter (where it is only marked loaded). Plugins added before Neovim's own
+startup `plugin/` phase are sourced by that phase; the finalizer only sources
+plugins added after it began.
 
 The plan owns a closure-local queue keyed by plugin id. It registers one
 one-shot `VimEnter` callback to drain it in dependency-first insertion order.

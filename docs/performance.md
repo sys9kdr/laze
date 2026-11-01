@@ -15,6 +15,19 @@ walks. Items below are grouped by status.
 
 ## Resolved
 
+### tests/benchmarks/compile_compare.lua: lazy.nvim profile UI inside the timed region — resolved (2026-10)
+
+The "fair" comparison timed `require("lazy").setup()` together with
+`require("lazy").profile()`. The latter opens the profile view, so the
+reported lazy.nvim number (and the derived speedup) included UI work that
+is not part of startup. The harness also passed a non-option
+`profile = true` (lazy.nvim uses `profiling`). It now runs each
+implementation in a fresh process, discards one warmup, interleaves five
+measured runs, and times only `require()` + `setup()`. Re-measured: laze
+median 1.29–1.34 ms vs lazy.nvim 4.85–4.96 ms (delta ~3.6 ms), not the
+previous 4.8–21 ms range that mixed first-run outliers with profile UI
+work.
+
 ### compile.lua: pattern-based name derivation ran interpreted — resolved (2026-08)
 
 `derive_name`/`pkg_name` used `string.match`/`gsub`, which are NYI in
@@ -263,9 +276,17 @@ nvim -u NONE --headless -l tests/benchmarks/compile_only.lua
 nvim -u NONE --headless -l tests/benchmarks/compile_compare.lua
 ```
 
-Latest manual run (2026-10, Neovim 0.12.6, 4 real dir plugins):
-`compile_only` cold 1.30–1.33 ms / warm 0.92–0.96 ms; `compile_compare`
-laze ~1.2 ms vs lazy.nvim 4.8–21 ms (the high end is a first-run outlier).
-All four specs are `dir`, so laze does no `vim.pack.add`: this compares
-laze compile+plan with lazy.nvim's full `setup()`, not an install path.
-`bench.sh` startup numbers are dominated by process startup.
+Latest manual run (2026-10-29, Neovim 0.12.6, 4 real dir plugins):
+`compile_only` cold 1.45–1.72 ms / warm median 1.00–1.43 ms (3 runs);
+`compile_compare` laze median 1.29–1.34 ms vs lazy.nvim median
+4.85–4.96 ms, delta ~3.6 ms (3.7x). Each implementation runs in a
+fresh process; one warmup run is discarded and the median of five
+interleaved runs is reported. The timed region is `require()` + `setup()`
+only. The specs use eager/`ft`/`cmd` triggers only: `VeryLazy` is excluded
+because laze fires it immediately in headless mode while lazy.nvim defers
+it, which would make the setup comparison asymmetric.
+
+All four specs are `dir`, so laze does no `vim.pack.add` and lazy.nvim
+does no install: this compares setup/registration, not the install path or
+full process startup. `bench.sh` startup numbers are dominated by process
+startup.

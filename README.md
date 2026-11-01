@@ -108,6 +108,11 @@ That's it. Everything else in laze is declarative spec fields, opt-in extras, an
 
 ## Spec shape
 
+The spec list follows lazy.nvim's shape: each entry may be a spec table, a
+bare source string (`"folke/which-key.nvim"`), or a nested list of those.
+A single spec table is also accepted. Nested lists are flattened before
+compilation; sparse lists are rejected instead of silently dropping entries.
+
 Supported fields:
 
 * `[1]` or `src`
@@ -153,7 +158,7 @@ Accepted value shapes:
 
 Notes:
 
-* `dependencies` is a **shallow, non-recursive** syntax sugar: each dependency is registered as a separate spec and mapped to `after`. No config/trigger inheritance, no transitive resolution — an inline dep spec that carries its own `dependencies` field gets a compile-time warning (move it to the top-level spec list). Dependencies are **never eager**: they load with their parents — eagerly when the parent is eager, lazily when the parent is lazy (lazy.nvim-compatible: *"Dependencies are always lazy-loaded unless specified otherwise"*). To load a dep independently, give it its own trigger (e.g. `event = "InsertEnter"`).
+* `dependencies` is a **shallow, non-recursive** syntax sugar: each dependency is registered as a separate spec and mapped to `after`. A dependency is matched by explicit `name`, derived name, or resolved source, so a renamed top-level spec is referenced instead of registered a second time. Dependencies of an `enabled = false` or `cond = false` spec are not registered (lazy.nvim behavior). No config/trigger inheritance, no transitive resolution — an inline dep spec that carries its own `dependencies` field gets a compile-time warning (move it to the top-level spec list). Dependencies are **never eager**: they load with their parents — eagerly when the parent is eager, lazily when the parent is lazy (lazy.nvim-compatible: *"Dependencies are always lazy-loaded unless specified otherwise"*). To load a dep independently, give it its own trigger (e.g. `event = "InsertEnter"`).
 * `[1]`/`src` is content-aware: absolute and `.`-prefixed paths (`./foo`, `../foo`) are treated as local dirs, `~` expands, `https://`/`git@` URLs as-is, anything else is expanded to `https://github.com/<src>`. A bare relative path like `foo/bar` is NOT a local dir — it becomes a GitHub URL.
 * `name` is used for internal routing (routes, after deps) and defaults to the plugin's repository name with `.nvim`/`.lua` stripped (lazy.nvim-compatible: `folke/which-key.nvim` → `which-key`). The installed directory (`pack/<pkg>/opt/<name>`) and `:packadd` use the *full* repository name (vim.pack's own derivation) — for `which-key.nvim` that directory is `which-key.nvim`, matching existing installs. It is **not** passed directly to `require` — laze only requires module names explicitly declared via `module`.
 * `silent = true` suppresses `vim.notify` warnings when `require` fails (e.g. for optional plugins).
@@ -162,7 +167,7 @@ Notes:
 * `dir` plugins are **local**: they are excluded from the `pack` array (vim.pack never installs or manages them) and the plan loads them at trigger/eager time by prepending the exact directory path to `'runtimepath'`. This mirrors lazy.nvim's `dir` behavior — the directory must already exist on disk.
 * `url` takes priority over `[1]` and auto-detected URLs.
 * `keys = { { lhs = "<leader>x" } }` without `rhs` is a *takeover* trigger: the plugin's own keymap for that lhs replaces laze's after load. The replay expands `<leader>` with the **current** `g:mapleader` — set it before `laze.setup()` and don't change it mid-session (the plugin's map is created with whatever leader was active at registration).
-* Triggers (`event`/`ft`/`cmd`/`keys`) accept `string` or `string[]`; `event` additionally accepts lazy.nvim's `{ event, pattern }` table, either alone or in an array (e.g. `event = { event = "BufReadPre", pattern = "*.lua" }` or `event = { "BufEnter", { event = "BufLeave", pattern = "*.md" } }`), and `keys` accepts `{ lhs, mode?, rhs?, desc?, silent? }` entries (`mode` may be a `string[]`, default `"n"`). `pattern` must be a string. Each distinct `(event, pattern)` pair is routed independently: a spec without a pattern never inherits another spec's pattern, and a patterned spec never fires for buffers that do not match. Keys are routed **per `(lhs, mode)` variant**: a `mode` array expands to one independent trigger map per mode, so two entries sharing an `lhs` with different modes both work — an `n`-mode press loads only the `n` variant, a `v`-mode press only the `v` variant. If entries share the same `lhs` *and* mode but disagree on `rhs`/`desc`/`silent`, laze warns and keeps the first entry's map options (the trigger map is shared; every declaring plugin still loads on that key). Empty `mode` values follow lazy.nvim: `mode = ""` is passed to `vim.keymap.set` (multi-mode mapping), and `mode = {}` installs no key trigger but keeps the plugin lazy. Event names use Neovim's stored form — aliases are normalized at compile time (`BufRead`→`BufReadPost`, `BufCreate`→`BufAdd`, `BufWrite`→`BufWritePre`, same mapping `nvim_create_autocmd` applies). **Function-shaped triggers are rejected with a compile error** — laze has no runtime trigger evaluation, and silently treating them as "no trigger" would turn the plugin eager.
+* Triggers (`event`/`ft`/`cmd`/`keys`) accept `string` or `string[]`; `event` additionally accepts lazy.nvim's `{ event, pattern }` table, either alone or in an array (e.g. `event = { event = "BufReadPre", pattern = "*.lua" }` or `event = { "BufEnter", { event = "BufLeave", pattern = "*.md" } }`), and `keys` accepts `{ lhs, mode?, rhs?, desc?, silent? }` entries (`mode` may be a `string[]`, default `"n"`). `pattern` must be a string. Each distinct `(event, pattern)` pair is routed independently: a spec without a pattern never inherits another spec's pattern, and a patterned spec never fires for buffers that do not match. Keys are routed **per `(lhs, mode)` variant**: a `mode` array expands to one independent trigger map per mode, so two entries sharing an `lhs` with different modes both work — an `n`-mode press loads only the `n` variant, a `v`-mode press only the `v` variant. If entries share the same `lhs` *and* mode but disagree on `rhs`/`desc`/`silent`, laze warns and keeps the first entry's map options (the trigger map is shared; every declaring plugin still loads on that key). Empty `mode` values follow lazy.nvim: `mode = ""` is passed to `vim.keymap.set` (multi-mode mapping), and `mode = {}` installs no key trigger but keeps the plugin lazy. Event names use Neovim's stored form — aliases are normalized at compile time (`BufRead`→`BufReadPost`, `BufCreate`→`BufAdd`, `BufWrite`→`BufWritePre`, same mapping `nvim_create_autocmd` applies). **Function-shaped triggers are rejected with a compile error** — laze has no runtime trigger evaluation, and silently treating them as "no trigger" would turn the plugin eager. Key-level `ft` (`keys = { { lhs, ft = "http" } }`) is also **rejected with a compile error** — use a top-level `ft` trigger or install buffer-local maps in `init` (see [What laze doesn't have](docs/not-have.md)).
 
 ## `module` — module-triggered lazy load
 
@@ -194,12 +199,12 @@ Passed directly to `vim.pack.Spec`.
 ## `dev` / `dev_path` — local dev clones
 
 ```lua
-{ "folke/flash.nvim", dev = true },          -- <dev_root>/<name> (default ~/dev)
+{ "folke/flash.nvim", dev = true },          -- <dev_root>/<name> (default ~/projects)
 { "folke/lazydev.nvim", dev = "~/work/lazydev.nvim" }, -- or an explicit path
 
 {
   "my/plugin",
-  dev_path = "~/dev/my-plugin",  -- just metadata: your own commands decide what to do with it
+  dev_path = "~/projects/my-plugin",  -- just metadata: your own commands decide what to do with it
 }
 ```
 
@@ -209,7 +214,7 @@ A dev path is a local checkout, so laze never lowers `version`/`branch`/`tag`/`c
 
 ## `VeryLazy`
 
-`VeryLazy` is a convenience post-startup event.
+`VeryLazy` is a convenience post-startup event. `User VeryLazy` is always emitted, even if no spec uses `event = "VeryLazy"`, so your own autocmds on it run too.
 
 In GUI mode it fires on `UIEnter`. In headless mode — or whenever the plan is built after startup (`vim_did_enter ~= 0`, when a one-shot `UIEnter` autocmd would be dead) — it fires immediately after the execution plan is set up.
 
@@ -244,14 +249,18 @@ laze.build_plan(compiled, {
 **Apache-2.0** © 2026 Daiki Noda (sys9kdr).
 
 laze is **actively maintained** by Daiki Noda (sys9kdr). Core, extras,
-tests, fixtures and docs are written for laze itself; no lazy.nvim
+docs and the laze-specific tests are written for laze itself; no lazy.nvim
 implementation code is vendored or copied. The semver range vectors in
 `tests/fixtures/lazy_semver_cases.lua` are adapted from lazy.nvim's
 `tests/manage/semver_spec.lua` (Apache-2.0) and carry an attribution header.
+A small part of lazy.nvim's own test suite is vendored under
+`tests/vendor/lazy.nvim/` as a behavioral oracle for known-difference
+audits (Apache-2.0; see its `LICENSE` and `NOTICE`). It is not part of the
+laze runtime or CI.
 
 Credits:
 
-* **lazy.nvim** (Apache-2.0, © Folke Lemaitre) — laze's spec surface is a deliberate subset of lazy.nvim's declarative spec format, its name derivation (`Spec.get_name`) informed laze's id/pkg derivation, and the migration-compatibility goal (escape hatch first) is directly inspired by it. https://github.com/folke/lazy.nvim
+* **lazy.nvim** (Apache-2.0, © Folke Lemaitre) — laze's spec surface is a deliberate subset of lazy.nvim's declarative spec format, its name derivation (`Spec.get_name`) informed laze's id/pkg derivation, and the migration-compatibility goal (escape hatch first) is directly inspired by it. Its semver, keys and plugin-spec tests are vendored under `tests/vendor/lazy.nvim/` for compatibility audits. https://github.com/folke/lazy.nvim
 * **Neovim / `vim.pack`** (Apache-2.0) — installation, placement, tag/ref resolution, and the lockfile are delegated to `vim.pack`; laze lowers lazy.nvim ranges/refs to its `version` field.
 
 See AGENTS.md for design invariants and conventions.

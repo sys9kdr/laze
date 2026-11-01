@@ -49,7 +49,7 @@ registry and note the removal without reassigning the ID.
 | KD-003 | version | encoding | never | `1.2.3` is encoded as `[1.2.3, 1.2.4)`. | `vim.version.range('1.2.3')` is encoded as `[1.2.3, 1.2.3]`; stable-tag membership is the same. | The IR uses Neovim's `VersionRange`; exact versions stay exact. | `tests/run.lua` |
 | KD-004 | version | safe-direction | never | Ignores `version` for `dir` plugins. | Validates the range for `dir` plugins but does not lower it (there is no pack entry). | A malformed range should fail loudly even when there is no pack entry. | `tests/test_compile.lua` |
 | KD-005 | version | safe-direction | never | Does not define compound ranges; `vim.version.range` would parse only the first range or misparse a ref. | Rejects multi-ranges, whitespace-separated comparator sets, and git refs in `version`. | Silently narrowing a range would select the wrong tag; failing loudly is safe. | `tests/test_subset.lua` |
-| KD-010 | triggers | extension | never | `module = false` opts out of automatic require-loading; module strings are not triggers. | `module = string` or `string[]` is an opt-in require trigger via `package.preload`; `false` means no triggers. | laze never patches global `require`; preload entries are explicit and single-shot. | `tests/test_compile.lua` |
+| KD-010 | triggers | extension | never | `module = false` opts out of automatic require-loading; module strings are not triggers. | `module = string` or `string[]` is an opt-in require trigger via `package.preload`; `false` means no triggers. A lazy plugin's `init` cannot require its undeclared module before activation. | laze never patches global `require`; preload entries are explicit and single-shot. | `tests/test_compile.lua` |
 | KD-011 | triggers | safe-direction | never | Accepts function-shaped `event`/`cmd`/`ft`/`keys` triggers. | Rejects them with a compile error. | Normalizing a function trigger to "no trigger" would make a lazy plugin eager. | `tests/test_compile.lua` |
 | KD-012 | setup | safe-direction | never | `config = true` is valid and implies `opts` support. | Compile error; use `opts` with explicit `main`, or a config function. | laze does not own lazy.nvim's opts abstraction; failing loudly avoids a silent no-op. | `tests/test_compile.lua` |
 | KD-013 | setup | safe-direction | never | Resolves a default `main` module from the plugin's Lua modules. | `opts` without `main` is a compile error; laze never guesses module names. | Explicit `main` keeps the pure IR deterministic and avoids loading the wrong module. | `tests/run.lua` |
@@ -61,6 +61,8 @@ registry and note the removal without reassigning the ID.
 | KD-019 | loading | extension | never | `silent` exists only on keys entries; top-level `silent` is not a lazy.nvim field. | Top-level `silent = true` suppresses require-failure notifications for that plugin. | laze's module trigger can fail at require time; `silent` lets optional integrations stay quiet. | `tests/run.lua` |
 | KD-020 | spec | silent-drop | compile | Supports `lazy`, `import`, `submodules`, `optional`, and `specs`. | Consumes them and warns once per field per compile; there is no equivalent. | laze's core is compile -> plan -> setup; spec discovery and optional resolution are outside it. | `tests/test_compile.lua` |
 | KD-021 | dependencies | silent-drop | compile | Supports nested dependency specs and their dependencies. | Warns when an inline dependency has its own `dependencies`; only the first level is registered. | laze does not implement a recursive dependency solver; dependencies load via their parents. | `tests/test_compile.lua` |
+| KD-022 | spec | safe-direction | never | Merges fragments for the same plugin (opts/config/dependencies/triggers) into one spec. | Rejects duplicate ids with a compile error. | Merging fragments changes config/opts precedence and trigger composition; laze keeps compile deterministic and fails loudly instead of silently dropping a fragment. | `tests/test_compile.lua` |
+| KD-023 | keys | silent-drop | never | Treats notation aliases as one handler id (`nvim_replace_termcodes`); `<C-h>` and `<c-H>` share a trigger and every declaring plugin loads. | Routes keys by the raw `lhs`; two spellings create two trigger maps, and Neovim's keymap table lets the later `vim.keymap.set` replace the earlier one. | Normalizing would add a termcode pass and change route keys; laze keeps the raw lhs and documents the alias edge case. | `tests/test_compile.lua` |
 
 ## Adding an entry
 
@@ -72,5 +74,8 @@ registry and note the removal without reassigning the ID.
 4. Add or point at an executable test. Use a static label that appears in the
    test file, or `docs-only: <reason>` when the difference is delegated to
    `vim.pack` and cannot be exercised in laze.
-5. Run `luajit tests/test_subset.lua`. It fails if the registry and this file
+5. When the lazy.nvim side is covered by an upstream test, cite the vendored
+   oracle in [`tests/vendor/lazy.nvim/README.md`](../tests/vendor/lazy.nvim/README.md)
+   instead of relying on a hand-written observation.
+6. Run `luajit tests/test_subset.lua`. It fails if the registry and this file
    drift apart.

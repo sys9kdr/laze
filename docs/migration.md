@@ -13,6 +13,7 @@ laze accepts lazy.nvim's declarative spec shape on purpose (escape hatch first).
 **Rejected loudly (safe direction — lazy.nvim never breaks a laze config, only the reverse)**
 
 * Function-shaped triggers (`event`/`cmd`/`ft`/`keys` as a function): compile error — laze does not evaluate triggers.
+* `keys[].ft` (per-key filetype scoping): compile error — install buffer-local maps in `init` or use a top-level `ft` trigger.
 * `build` as a list of commands (lazy.nvim's array form): compile error — use a single string or function. (`build = false` is accepted and means "no build", like lazy.nvim.)
 * `version` as a prebuilt `vim.VersionRange`, a git ref, a multi-range (`1.2 || 1.3`), or a whitespace-separated comparator set: compile error — pass a single semver range string, or use `branch`/`tag`/`commit` for refs.
 
@@ -20,11 +21,13 @@ laze accepts lazy.nvim's declarative spec shape on purpose (escape hatch first).
 
 Accepted range forms: `*`, `""`, partial versions (`1`, `1.2`), `x`/`X`/`*` wildcards (`1.2.x`), comparators `^ ~ > >= < <= =`, hyphen ranges (`1.2.3 - 2.0.0`), and prerelease/build. Only one range is accepted; multi-ranges (`||`) and whitespace-separated comparator sets are rejected. The only whitespace allowed inside a range is the ` - ` hyphen separator. A prebuilt `vim.VersionRange` is not accepted; pass the range string.
 
+**Dev notes** — `dev = true` resolves to `<dev_root>/<name>`; the default `dev_root` is `~/projects`, matching lazy.nvim's `config.dev.path` default. Override it with `setup(specs, { dev_root = "~/src" })` or `compile(specs, { dev_root = ... })`.
+
 A non-range version string (e.g. `version = "main"`) is rejected — use `branch`/`tag`/`commit` for refs. vim.pack errors when no tag matches the range; lazy.nvim falls back to the default branch, so use a ref for repos without semver tags.
 
 **Silently degraded**
 
-* `keys` entries keep `lhs`/`rhs`/`mode`/`desc`/`silent`; other `vim.keymap.set` options (`noremap`, `nowait`, `expr`, `callback`, `buffer`, …) are dropped. The positional `{ lhs, rhs }` form and function `rhs` are supported.
+* `keys` entries keep `lhs`/`rhs`/`mode`/`desc`/`silent`; other `vim.keymap.set` options (`noremap`, `nowait`, `expr`, `callback`, `buffer`, …) are dropped. The positional `{ lhs, rhs }` form and function `rhs` are supported. Per-key `ft` is rejected rather than dropped (see above).
 * `module = "name"` in laze is an *opt-in* require trigger (registered as a `package.preload` entry); lazy.nvim's `module = false` is an *opt-out* of automatic require-loading. `module = false` in laze means "no module triggers".
 * `opts = {...}` needs an explicit `main = "..."`: laze runs `require(main).setup(opts)` at load and never guesses the module name from the repo (`opts` without `main` is a compile error, as is `config` + `opts` together). `opts` must be a table — the function form is rejected. `config = true` stays an error; write the function or use `opts` + `main`.
 * `after` is a laze extension for dep ordering (lazy.nvim's equivalent: `dependencies`). lazy.nvim silently ignores it — convert to `dependencies` when moving back.
