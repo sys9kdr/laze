@@ -860,6 +860,11 @@ do
 			end,
 		},
 	})
+	-- The event buffer exists with its matching name BEFORE the plan runs:
+	-- renaming a file-like buffer fires BufFilePost itself, which would
+	-- load the plugin and replay the handler before the explicit exec below.
+	local named = vim.api.nvim_create_buf(true, false)
+	vim.api.nvim_buf_set_name(named, "laze_refire_x")
 	laze.build_plan(compiled)()
 
 	local buf = vim.api.nvim_create_buf(true, false)
@@ -872,7 +877,7 @@ do
 		failed = failed + 1
 	end
 
-	vim.api.nvim_exec_autocmds("BufFilePost", { pattern = "laze_refire_x" })
+	vim.api.nvim_exec_autocmds("BufFilePost", { buffer = named })
 	if #seen_ev == 1 then
 		print("  ✓ event route: plugin's handler sees the event that loaded it (once)")
 		passed = passed + 1
@@ -881,6 +886,82 @@ do
 		failed = failed + 1
 	end
 	pcall(vim.api.nvim_buf_delete, buf, { force = true })
+end
+
+-- ft re-fire serves the load-triggering buffer only: a second buffer with
+-- the same filetype must see the plugin's handler exactly once (the natural
+-- pass), not again through a re-fire when nothing was loaded
+do
+	local seen = {}
+	local compiled = laze.compile({
+		{
+			dir = vim.fn.tempname(),
+			name = "refire-ft-second",
+			ft = "laze_refire_ft2",
+			config = function()
+				vim.api.nvim_create_autocmd("FileType", {
+					pattern = "laze_refire_ft2",
+					callback = function(ev)
+						seen[ev.buf] = (seen[ev.buf] or 0) + 1
+					end,
+				})
+			end,
+		},
+	})
+	laze.build_plan(compiled)()
+
+	local buf1 = vim.api.nvim_create_buf(true, false)
+	vim.bo[buf1].filetype = "laze_refire_ft2"
+	local buf2 = vim.api.nvim_create_buf(true, false)
+	vim.bo[buf2].filetype = "laze_refire_ft2"
+	if seen[buf1] == 1 and seen[buf2] == 1 then
+		print("  ✓ ft route: second buffer with same ft sees the handler once (no re-fire when already loaded)")
+		passed = passed + 1
+	else
+		print("  ✗ ft route: second buffer — handler counts " .. vim.inspect(seen))
+		failed = failed + 1
+	end
+	pcall(vim.api.nvim_buf_delete, buf1, { force = true })
+	pcall(vim.api.nvim_buf_delete, buf2, { force = true })
+end
+
+-- event re-fire keeps the triggering buffer: the plugin's handler must
+-- observe the buffer that caused the load, not the current buffer
+do
+	local seen = {}
+	local compiled = laze.compile({
+		{
+			dir = vim.fn.tempname(),
+			name = "refire-ev-ctx",
+			event = { event = "BufFilePost", pattern = "laze_refire_ctx_*" },
+			config = function()
+				vim.api.nvim_create_autocmd("BufFilePost", {
+					pattern = "laze_refire_ctx_*",
+					callback = function(ev)
+						table.insert(seen, ev.buf)
+					end,
+				})
+			end,
+		},
+	})
+	-- Name the target before the plan runs: a later rename would itself
+	-- fire BufFilePost and pre-load the plugin (and replay the handler).
+	local cur = vim.api.nvim_create_buf(true, false)
+	vim.api.nvim_set_current_buf(cur)
+	local target = vim.api.nvim_create_buf(true, false)
+	vim.api.nvim_buf_set_name(target, "laze_refire_ctx_x")
+	laze.build_plan(compiled)()
+
+	vim.api.nvim_exec_autocmds("BufFilePost", { buffer = target })
+	if #seen == 1 and seen[1] == target then
+		print("  ✓ event route: re-fired handler observes the triggering buffer")
+		passed = passed + 1
+	else
+		print("  ✗ event route: re-fire buffer — handler saw " .. vim.inspect(seen) .. ", target " .. target)
+		failed = failed + 1
+	end
+	pcall(vim.api.nvim_buf_delete, cur, { force = true })
+	pcall(vim.api.nvim_buf_delete, target, { force = true })
 end
 
 -- event route: autocmd is registered

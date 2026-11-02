@@ -186,6 +186,8 @@ local function build_plan(compiled, opts)
 	end
 
 	local function finalize_startup_pending()
+		local ft_ids = routes.fts[vim.bo.filetype]
+		local finalized_ft = false
 		for _, id in ipairs(startup_pending_order) do
 			local pending = startup_pending[id]
 			if pending and loaded[id] == "pending_startup" then
@@ -198,11 +200,21 @@ local function build_plan(compiled, opts)
 					source_after_plugin(pending.dir)
 				end
 				run_hooks(id, pending.entry, pending.start)
+				if ft_ids then
+					for _, ft_id in ipairs(ft_ids) do
+						if ft_id == id then
+							finalized_ft = true
+						end
+					end
+				end
 			end
 		end
 		-- Startup-requested ft plugins registered their autocmds during
 		-- finalization; re-fire FileType so they see the current buffer.
-		if routes.fts[vim.bo.filetype] then
+		-- Only when a plugin for the current filetype was actually
+		-- finalized: otherwise its handlers already saw this buffer's
+		-- FileType, and a re-fire would run them a second time.
+		if finalized_ft then
 			refire_event("FileType", { buffer = vim.api.nvim_get_current_buf() })
 		end
 	end
@@ -599,17 +611,28 @@ local function build_plan(compiled, opts)
 					pattern = b.pattern,
 					once = true,
 					callback = function(ev)
-						local matched = false
+						local loaded_any = false
 						for _, route in ipairs(b.routes) do
 							if route.event == ev.event then
-								matched = true
 								for _, id in ipairs(route.ids) do
+									local was = loaded[id]
 									load_with_deps(id)
+									if was ~= true and loaded[id] == true then
+										loaded_any = true
+									end
 								end
 							end
 						end
-						if matched then
-							refire_event(ev.event, { pattern = ev.match, data = ev.data })
+						-- Re-fire only when this dispatch actually loaded a
+						-- plugin (see the ft dispatcher). The triggering
+						-- buffer is forwarded and replaying is patternless:
+						-- nvim_exec_autocmds rejects `pattern + buffer`
+						-- together, and pattern matching against the buffer's
+						-- name is exactly how the event matched in the first
+						-- place (lazy.nvim replays with `buffer` only too,
+						-- carrying its opaque data through).
+						if loaded_any then
+							refire_event(ev.event, { buffer = ev.buf, data = ev.data })
 						end
 					end,
 				})
@@ -629,10 +652,22 @@ local function build_plan(compiled, opts)
 				callback = function(ev)
 					local current_ids = routes.fts[ev.match]
 					if current_ids then
+						local loaded_any = false
 						for _, id in ipairs(current_ids) do
+							local was = loaded[id]
 							load_with_deps(id)
+							if was ~= true and loaded[id] == true then
+								loaded_any = true
+							end
 						end
-						refire_event("FileType", { buffer = ev.buf })
+						-- Re-fire only when this dispatch actually loaded a
+						-- plugin: its handlers registered too late for the
+						-- natural pass. When nothing loaded, every matching
+						-- handler already saw this FileType, and a re-fire
+						-- would run them a second time for the buffer.
+						if loaded_any then
+							refire_event("FileType", { buffer = ev.buf })
+						end
 					end
 				end,
 			})
