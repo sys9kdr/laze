@@ -343,6 +343,10 @@ local keys_cases = {
 		"table with key options kept",
 	},
 	{ { { "a", "<cmd>A<CR>" } }, { { lhs = "a", mode = "n", rhs = "<cmd>A<CR>" } }, "tuple form [lhs, rhs]" },
+	{ { { "a", false } }, { { lhs = "a", mode = "n", rhs = false } }, "tuple false rhs kept (mapping disabled)" },
+	{ { { lhs = "b", rhs = false } }, { { lhs = "b", mode = "n", rhs = false } }, "named false rhs kept" },
+	{ { { "c", "" } }, { { lhs = "c", mode = "n", rhs = "" } }, "empty rhs kept (<nop> mapping)" },
+	{ { { "d", "<nop>" } }, { { lhs = "d", mode = "n", rhs = "<nop>" } }, "<nop> rhs kept" },
 	{ { { lhs = "b", mode = "v" } }, { { lhs = "b", mode = "v" } }, "explicit mode kept (default n)" },
 	{ 42, {}, "non-table/string value dropped" },
 }
@@ -811,6 +815,15 @@ do
 	local c = compile({ { "folke/x.nvim", name = "x", keys = { { "<leader>x", "<cmd>X<CR>" } } } })
 	expect(c.registry["x"].has_route == true, "tuple keys entry still accepted")
 	expect(c.routes.keys["<leader>x"][1].rhs == "<cmd>X<CR>", "tuple keys rhs routed")
+end
+
+do
+	-- rhs = false disables the mapping but the spec still declares a key
+	-- (lazy.nvim keeps plugin.keys, so the plugin stays lazy and never
+	-- loads from that key); the route must carry the false to the plan.
+	local c = compile({ { "folke/x.nvim", name = "x", keys = { { "<leader>d", false } } } })
+	expect(c.routes.keys["<leader>d"][1].rhs == false, "rhs = false kept in the key route")
+	expect(c.registry["x"].has_route == true, "rhs = false keys still make the plugin lazy (lazy.nvim parity)")
 end
 
 do

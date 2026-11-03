@@ -411,6 +411,70 @@ do
 	vim.api.nvim_feedkeys("", "x", false) -- drain replayed keys
 end
 
+-- keys rhs = false / "" / <nop> never load the plugin (lazy.nvim parity):
+-- false removes the mapping entirely; an empty rhs or <nop> is a static
+-- no-op map, not a load trigger
+do
+	local ran = {}
+	local compiled = laze.compile({
+		{
+			dir = vim.fn.tempname(),
+			name = "keys-rhs-false",
+			keys = { { "<F9>", false } },
+			config = function() ran.disabled = true end,
+		},
+		{
+			dir = vim.fn.tempname(),
+			name = "keys-rhs-nop",
+			keys = { { "<F10>", "<nop>" } },
+			config = function() ran.nop = true end,
+		},
+		{
+			dir = vim.fn.tempname(),
+			name = "keys-rhs-empty",
+			keys = { { "<F11>", "" } },
+			config = function() ran.empty = true end,
+		},
+		{
+			dir = vim.fn.tempname(),
+			name = "keys-rhs-nop-upper",
+			keys = { { "<F12>", "<NOP>" } },
+			config = function() ran.nop_upper = true end,
+		},
+	})
+	laze.build_plan(compiled)()
+
+	local function map(lhs)
+		return vim.fn.maparg(lhs, "n", false, true)
+	end
+	local f9, f10, f11, f12 = map("<F9>"), map("<F10>"), map("<F11>"), map("<F12>")
+	local ok_false = f9.lhs == nil -- false: no mapping at all
+	local ok_nop = f10.lhs ~= nil and f10.rhs:lower() == "<nop>" and f10.callback == nil
+	local ok_empty = f11.lhs ~= nil and f11.rhs == "" and f11.callback == nil
+	local ok_nop_upper = f12.lhs ~= nil and f12.rhs:lower() == "<nop>" and f12.callback == nil
+
+	vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<F9><F10><F11><F12>", true, false, true), "x", false)
+	local loaded_any = ran.disabled or ran.nop or ran.empty or ran.nop_upper
+	if ok_false and ok_nop and ok_empty and ok_nop_upper and not loaded_any then
+		print("  ✓ keys: rhs = false removes the map; ''/<nop> map as no-ops and never load")
+		passed = passed + 1
+	else
+		print(
+			("  ✗ keys: rhs false/nop — f9:%s f10:%s f11:%s f12:%s loaded:%s"):format(
+				tostring(ok_false),
+				tostring(ok_nop),
+				tostring(ok_empty),
+				tostring(ok_nop_upper),
+				vim.inspect(ran)
+			)
+		)
+		failed = failed + 1
+	end
+	pcall(vim.keymap.del, "n", "<F10>")
+	pcall(vim.keymap.del, "n", "<F11>")
+	pcall(vim.keymap.del, "n", "<F12>")
+end
+
 -- FileType dispatcher is registered for ft routes (single "*" entry),
 -- fires only for the matching filetype, and ignores unrelated ones
 do

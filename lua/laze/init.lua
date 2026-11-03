@@ -5,11 +5,11 @@
 
 ---@class LazeKeySpec: LazeKeySpecBase
 ---@field [1] string lhs
----@field [2]? string|fun()
+---@field [2]? string|fun()|false
 
 ---@class LazeNamedKeySpec: LazeKeySpecBase
 ---@field lhs string lhs
----@field rhs? string|fun()
+---@field rhs? string|fun()|false
 
 ---@class LazeSpec
 ---@field [1] string
@@ -68,7 +68,7 @@
 ---@class LazeKeyRoute One trigger map for a single (lhs, mode) variant
 ---@field mode string Normalized single mode (mode arrays are expanded at compile time)
 ---@field ids string[]
----@field rhs? string|fun()
+---@field rhs? string|fun()|false `false` disables the mapping (no trigger, no load)
 ---@field desc? string
 ---@field silent? boolean
 

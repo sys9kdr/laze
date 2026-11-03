@@ -136,11 +136,18 @@ local function normalize_keys(v)
 			if type(item) == "string" then
 				table.insert(result, { lhs = item, mode = "n" })
 			elseif type(item) == "table" then
+				-- rhs: string (feedkeys), function (opaque callback), or
+				-- `false` (lazy.nvim: disable the mapping, never load).
+				-- NOT `item.rhs or item[2]`: a false rhs would be swallowed
+				-- and the key would silently become a load trigger.
+				local rhs = item.rhs
+				if rhs == nil then
+					rhs = item[2]
+				end
 				table.insert(result, {
 					lhs = item.lhs or item[1],
 					mode = item.mode or "n",
-					-- rhs: string (feedkeys) or function (opaque callback)
-					rhs = item.rhs or item[2],
+					rhs = rhs,
 					-- lazy.nvim key options (passed to vim.keymap.set)
 					desc = item.desc,
 					silent = item.silent,
