@@ -2263,6 +2263,137 @@ do
 	end
 end
 
+-- init is skipped when cond does not pass (boolean or function), like
+-- enabled: lazy.nvim disables such plugins for the session before startup,
+-- so their init never runs
+do
+	local ran = {}
+	local compiled = laze.compile({
+		{
+			dir = vim.fn.tempname(),
+			name = "init-cond-off",
+			cond = false,
+			init = function() table.insert(ran, "cond-off") end,
+		},
+		{
+			dir = vim.fn.tempname(),
+			name = "init-cond-fn-off",
+			cond = function() return false end,
+			init = function() table.insert(ran, "cond-fn-off") end,
+		},
+		{
+			dir = vim.fn.tempname(),
+			name = "init-cond-on",
+			cond = function() return true end,
+			init = function() table.insert(ran, "cond-on") end,
+		},
+	})
+	laze.build_plan(compiled)()
+	if #ran == 1 and ran[1] == "cond-on" then
+		print("  ✓ init: cond = false / false-returning cond skip init; passing cond runs it")
+		passed = passed + 1
+	else
+		print("  ✗ init: cond filtering ran " .. vim.inspect(ran))
+		failed = failed + 1
+	end
+end
+
+-- init receives a plugin table (lazy.nvim passes its LazyPlugin) and runs in
+-- a deterministic id order — lazy.nvim's own order is unspecified (pairs over
+-- its plugin map), so priority does not decide it
+do
+	local aa_dir, zz_dir = vim.fn.tempname(), vim.fn.tempname()
+	local seen = {}
+	local compiled = laze.compile({
+		{
+			dir = zz_dir,
+			name = "zz-init",
+			priority = 100,
+			init = function(plugin) table.insert(seen, { id = "zz-init", plugin = plugin }) end,
+		},
+		{
+			dir = aa_dir,
+			name = "aa-init",
+			priority = 1,
+			cmd = "LazeAaInitCmd",
+			init = function(plugin) table.insert(seen, { id = "aa-init", plugin = plugin }) end,
+		},
+	})
+	laze.build_plan(compiled)()
+	local first, second = seen[1], seen[2]
+	local ok = first
+		and second
+		and first.id == "aa-init"
+		and second.id == "zz-init"
+		and first.plugin.name == "aa-init"
+		and first.plugin.dir == aa_dir
+		and first.plugin.url == aa_dir
+		and first.plugin.lazy == true
+		and second.plugin.lazy == false
+	if ok then
+		print("  ✓ init: receives {name, dir, url, lazy} and runs in id order (not priority)")
+		passed = passed + 1
+	else
+		print("  ✗ init: arg/order — " .. vim.inspect(seen))
+		failed = failed + 1
+	end
+end
+
+-- init may require a module declared with `module`: the package.preload
+-- entry loads the plugin during setup and its config runs before the require
+-- returns. (Requiring an undeclared module here is the documented KD-010 gap.)
+do
+	local dir = vim.fn.tempname()
+	vim.fn.mkdir(dir .. "/lua/lzinitmod", "p")
+	local fd = assert(io.open(dir .. "/lua/lzinitmod/init.lua", "w"))
+	fd:write("return { ok = true }")
+	fd:close()
+
+	local got, config_ran = nil, 0
+	local compiled = laze.compile({
+		{
+			dir = dir,
+			name = "init-module",
+			module = "lzinitmod",
+			init = function()
+				got = require("lzinitmod")
+			end,
+			config = function() config_ran = config_ran + 1 end,
+		},
+	})
+	laze.build_plan(compiled)()
+	if type(got) == "table" and got.ok == true and config_ran == 1 then
+		print("  ✓ init: require() of a declared module loads the plugin and runs config")
+		passed = passed + 1
+	else
+		print(("  ✗ init: module require — got=%s config_ran=%d"):format(vim.inspect(got), config_ran))
+		failed = failed + 1
+	end
+	vim.fn.delete(dir, "rf")
+end
+
+-- reload_all rebuilds the plan, so init runs again (lazy.nvim re-runs init
+-- when a plugin is reloaded); config runs again with it
+do
+	local inits, configs = 0, 0
+	laze.setup({
+		{
+			dir = vim.fn.tempname(),
+			name = "init-reload",
+			init = function() inits = inits + 1 end,
+			config = function() configs = configs + 1 end,
+		},
+	})
+	laze.reload_all()
+	if inits == 2 and configs == 2 then
+		print("  ✓ init: reload_all re-runs init and config for a fresh plan")
+		passed = passed + 1
+	else
+		print(("  ✗ init: reload re-ran inits=%d configs=%d"):format(inits, configs))
+		failed = failed + 1
+	end
+end
+
 -- reload_all with explicit specs replaces the registry (dev-loop override)
 do
 	local replaced = laze.reload_all({

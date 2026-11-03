@@ -105,6 +105,37 @@ local function build_plan(compiled, opts)
 		end
 	end
 
+	-- Resolve `cond` once as well. lazy.nvim evaluates a cond function when
+	-- it processes the spec and caches the verdict for the session, so
+	-- `init` and every load attempt share one decision. A throwing cond is
+	-- contained: warn and treat it as false (never throw in plan).
+	local cond_ok = {}
+	for id, entry in pairs(registry) do
+		if type(entry.cond) == "function" then
+			local ok, res = pcall(entry.cond)
+			if not ok then
+				vim.notify(("laze: cond hook failed for %s: %s"):format(id, tostring(res)), vim.log.levels.WARN)
+				cond_ok[id] = false
+			else
+				cond_ok[id] = res ~= false
+			end
+		else
+			cond_ok[id] = entry.cond ~= false
+		end
+	end
+
+	-- The plugin table handed to `init` (lazy.nvim passes its LazyPlugin).
+	-- Only the fields meaningful before installation are populated: `dir`
+	-- is the local dir for `dir` specs, else vim.pack's own target path.
+	local function init_plugin_view(id, entry)
+		return {
+			name = id,
+			dir = entry.dir or (entry.pkg and (data_dir .. "/site/pack/core/opt/" .. entry.pkg)),
+			url = entry.src,
+			lazy = entry.has_route or entry.is_dep or false,
+		}
+	end
+
 	-- Entries referenced as `after` deps are not eager (compile marks
 	-- `is_dep`): eager parents pull them in at startup, lazy parents at
 	-- trigger time. Mirrors lazy.nvim ("Dependencies are always lazy-loaded
@@ -253,21 +284,6 @@ local function build_plan(compiled, opts)
 		end
 	end
 
-	-- cond may be a function (lazy.nvim) or a boolean constant. A function
-	-- returning false skips the load; a throwing cond is a plan-level
-	-- error: warn and skip (never throw in plan).
-	local function cond_passes(id, entry)
-		if type(entry.cond) == "function" then
-			local ok, res = pcall(entry.cond)
-			if not ok then
-				vim.notify(("laze: cond hook failed for %s: %s"):format(id, tostring(res)), vim.log.levels.WARN)
-				return false
-			end
-			return res ~= false
-		end
-		return entry.cond ~= false
-	end
-
 	local function load_plugin(id)
 		if loaded[id] then
 			return
@@ -280,7 +296,7 @@ local function build_plan(compiled, opts)
 		if not enabled_ok[id] then
 			return
 		end
-		if not cond_passes(id, entry) then
+		if not cond_ok[id] then
 			return
 		end
 
@@ -537,19 +553,23 @@ local function build_plan(compiled, opts)
 		local verylazy_ids
 
 		-- lazy.nvim parity: `init` runs once at startup for every enabled
-		-- plugin, before any plugin loads. The plan closure can be invoked
-		-- more than once, so keep this pass one-shot per plan.
+		-- plugin whose `cond` passes, before any plugin loads, and receives
+		-- the plugin table. lazy.nvim's own init order is unspecified
+		-- (pairs over its plugin map); sorting by id keeps re-compiles
+		-- deterministic. The plan closure can be invoked more than once,
+		-- so keep this pass one-shot per plan.
 		if not init_ran then
 			init_ran = true
 			local init_ids = {}
 			for id, entry in pairs(registry) do
-				if entry.init and enabled_ok[id] then
+				if entry.init and enabled_ok[id] and cond_ok[id] then
 					table.insert(init_ids, id)
 				end
 			end
 			table.sort(init_ids)
 			for _, id in ipairs(init_ids) do
-				local ok_init, err_init = pcall(registry[id].init)
+				local entry = registry[id]
+				local ok_init, err_init = pcall(entry.init, init_plugin_view(id, entry))
 				if not ok_init then
 					vim.notify(("laze: init failed for %s: %s"):format(id, tostring(err_init)), vim.log.levels.WARN)
 				end
@@ -789,14 +809,14 @@ local function build_plan(compiled, opts)
 					end
 					table.insert(installed_keys, { mode = mode, lhs = lhs, desc = keymap_opts.desc })
 					vim.keymap.set(mode, lhs, function()
-						-- `cond` is evaluated lazily, so it can only be checked
-						-- now. If every owner is skipped by cond, the key must
-						-- behave as if the plugin never declared it: drop the
-						-- trigger and replay the key (never run the rhs).
+						-- `cond` is resolved once at plan build (lazy.nvim
+						-- caches it at spec processing too). If every owner
+						-- is skipped by cond, the key must behave as if the
+						-- plugin never declared it: drop the trigger and
+						-- replay the key (never run the rhs).
 						local active = false
 						for _, id in ipairs(ids) do
-							local reg = registry[id]
-							if loaded[id] or (reg and cond_passes(id, reg)) then
+							if loaded[id] or cond_ok[id] then
 								active = true
 								break
 							end

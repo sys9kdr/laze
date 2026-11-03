@@ -14,7 +14,7 @@ At load time, laze only requires module names explicitly declared via `module`. 
 ## When does a plugin's code run?
 
 * **Eager** (no triggers, not a `dependencies` dep): the installed directory is added to the runtimepath at setup (`:packadd!`), so the startup `plugin/` and `after/plugin/` phases source its files exactly once. `config` runs from the plan at setup time.
-* **`init`** runs once during setup for every enabled plugin, before any plugin loads (lazy.nvim parity); a failing `init` warns and the plugin still loads.
+* **`init`** runs once during setup for every enabled plugin whose `cond` passes, before any plugin loads (lazy.nvim parity), and receives the plugin as `{ name, dir, url, lazy }`. lazy.nvim's own init order is unspecified (pairs over its plugin map), so laze sorts by id to keep re-compiles deterministic. A failing `init` warns and the plugin still loads; `reload_all()` builds a fresh plan and runs it again.
   Since laze does not hook global `require`, an `init` for a lazy plugin cannot
   require that plugin's module before it is activated unless the module is
   explicitly declared with `module`; otherwise defer the require to `config`.
