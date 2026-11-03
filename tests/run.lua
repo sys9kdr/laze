@@ -851,7 +851,10 @@ do
 			name = "refire-ev",
 			event = { event = "BufFilePost", pattern = "laze_refire_*" },
 			config = function()
+				-- grouped: the non-FileType replay is per fresh augroup
+				local group = vim.api.nvim_create_augroup("laze_refire_ev", {})
 				vim.api.nvim_create_autocmd("BufFilePost", {
+					group = group,
 					pattern = "laze_refire_*",
 					callback = function(ev)
 						table.insert(seen_ev, ev.buf)
@@ -935,7 +938,10 @@ do
 			name = "refire-ev-ctx",
 			event = { event = "BufFilePost", pattern = "laze_refire_ctx_*" },
 			config = function()
+				-- grouped: the non-FileType replay is per fresh augroup
+				local group = vim.api.nvim_create_augroup("laze_refire_ctx", {})
 				vim.api.nvim_create_autocmd("BufFilePost", {
+					group = group,
 					pattern = "laze_refire_ctx_*",
 					callback = function(ev)
 						table.insert(seen, ev.buf)
@@ -962,6 +968,94 @@ do
 	end
 	pcall(vim.api.nvim_buf_delete, cur, { force = true })
 	pcall(vim.api.nvim_buf_delete, target, { force = true })
+end
+
+-- #38: the replay must not re-run handlers that already existed when the
+-- trigger fired (user config, other plugins). lazy.nvim snapshots augroups
+-- before loading and excludes them from the replay; ungrouped autocmds are
+-- skipped outright because a fresh one is indistinguishable from an old one.
+do
+	local pre_grouped, pre_ungrouped = 0, 0
+	local new_grouped, new_ungrouped = 0, 0
+	local target = vim.api.nvim_create_buf(true, false)
+	vim.api.nvim_buf_set_name(target, "laze_refire_pre_x")
+
+	-- pre-existing handlers (registered before the plan / before the load)
+	local pre = vim.api.nvim_create_augroup("laze_refire_pre", {})
+	vim.api.nvim_create_autocmd("BufFilePost", {
+		group = pre,
+		pattern = "laze_refire_pre_*",
+		callback = function() pre_grouped = pre_grouped + 1 end,
+	})
+	vim.api.nvim_create_autocmd("BufFilePost", {
+		pattern = "laze_refire_pre_*",
+		callback = function() pre_ungrouped = pre_ungrouped + 1 end,
+	})
+
+	local compiled = laze.compile({
+		{
+			dir = vim.fn.tempname(),
+			name = "refire-preexisting",
+			event = { event = "BufFilePost", pattern = "laze_refire_pre_*" },
+			config = function()
+				local group = vim.api.nvim_create_augroup("laze_refire_loaded", {})
+				vim.api.nvim_create_autocmd("BufFilePost", {
+					group = group,
+					pattern = "laze_refire_pre_*",
+					callback = function() new_grouped = new_grouped + 1 end,
+				})
+				vim.api.nvim_create_autocmd("BufFilePost", {
+					pattern = "laze_refire_pre_*",
+					callback = function() new_ungrouped = new_ungrouped + 1 end,
+				})
+			end,
+		},
+	})
+	laze.build_plan(compiled)()
+
+	vim.api.nvim_exec_autocmds("BufFilePost", { buffer = target })
+	-- pre-existing: natural pass only. fresh grouped: replayed once.
+	-- fresh ungrouped: never replayed (lazy.nvim skips ungrouped rows too).
+	if pre_grouped == 1 and pre_ungrouped == 1 and new_grouped == 1 and new_ungrouped == 0 then
+		print("  ✓ event route: replay skips pre-existing augroups and ungrouped rows")
+		passed = passed + 1
+	else
+		print(("  ✗ event route: replay exclusion — pre g:%d u:%d, new g:%d u:%d")
+			:format(pre_grouped, pre_ungrouped, new_grouped, new_ungrouped))
+		failed = failed + 1
+	end
+	vim.api.nvim_del_augroup_by_name("laze_refire_pre")
+	pcall(vim.api.nvim_buf_delete, target, { force = true })
+end
+
+-- FileType is exempt from that exclusion (lazy.nvim parity): its replay
+-- exists to hand the current buffer to ft handlers wherever they are
+-- registered, so pre-existing ft handlers see it a second time.
+do
+	local pre, ran = 0, 0
+	vim.api.nvim_create_autocmd("FileType", {
+		pattern = "laze_refire_ftpre",
+		callback = function() pre = pre + 1 end,
+	})
+	local compiled = laze.compile({
+		{
+			dir = vim.fn.tempname(),
+			name = "refire-ftpre",
+			ft = "laze_refire_ftpre",
+			config = function() ran = ran + 1 end,
+		},
+	})
+	laze.build_plan(compiled)()
+	local buf = vim.api.nvim_create_buf(true, false)
+	vim.bo[buf].filetype = "laze_refire_ftpre"
+	if pre == 2 and ran == 1 then
+		print("  ✓ ft route: pre-existing ft handlers keep the FileType replay (lazy.nvim parity)")
+		passed = passed + 1
+	else
+		print(("  ✗ ft route: replay exemption — pre:%d ran:%d"):format(pre, ran))
+		failed = failed + 1
+	end
+	pcall(vim.api.nvim_buf_delete, buf, { force = true })
 end
 
 -- event route: autocmd is registered

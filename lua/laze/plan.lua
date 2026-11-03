@@ -149,6 +149,40 @@ local function build_plan(compiled, opts)
 		refiring[event] = nil
 	end
 
+	-- Augroups that already handle `event`, snapshotted before a trigger
+	-- load. lazy.nvim excludes them from the replay so a pre-existing
+	-- handler (user config, another plugin) doesn't see the same event a
+	-- second time; FileType is exempt there because its replay exists to
+	-- hand the current buffer to freshly loaded ft handlers, wherever they
+	-- are registered.
+	local function snapshot_event_groups(event)
+		local groups = {}
+		if event == "FileType" then
+			return groups
+		end
+		for _, autocmd in ipairs(vim.api.nvim_get_autocmds({ event = event })) do
+			if autocmd.group_name then
+				groups[autocmd.group_name] = true
+			end
+		end
+		return groups
+	end
+
+	-- Replay a non-FileType event for what the just-loaded plugin added,
+	-- one exec per augroup: `exclude` keeps pre-existing groups out, and
+	-- ungrouped autocmds are skipped because they are indistinguishable
+	-- from pre-existing ones (lazy.nvim skips them the same way).
+	local function replay_event_groups(event, ev, exclude)
+		local done = {}
+		for _, autocmd in ipairs(vim.api.nvim_get_autocmds({ event = event })) do
+			local name = autocmd.group_name
+			if name and not exclude[name] and not done[name] then
+				done[name] = true
+				refire_event(event, { group = name, buffer = ev.buf, data = ev.data })
+			end
+		end
+	end
+
 	-- With `opts.partial` the hooks run but the plugin stays "pending_startup":
 	-- used when a startup `require()` needs a configured plugin right away.
 	-- The hooks run at most once; the VimEnter finalizer then only marks the
@@ -611,6 +645,10 @@ local function build_plan(compiled, opts)
 					pattern = b.pattern,
 					once = true,
 					callback = function(ev)
+						-- Snapshot before loading: after the load, the new
+						-- plugin's augroups are indistinguishable in intent
+						-- from pre-existing ones except by this diff.
+						local exclude = snapshot_event_groups(ev.event)
 						local loaded_any = false
 						for _, route in ipairs(b.routes) do
 							if route.event == ev.event then
@@ -625,14 +663,17 @@ local function build_plan(compiled, opts)
 						end
 						-- Re-fire only when this dispatch actually loaded a
 						-- plugin (see the ft dispatcher). The triggering
-						-- buffer is forwarded and replaying is patternless:
-						-- nvim_exec_autocmds rejects `pattern + buffer`
-						-- together, and pattern matching against the buffer's
-						-- name is exactly how the event matched in the first
-						-- place (lazy.nvim replays with `buffer` only too,
-						-- carrying its opaque data through).
+						-- buffer is forwarded so buffer-local handlers and
+						-- ev.buf match the original event. FileType replays
+						-- globally (lazy.nvim exempts it from the augroup
+						-- exclusion); everything else replays per fresh
+						-- augroup so pre-existing handlers stay single-fire.
 						if loaded_any then
-							refire_event(ev.event, { buffer = ev.buf, data = ev.data })
+							if ev.event == "FileType" then
+								refire_event(ev.event, { buffer = ev.buf, data = ev.data })
+							else
+								replay_event_groups(ev.event, ev, exclude)
+							end
 						end
 					end,
 				})

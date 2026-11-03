@@ -20,6 +20,7 @@ At load time, laze only requires module names explicitly declared via `module`. 
   explicitly declared with `module`; otherwise defer the require to `config`.
 * **Lazy** (has a trigger, or is a `dependencies` dep of a lazy plugin): **nothing** runs at startup — the plugin is not even on the runtimepath. When its trigger fires after startup, the plan `:packadd`s it (sourcing `plugin/` and `ftdetect/`), sources its `after/plugin/` scripts, then runs `module` requires → `config`. If a trigger fires during startup, laze adds it to a closure-local pending queue and finalizes it at `VimEnter`; this avoids a lazy opt package being left on the runtimepath with its `plugin/` files unsourced.
 * `dependencies` of a lazy plugin stay off the runtimepath too; they activate immediately before the parent.
+* **Trigger replay** (lazy.nvim parity): once a trigger has loaded a plugin, the triggering event is re-fired so handlers the plugin registered while loading still see it. `FileType` replays once for the triggering buffer, so ft handlers receive it wherever they are grouped (pre-existing ft handlers therefore see it twice, as with lazy.nvim). Other events replay once per augroup **added by the load**: groups that already existed are excluded and ungrouped autocmds are skipped, because a fresh ungrouped row cannot be told apart from a pre-existing one. A dispatch that loads nothing never replays.
 
 ### The activation invariant
 
