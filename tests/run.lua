@@ -359,10 +359,13 @@ do
 	end
 end
 
--- Disabled plugins (cond = false / enabled = false) must not leave live key
--- triggers: no map for `enabled`, and a cond-skipped trigger never runs its rhs
+-- Disabled plugins (cond = false / enabled = false) must not leave key
+-- triggers at all: lazy.nvim disables such a plugin before handlers are
+-- enabled, so neither a load trigger nor a still-live rhs is installed.
+-- Covers both the literal and the function form (#30).
 do
 	local rhs_ran = false
+	local cond_fn_calls = 0
 	local compiled = laze.compile({
 		{
 			dir = vim.fn.getcwd(),
@@ -378,6 +381,15 @@ do
 				{ "<F14>" },
 			},
 		},
+		{
+			dir = vim.fn.getcwd(),
+			name = "keys-cond-fn-off",
+			cond = function()
+				cond_fn_calls = cond_fn_calls + 1
+				return false
+			end,
+			keys = { { "<F19>" } },
+		},
 		{ dir = vim.fn.getcwd(), name = "keys-enabled-off", enabled = false, keys = { { "<F15>" } } },
 	})
 	laze.build_plan(compiled)()
@@ -385,27 +397,23 @@ do
 	local function mapped(lhs)
 		return vim.fn.maparg(lhs, "n") ~= ""
 	end
-	if not mapped("<F15>") then
-		print("  ✓ keys: enabled = false installs no trigger map")
-		passed = passed + 1
-	else
-		print("  ✗ keys: enabled = false still installed a trigger map")
-		failed = failed + 1
-	end
-
-	vim.fn.maparg("<F13>", "n", false, true).callback()
-	vim.fn.maparg("<F14>", "n", false, true).callback()
-	if not rhs_ran and not mapped("<F13>") and not mapped("<F14>") then
-		print("  ✓ keys: cond = false skips rhs and removes the trigger")
+	local unmapped = not mapped("<F13>") and not mapped("<F14>") and not mapped("<F15>") and not mapped("<F19>")
+	if unmapped and cond_fn_calls == 1 then
+		print("  ✓ keys: cond = false (literal/function) and enabled = false install no map")
 		passed = passed + 1
 	else
 		print(
-			("  ✗ keys: cond = false (rhs_ran=%s, F13 mapped=%s, F14 mapped=%s)"):format(
-				tostring(rhs_ran),
-				tostring(mapped("<F13>")),
-				tostring(mapped("<F14>"))
-			)
+			("  ✗ keys: disabled key maps — F13=%s F14=%s F15=%s F19=%s cond_fn_calls=%d")
+				:format(tostring(mapped("<F13>")), tostring(mapped("<F14>")), tostring(mapped("<F15>")), tostring(mapped("<F19>")), cond_fn_calls)
 		)
+		failed = failed + 1
+	end
+
+	if not rhs_ran then
+		print("  ✓ keys: cond = false never runs the declared rhs")
+		passed = passed + 1
+	else
+		print("  ✗ keys: cond = false ran its rhs")
 		failed = failed + 1
 	end
 	vim.api.nvim_feedkeys("", "x", false) -- drain replayed keys
@@ -2468,6 +2476,71 @@ do
 		passed = passed + 1
 	else
 		print("  ✗ reload_all: explicit spec override failed")
+		failed = failed + 1
+	end
+end
+
+-- #30: lazy.nvim disables a spec with enabled/cond false while processing
+-- it, so it is never installed. Verified headless: cond=false,
+-- cond=function() return false end, enabled=false and
+-- enabled=function() return false end all stay uninstalled, while
+-- enabled=function() return true end is installed. laze must therefore
+-- drop those pack entries, and evaluate each hook exactly once.
+do
+	local calls = { enabled_fn_false = 0, enabled_fn_true = 0, cond_fn_false = 0, cond_fn_true = 0 }
+	local added = {}
+	local real_add = vim.pack.add
+	vim.pack.add = function(specs)
+		for _, spec in ipairs(specs) do
+			table.insert(added, spec.name)
+		end
+	end
+	local ok, err = pcall(laze.setup, {
+		{ "example/cond-off.nvim", name = "cond-off", cond = false },
+		{ "example/cond-fn-off.nvim", name = "cond-fn-off", cond = function()
+			calls.cond_fn_false = calls.cond_fn_false + 1
+			return false
+		end },
+		{ "example/enabled-off.nvim", name = "enabled-off", enabled = false },
+		{ "example/enabled-fn-off.nvim", name = "enabled-fn-off", enabled = function()
+			calls.enabled_fn_false = calls.enabled_fn_false + 1
+			return false
+		end },
+		{ "example/cond-fn-on.nvim", name = "cond-fn-on", cond = function()
+			calls.cond_fn_true = calls.cond_fn_true + 1
+			return true
+		end },
+		{ "example/enabled-fn-on.nvim", name = "enabled-fn-on", enabled = function()
+			calls.enabled_fn_true = calls.enabled_fn_true + 1
+			return true
+		end },
+		{ "example/installed.nvim", name = "installed" },
+	})
+	vim.pack.add = real_add
+
+	local skipped = { ["cond-off"] = true, ["cond-fn-off"] = true, ["enabled-off"] = true, ["enabled-fn-off"] = true }
+	local leaked = {}
+	for _, name in ipairs(added) do
+		if skipped[name] then
+			table.insert(leaked, name)
+		end
+	end
+	local missing = {}
+	for _, name in ipairs({ "cond-fn-on", "enabled-fn-on", "installed" }) do
+		if not vim.tbl_contains(added, name) then
+			table.insert(missing, name)
+		end
+	end
+	local once = calls.enabled_fn_false == 1
+		and calls.enabled_fn_true == 1
+		and calls.cond_fn_false == 1
+		and calls.cond_fn_true == 1
+	if ok and #leaked == 0 and #missing == 0 and once then
+		print("  ✓ setup: false cond/enabled (literal or function) are not installed, hooks run once")
+		passed = passed + 1
+	else
+		print(("  ✗ setup: install filter — ok=%s err=%s leaked=%s missing=%s calls=%s")
+			:format(tostring(ok), tostring(err), vim.inspect(leaked), vim.inspect(missing), vim.inspect(calls)))
 		failed = failed + 1
 	end
 end

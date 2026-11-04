@@ -38,8 +38,64 @@ local function build_rtp_index(data_dir)
 	return index
 end
 
+--- The plugin table passed to `init` and to a `cond` function (lazy.nvim
+--- passes its LazyPlugin). Only the fields meaningful before installation are
+--- populated: `dir` is the local dir for `dir` specs, else vim.pack's own
+--- target path.
+---@param id string
+---@param entry LazeEntry
+---@param data_dir string
+---@return table
+local function plugin_view(id, entry, data_dir)
+	return {
+		name = id,
+		dir = entry.dir or (entry.pkg and (data_dir .. "/site/pack/core/opt/" .. entry.pkg)),
+		url = entry.src,
+		lazy = entry.has_route or entry.is_dep or false,
+	}
+end
+
+--- Evaluate `enabled` and `cond` once (lazy.nvim resolves both while
+--- processing the spec and caches the verdict for the session). setup() calls
+--- this before vim.pack.add, so a false verdict also skips installation;
+--- build_plan falls back to it when the caller has not resolved them yet.
+---@param registry table<string, LazeEntry>
+---@param data_dir string
+---@return table<string, boolean> enabled_ok
+---@return table<string, boolean> cond_ok
+local function resolve_verdicts(registry, data_dir)
+	local enabled_ok, cond_ok = {}, {}
+	for id, entry in pairs(registry) do
+		if type(entry.enabled) == "function" then
+			local ok, res = pcall(entry.enabled)
+			if not ok then
+				vim.notify(("laze: enabled hook failed for %s: %s"):format(id, tostring(res)), vim.log.levels.WARN)
+				enabled_ok[id] = false
+			else
+				enabled_ok[id] = res ~= false
+			end
+		else
+			enabled_ok[id] = entry.enabled ~= false
+		end
+		if type(entry.cond) == "function" then
+			-- lazy.nvim calls cond(plugin); a throwing cond is contained:
+			-- warn and treat it as false (never throw in plan).
+			local ok, res = pcall(entry.cond, plugin_view(id, entry, data_dir))
+			if not ok then
+				vim.notify(("laze: cond hook failed for %s: %s"):format(id, tostring(res)), vim.log.levels.WARN)
+				cond_ok[id] = false
+			else
+				cond_ok[id] = res ~= false
+			end
+		else
+			cond_ok[id] = entry.cond ~= false
+		end
+	end
+	return enabled_ok, cond_ok
+end
+
 ---@param compiled LazeCompiled
----@param opts? { on_load?: fun(id: string, time_ms: number), on_fail?: fun(id: string, err: string) }
+---@param opts? { on_load?: fun(id: string, time_ms: number), on_fail?: fun(id: string, err: string), enabled_ok?: table<string, boolean>, cond_ok?: table<string, boolean> }
 ---@return LazePlan
 local function build_plan(compiled, opts)
 	opts = opts or {}
@@ -85,55 +141,14 @@ local function build_plan(compiled, opts)
 		})
 	end
 
-	-- Resolve `enabled` once at plan build time: lazy.nvim allows a function
-	-- that is evaluated when the spec is processed. A function returning
-	-- false means "not enabled". NOT `type(...) == "function" and f() or
-	-- enabled ~= false` — that Lua gotcha turns a false-returning function
-	-- into true (nil/false can't flow through and/or).
-	local enabled_ok = {}
-	for id, entry in pairs(registry) do
-		if type(entry.enabled) == "function" then
-			local ok, res = pcall(entry.enabled)
-			if not ok then
-				vim.notify(("laze: enabled hook failed for %s: %s"):format(id, tostring(res)), vim.log.levels.WARN)
-				enabled_ok[id] = false
-			else
-				enabled_ok[id] = res ~= false
-			end
-		else
-			enabled_ok[id] = entry.enabled ~= false
-		end
-	end
-
-	-- Resolve `cond` once as well. lazy.nvim evaluates a cond function when
-	-- it processes the spec and caches the verdict for the session, so
-	-- `init` and every load attempt share one decision. A throwing cond is
-	-- contained: warn and treat it as false (never throw in plan).
-	local cond_ok = {}
-	for id, entry in pairs(registry) do
-		if type(entry.cond) == "function" then
-			local ok, res = pcall(entry.cond)
-			if not ok then
-				vim.notify(("laze: cond hook failed for %s: %s"):format(id, tostring(res)), vim.log.levels.WARN)
-				cond_ok[id] = false
-			else
-				cond_ok[id] = res ~= false
-			end
-		else
-			cond_ok[id] = entry.cond ~= false
-		end
-	end
-
-	-- The plugin table handed to `init` (lazy.nvim passes its LazyPlugin).
-	-- Only the fields meaningful before installation are populated: `dir`
-	-- is the local dir for `dir` specs, else vim.pack's own target path.
-	local function init_plugin_view(id, entry)
-		return {
-			name = id,
-			dir = entry.dir or (entry.pkg and (data_dir .. "/site/pack/core/opt/" .. entry.pkg)),
-			url = entry.src,
-			lazy = entry.has_route or entry.is_dep or false,
-		}
+	-- Verdicts for `enabled`/`cond` are resolved once (setup() resolves them
+	-- before vim.pack.add and passes them in so a disabled plugin is never
+	-- installed; direct build_plan callers get the same evaluation here).
+	local enabled_ok, cond_ok = opts.enabled_ok, opts.cond_ok
+	if not (enabled_ok and cond_ok) then
+		local e, c = resolve_verdicts(registry, data_dir)
+		enabled_ok = enabled_ok or e
+		cond_ok = cond_ok or c
 	end
 
 	-- Entries referenced as `after` deps are not eager (compile marks
@@ -569,7 +584,7 @@ local function build_plan(compiled, opts)
 			table.sort(init_ids)
 			for _, id in ipairs(init_ids) do
 				local entry = registry[id]
-				local ok_init, err_init = pcall(entry.init, init_plugin_view(id, entry))
+				local ok_init, err_init = pcall(entry.init, plugin_view(id, entry, data_dir))
 				if not ok_init then
 					vim.notify(("laze: init failed for %s: %s"):format(id, tostring(err_init)), vim.log.levels.WARN)
 				end
@@ -794,11 +809,13 @@ local function build_plan(compiled, opts)
 			for _, entry in ipairs(variants) do
 				local mode = entry.mode
 				local rhs = entry.rhs
-				-- `enabled` is fixed at plan build: a variant whose plugins are
-				-- all disabled gets no trigger map at all.
+				-- `enabled` and `cond` are fixed at plan build: a variant whose
+				-- plugins are all disabled gets no map at all — not even the
+				-- self-deleting trigger, because lazy.nvim never enables
+				-- handlers for a disabled plugin (parity, #30).
 				local ids = {}
 				for _, id in ipairs(entry.ids) do
-					if enabled_ok[id] then
+					if enabled_ok[id] and cond_ok[id] then
 						table.insert(ids, id)
 					end
 				end
@@ -822,19 +839,11 @@ local function build_plan(compiled, opts)
 						end
 						table.insert(installed_keys, { mode = mode, lhs = lhs, desc = keymap_opts.desc })
 						vim.keymap.set(mode, lhs, function()
-							-- `cond` is resolved once at plan build (lazy.nvim
-							-- caches it at spec processing too). If every owner
-							-- is skipped by cond, the key must behave as if the
-							-- plugin never declared it: drop the trigger and
-							-- replay the key (never run the rhs).
-							local active = false
-							for _, id in ipairs(ids) do
-								if loaded[id] or cond_ok[id] then
-									active = true
-									break
-								end
-							end
-							if rhs == nil or not active then
+							-- `cond`/`enabled` were resolved once at plan
+							-- build (lazy.nvim caches them at spec
+							-- processing too), so every id here is active;
+							-- a disabled variant never installed this map.
+							if rhs == nil then
 								-- No rhs: the plugin's own keymap takes over after load.
 								-- Delete the trigger NOW — at this point it is the only
 								-- map for this lhs in this mode (other mode variants
@@ -844,12 +853,10 @@ local function build_plan(compiled, opts)
 								-- lhs in the mode).
 								pcall(vim.keymap.del, mode, lhs)
 							end
-							if active then
-								for _, id in ipairs(ids) do
-									load_with_deps(id)
-								end
+							for _, id in ipairs(ids) do
+								load_with_deps(id)
 							end
-							if rhs == nil or not active then
+							if rhs == nil then
 								-- Replay the key: the plugin's map (registered during
 								-- load) handles it. Insert the replay BEFORE keys already
 								-- queued behind the trigger ('i'): with the default append,
@@ -901,4 +908,4 @@ local function build_plan(compiled, opts)
 	end
 end
 
-return { build_plan = build_plan }
+return { build_plan = build_plan, resolve_verdicts = resolve_verdicts }

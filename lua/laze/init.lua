@@ -52,10 +52,10 @@
 ---@field module? string|string[]
 ---@field main? string Module for opts (explicit; never guessed)
 ---@field opts? table Passed to require(main).setup(opts) at load
----@field init? fun()
+---@field init? fun(plugin: table)
 ---@field config? fun()
----@field cond? fun(): boolean
----@field enabled boolean
+---@field cond? fun(plugin: table): boolean|boolean Resolved once at setup/plan build
+---@field enabled fun(plugin: table): boolean|boolean Resolved once at setup/plan build
 ---@field silent boolean
 ---@field after? string[]
 ---@field dev_path? string
@@ -202,14 +202,23 @@ function M.setup(specs, opts)
 			pkg_to_id[entry.pkg] = id
 		end
 	end
+	-- Resolve `enabled`/`cond` before touching vim.pack: lazy.nvim disables
+	-- such a plugin while processing the spec, so a false verdict (literal
+	-- or function) also means it is never installed. The plan reuses these
+	-- verdicts instead of re-evaluating the hooks.
+	local data_dir = vim.fn.stdpath("data")
+	local enabled_ok, cond_ok = plan.resolve_verdicts(compiled.registry, data_dir)
 	local eager_pack = {}
 	local lazy_pack = {}
 	for _, spec in ipairs(compiled.pack) do
-		local entry = compiled.registry[pkg_to_id[spec.name]]
-		if entry.has_route or entry.is_dep then
-			table.insert(lazy_pack, spec)
-		else
-			table.insert(eager_pack, spec)
+		local id = pkg_to_id[spec.name]
+		local entry = compiled.registry[id]
+		if enabled_ok[id] and cond_ok[id] then
+			if entry.has_route or entry.is_dep then
+				table.insert(lazy_pack, spec)
+			else
+				table.insert(eager_pack, spec)
+			end
 		end
 	end
 	if #eager_pack > 0 then
@@ -219,7 +228,8 @@ function M.setup(specs, opts)
 		vim.pack.add(lazy_pack, { load = function() end })
 	end
 
-	plan.build_plan(compiled, opts)()
+	local plan_opts = vim.tbl_extend("force", opts, { enabled_ok = enabled_ok, cond_ok = cond_ok })
+	plan.build_plan(compiled, plan_opts)()
 	last_setup = { specs = specs, opts = opts }
 	return compiled
 end
