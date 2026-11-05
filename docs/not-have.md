@@ -99,31 +99,6 @@ abstraction, import system, background scheduler, lifecycle framework.
   { "foo/bar", event = "BufReadPost", cond = function() return cond end }
   ```
 
-- **`keys[].ft`.** What: per-key filetype scoping is a compile error
-  (`validate_triggers`: "keys[i].ft is not supported"). lazy.nvim
-  creates buffer-local trigger maps via a `FileType` autocmd; laze only
-  owns global key triggers.
-  Why not: runtime simplicity — per-buffer keymaps add a second lifecycle
-  (create on `FileType`, clean up across buffers/reload) for a narrow
-  convenience field; explicit config is clearer.
-  Alternative: install buffer-local maps yourself from `init`, which runs
-  at startup before the plugin loads:
-  ```lua
-  init = function()
-    local group = vim.api.nvim_create_augroup("my_http_keys", { clear = true })
-    local function set(buf)
-      vim.keymap.set("n", "<LocalLeader>rr", "<cmd>Rest run<cr>",
-        { buffer = buf, desc = "Run" })
-    end
-    vim.api.nvim_create_autocmd("FileType", {
-      group = group, pattern = "http",
-      callback = function(ev) set(ev.buf) end,
-    })
-    if vim.bo.filetype == "http" then set(0) end
-  end,
-  ```
-  `cmd`/`module`/top-level `ft` still decide when the plugin loads.
-
 - **`build` list form.** What: `build` as a list is a compile error
   ("use a single string or function"); `false`/string/function accepted.
   Why not: magic-vs-explicit — one build step, one value.

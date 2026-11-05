@@ -151,6 +151,9 @@ local function normalize_keys(v)
 					-- lazy.nvim key options (passed to vim.keymap.set)
 					desc = item.desc,
 					silent = item.silent,
+					-- ft scopes the trigger to a buffer-local mapping on
+					-- matching FileType (lazy.nvim LazyKeysSpec.ft).
+					ft = item.ft,
 				})
 			end
 		end
@@ -481,15 +484,32 @@ local function add_to_key_route(route_map, keys, plugin_id)
 					variants = {}
 					route_map[lhs] = variants
 				end
+				-- `ft` is part of lazy.nvim's handler id (one id per
+				-- lhs+mode+ft set), so a buffer-local declaration and a
+				-- global one for the same lhs/mode are distinct variants.
+				local ft = ke.ft
+				if type(ft) == "string" then
+					ft = { ft }
+				elseif type(ft) == "table" then
+					-- copy: compile must not mutate or share the input table
+					local copy = {}
+					for _, value in ipairs(ft) do
+						table.insert(copy, value)
+					end
+					ft = copy
+				end
+				local function ft_id(value)
+					return value and table.concat(value, "\0") or ""
+				end
 				local variant
 				for k = 1, #variants do
-					if variants[k].mode == mode then
+					if variants[k].mode == mode and ft_id(variants[k].ft) == ft_id(ft) then
 						variant = variants[k]
 						break
 					end
 				end
 				if not variant then
-					variant = { mode = mode, ids = {}, rhs = ke.rhs, desc = ke.desc, silent = ke.silent }
+					variant = { mode = mode, ids = {}, rhs = ke.rhs, desc = ke.desc, silent = ke.silent, ft = ft }
 					table.insert(variants, variant)
 				elseif variant.rhs ~= ke.rhs or variant.desc ~= ke.desc or variant.silent ~= ke.silent then
 					vim.notify(
@@ -675,10 +695,21 @@ local function validate_triggers(spec, idx, spec_id)
 					bad("keys[" .. i .. "]", "must have a non-empty lhs (string)")
 				end
 				if item.ft ~= nil then
-					bad(
-						"keys[" .. i .. "].ft",
-						"is not supported — use a top-level ft trigger, or install buffer-local maps from init"
-					)
+					-- lazy.nvim: string|string[], used as the FileType
+					-- autocmd pattern for a buffer-local trigger map.
+					if type(item.ft) == "string" then
+						if item.ft == "" then
+							bad("keys[" .. i .. "].ft", "must not be empty")
+						end
+					elseif not is_string_array(item.ft) then
+						bad("keys[" .. i .. "].ft", "must be a string or string[]")
+					else
+						for _, ft in ipairs(item.ft) do
+							if ft == "" then
+								bad("keys[" .. i .. "].ft", "must not contain empty filetypes")
+							end
+						end
+					end
 				end
 				-- lazy.nvim does not validate the contents of mode:
 				-- mode = "" is passed to vim.keymap.set (which creates a

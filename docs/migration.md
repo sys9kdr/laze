@@ -13,7 +13,7 @@ laze accepts lazy.nvim's declarative spec shape on purpose (escape hatch first).
 **Rejected loudly (safe direction — lazy.nvim never breaks a laze config, only the reverse)**
 
 * Function-shaped triggers (`event`/`cmd`/`ft`/`keys` as a function): compile error — laze does not evaluate triggers.
-* `keys[].ft` (per-key filetype scoping): compile error — install buffer-local maps in `init` or use a top-level `ft` trigger.
+* `keys[].ft` (per-key filetype scoping): supported — laze installs a buffer-local trigger map on the matching `FileType`, never a global map.
 * `build` as a list of commands (lazy.nvim's array form): compile error — use a single string or function. (`build = false` is accepted and means "no build", like lazy.nvim.)
 * `version` as a prebuilt `vim.VersionRange`, a git ref, a multi-range (`1.2 || 1.3`), or a whitespace-separated comparator set: compile error — pass a single semver range string, or use `branch`/`tag`/`commit` for refs.
 

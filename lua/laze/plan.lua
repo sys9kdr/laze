@@ -600,9 +600,23 @@ local function build_plan(compiled, opts)
 			-- get_keymap reports the lhs leader-expanded; expand the same
 			-- way before comparing (mirrors the lookup in tests/run.lua).
 			local want = vim.api.nvim_replace_termcodes(k.lhs, true, false, true)
-			for _, km in ipairs(vim.api.nvim_get_keymap(k.mode)) do
+			local maps
+			if k.buf then
+				if not vim.api.nvim_buf_is_valid(k.buf) then
+					maps = {}
+				else
+					maps = vim.api.nvim_buf_get_keymap(k.buf, k.mode)
+				end
+			else
+				maps = vim.api.nvim_get_keymap(k.mode)
+			end
+			for _, km in ipairs(maps) do
 				if km.lhs == want and km.desc == k.desc then
-					pcall(vim.keymap.del, k.mode, k.lhs)
+					if k.buf then
+						pcall(vim.keymap.del, k.mode, k.lhs, { buffer = k.buf })
+					else
+						pcall(vim.keymap.del, k.mode, k.lhs)
+					end
 					break
 				end
 			end
@@ -616,6 +630,9 @@ local function build_plan(compiled, opts)
 		local events_group = vim.api.nvim_create_augroup("laze_events", { clear = true })
 		local fts_group = vim.api.nvim_create_augroup("laze_fts", { clear = true })
 		local cmds_group = vim.api.nvim_create_augroup("laze_cmds", { clear = true })
+		-- ft-scoped key triggers: FileType autocmds that install
+		-- buffer-local maps (one group per plan, cleared on rebuild).
+		local key_fts_group = vim.api.nvim_create_augroup("laze_key_fts", { clear = true })
 
 		-- `User VeryLazy` is emitted unconditionally (lazy.nvim parity), even
 		-- when no spec declares `event = "VeryLazy"`, so user autocmds keyed
@@ -820,56 +837,83 @@ local function build_plan(compiled, opts)
 					end
 				end
 				if #ids > 0 and rhs ~= false then
-					if type(rhs) == "string" and (rhs == "" or rhs:lower() == "<nop>") then
-						-- lazy.nvim: an empty rhs / <nop> is a plain static
-						-- no-op mapping, not a load trigger — never load for it.
-						local opts = {}
-						if entry.desc then
-							opts.desc = entry.desc
+					-- `buf` is nil for a global trigger; `ft` variants install
+					-- a buffer-local map on matching FileType instead
+					-- (lazy.nvim LazyKeysSpec.ft).
+					local function install(buf)
+						local function map_opts(desc)
+							local opts = { desc = desc }
+							if entry.silent ~= nil then
+								opts.silent = entry.silent
+							end
+							if buf then
+								opts.buffer = buf
+							end
+							return opts
 						end
-						if entry.silent ~= nil then
-							opts.silent = entry.silent
+						if type(rhs) == "string" and (rhs == "" or rhs:lower() == "<nop>") then
+							-- lazy.nvim: an empty rhs / <nop> is a plain static
+							-- no-op mapping, not a load trigger — never load for it.
+							local opts = map_opts(entry.desc)
+							vim.keymap.set(mode, lhs, rhs, opts)
+							table.insert(installed_keys, { mode = mode, lhs = lhs, desc = opts.desc, buf = buf })
+						else
+							local opts = map_opts(entry.desc or "laze: load on key")
+							table.insert(installed_keys, { mode = mode, lhs = lhs, desc = opts.desc, buf = buf })
+							vim.keymap.set(mode, lhs, function()
+								-- `cond`/`enabled` were resolved once at plan
+								-- build (lazy.nvim caches them at spec
+								-- processing too), so every id here is active;
+								-- a disabled variant never installed this map.
+								if rhs == nil then
+									-- No rhs: the plugin's own keymap takes over after load.
+									-- Delete the trigger NOW — at this point it is the only
+									-- map for this lhs in this mode (other mode variants
+									-- are separate maps and must stay). Deleting after
+									-- loading would remove the freshly registered plugin
+									-- map too (vim.keymap.del removes every map for the
+									-- lhs in the mode). An ft variant deletes only its
+									-- buffer-local map.
+									if buf then
+										pcall(vim.keymap.del, mode, lhs, { buffer = buf })
+									else
+										pcall(vim.keymap.del, mode, lhs)
+									end
+								end
+								for _, id in ipairs(ids) do
+									load_with_deps(id)
+								end
+								if rhs == nil then
+									-- Replay the key: the plugin's map (registered during
+									-- load) handles it. Insert the replay BEFORE keys already
+									-- queued behind the trigger ('i'): with the default append,
+									-- `gcA` would process `A` first (append at EOL) and then
+									-- insert the replayed `gc` literally instead of firing the
+									-- plugin's longer `gcA` mapping.
+									vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes(lhs, true, false, true), "i", true)
+								elseif type(rhs) == "function" then
+									rhs()
+								else
+									vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes(rhs, true, false, true), "i", true)
+								end
+							end, opts)
 						end
-						vim.keymap.set(mode, lhs, rhs, opts)
-						table.insert(installed_keys, { mode = mode, lhs = lhs, desc = opts.desc })
+					end
+					if entry.ft then
+						-- One FileType autocmd per ft-scoped variant, like
+						-- lazy.nvim: it only installs the buffer-local map in
+						-- buffers of the declared filetype(s). Buffers that
+						-- already have that ft before the plan runs are not
+						-- retrofitted (lazy.nvim does not either).
+						vim.api.nvim_create_autocmd("FileType", {
+							group = key_fts_group,
+							pattern = entry.ft,
+							callback = function(ev)
+								install(ev.buf)
+							end,
+						})
 					else
-						local keymap_opts = { desc = entry.desc or "laze: load on key" }
-						if entry.silent ~= nil then
-							keymap_opts.silent = entry.silent
-						end
-						table.insert(installed_keys, { mode = mode, lhs = lhs, desc = keymap_opts.desc })
-						vim.keymap.set(mode, lhs, function()
-							-- `cond`/`enabled` were resolved once at plan
-							-- build (lazy.nvim caches them at spec
-							-- processing too), so every id here is active;
-							-- a disabled variant never installed this map.
-							if rhs == nil then
-								-- No rhs: the plugin's own keymap takes over after load.
-								-- Delete the trigger NOW — at this point it is the only
-								-- map for this lhs in this mode (other mode variants
-								-- are separate maps and must stay). Deleting after
-								-- loading would remove the freshly registered plugin
-								-- map too (vim.keymap.del removes every map for the
-								-- lhs in the mode).
-								pcall(vim.keymap.del, mode, lhs)
-							end
-							for _, id in ipairs(ids) do
-								load_with_deps(id)
-							end
-							if rhs == nil then
-								-- Replay the key: the plugin's map (registered during
-								-- load) handles it. Insert the replay BEFORE keys already
-								-- queued behind the trigger ('i'): with the default append,
-								-- `gcA` would process `A` first (append at EOL) and then
-								-- insert the replayed `gc` literally instead of firing the
-								-- plugin's longer `gcA` mapping.
-								vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes(lhs, true, false, true), "i", true)
-							elseif type(rhs) == "function" then
-								rhs()
-							else
-								vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes(rhs, true, false, true), "i", true)
-							end
-						end, keymap_opts)
+						install(nil)
 					end
 				end
 			end

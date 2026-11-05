@@ -347,6 +347,8 @@ local keys_cases = {
 	{ { { lhs = "b", rhs = false } }, { { lhs = "b", mode = "n", rhs = false } }, "named false rhs kept" },
 	{ { { "c", "" } }, { { lhs = "c", mode = "n", rhs = "" } }, "empty rhs kept (<nop> mapping)" },
 	{ { { "d", "<nop>" } }, { { lhs = "d", mode = "n", rhs = "<nop>" } }, "<nop> rhs kept" },
+	{ { { "<F6>", ft = "lua" } }, { { lhs = "<F6>", mode = "n", ft = "lua" } }, "ft kept on a key entry" },
+	{ { { "<F6>", ft = { "lua", "vim" } } }, { { lhs = "<F6>", mode = "n", ft = { "lua", "vim" } } }, "ft array kept" },
 	{ { { lhs = "b", mode = "v" } }, { { lhs = "b", mode = "v" } }, "explicit mode kept (default n)" },
 	{ 42, {}, "non-table/string value dropped" },
 }
@@ -763,7 +765,8 @@ local rejection_cases = {
 	{ { "folke/x.nvim", name = "x", keys = { {} } }, "non-empty lhs", "keys entry without lhs rejected" },
 	{ { "folke/x.nvim", name = "x", keys = { { lhs = "" } } }, "non-empty lhs", "empty lhs rejected" },
 	{ { "folke/x.nvim", name = "x", keys = { { lhs = "a", mode = 42 } } }, "mode must be a string or string[]", "numeric mode rejected" },
-	{ { "folke/x.nvim", name = "x", keys = { { lhs = "a", ft = "http" } } }, "keys[1].ft is not supported", "keys ft rejected" },
+	{ { "folke/x.nvim", name = "x", keys = { { lhs = "a", ft = 42 } } }, "must be a string or string[]", "numeric keys ft rejected" },
+	{ { "folke/x.nvim", name = "x", keys = { { lhs = "a", ft = "" } } }, "must not be empty", "empty keys ft rejected" },
 	{ { "folke/x.nvim", name = "x", event = { { event = 42 } } }, "must have event = string", "numeric event in table rejected" },
 	{ { "folke/x.nvim", name = "x", event = { { event = { "A", 42 } } } }, "must have event = string", "non-string in event array rejected" },
 	{ { "folke/x.nvim", name = "x", event = { { event = "BufEnter", pattern = 42 } } }, "pattern must be a string", "numeric pattern rejected" },
@@ -824,6 +827,94 @@ do
 	local c = compile({ { "folke/x.nvim", name = "x", keys = { { "<leader>d", false } } } })
 	expect(c.routes.keys["<leader>d"][1].rhs == false, "rhs = false kept in the key route")
 	expect(c.registry["x"].has_route == true, "rhs = false keys still make the plugin lazy (lazy.nvim parity)")
+end
+
+do
+	-- #9: pin the LazeSpec.keys surface. Every form in the LuaCATS
+	-- annotation (LazeKeySpec / LazeNamedKeySpec / LazeKeySpecBase) must
+	-- compile, and the annotation must not advertise a form the runtime
+	-- rejects (except the documented function-shaped rejection).
+	local c = compile({
+		{
+			"folke/surface.nvim",
+			name = "surface",
+			keys = {
+				"a", -- bare lhs
+				{ "b" }, -- tuple, rhs omitted
+				{ "c", "<cmd>C<CR>" }, -- tuple rhs
+				{ "d", function() end }, -- tuple function rhs
+				{ "e", false }, -- tuple disabled rhs
+				{ lhs = "f" }, -- named, rhs omitted
+				{ lhs = "g", rhs = "<cmd>G<CR>", mode = "i" },
+				{ lhs = "h", rhs = function() end, mode = { "n", "x" } },
+				{ lhs = "i", rhs = "<nop>", desc = "d", silent = true },
+				{ lhs = "j", rhs = "", ft = "lua" },
+				{ lhs = "k", rhs = "<cmd>K<CR>", ft = { "lua", "vim" } },
+			},
+		},
+	})
+	local routes = c.routes.keys
+	local expected = {
+		["a"] = { "n" },
+		["b"] = { "n" },
+		["c"] = { "n" },
+		["d"] = { "n" },
+		["e"] = { "n" },
+		["f"] = { "n" },
+		["g"] = { "i" },
+		["h"] = { "n", "x" },
+		["i"] = { "n" },
+		["j"] = { "n" },
+		["k"] = { "n" },
+	}
+	for lhs, modes in pairs(expected) do
+		local got = {}
+		for _, v in ipairs(routes[lhs] or {}) do
+			table.insert(got, v.mode)
+		end
+		table.sort(got)
+		expect(#got == #modes and table.concat(got, ",") == table.concat(modes, ","), "keys surface: " .. lhs .. " routes " .. table.concat(modes, ","))
+	end
+	expect(routes["e"][1].rhs == false, "keys surface: false rhs preserved")
+	expect(routes["h"][2].mode == "x", "keys surface: mode array expands")
+	expect(routes["j"][1].ft[1] == "lua", "keys surface: ft string normalized")
+	expect(routes["k"][1].ft[2] == "vim", "keys surface: ft array preserved")
+	expect(routes["i"][1].desc == "d" and routes["i"][1].silent == true, "keys surface: desc/silent preserved")
+end
+
+do
+	-- ft is part of lazy.nvim's handler id: a buffer-local declaration and a
+	-- global one for the same lhs/mode are separate variants, and a string ft
+	-- is normalized to an array for the route.
+	local c = compile({
+		{ "foo/global", name = "g", keys = { { "<leader>f", mode = "n" } } },
+		{ "foo/scoped", name = "s", keys = { { "<leader>f", mode = "n", ft = "lua" } } },
+		{ "foo/scoped2", name = "s2", keys = { { "<leader>f", mode = "n", ft = { "lua" } } } },
+	})
+	local variants = c.routes.keys["<leader>f"]
+	expect(#variants == 2, "ft variant and global variant coexist for one lhs/mode")
+	local global, scoped
+	for _, v in ipairs(variants) do
+		if v.ft == nil then
+			global = v
+		else
+			scoped = v
+		end
+	end
+	local function same_list(a, b)
+		if type(a) ~= "table" or #a ~= #b then
+			return false
+		end
+		for i = 1, #b do
+			if a[i] ~= b[i] then
+				return false
+			end
+		end
+		return true
+	end
+	expect(global and same_list(global.ids, { "g" }), "global variant keeps only the global plugin")
+	expect(scoped and same_list(scoped.ft, { "lua" }), "string ft normalized to an array")
+	expect(scoped and same_list(scoped.ids, { "s", "s2" }), "same ft set merges into one variant")
 end
 
 do

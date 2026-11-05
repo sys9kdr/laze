@@ -483,6 +483,85 @@ do
 	pcall(vim.keymap.del, "n", "<F12>")
 end
 
+-- keys ft = "ft": a buffer-local trigger map installed on FileType, no global
+-- map, unrelated buffers untouched; pressing loads the plugin (lazy.nvim
+-- LazyKeysSpec.ft). A static no-op ft map never loads.
+do
+	local ran = {}
+	local compiled = laze.compile({
+		{
+			dir = vim.fn.tempname(),
+			name = "keys-ft-load",
+			keys = { { "<F6>", ft = "laze_keyft", desc = "ft-load", rhs = function() ran.load = true end } },
+			config = function() ran.config = true end,
+		},
+		{
+			dir = vim.fn.tempname(),
+			name = "keys-ft-nop",
+			keys = { { "<F7>", ft = "laze_keyft", "<nop>" } },
+			config = function() ran.nop_config = true end,
+		},
+	})
+	laze.build_plan(compiled)()
+
+	local match = vim.api.nvim_create_buf(true, false)
+	local other = vim.api.nvim_create_buf(true, false)
+	vim.bo[match].filetype = "laze_keyft"
+	vim.bo[other].filetype = "laze_keyft_other"
+
+	local function buf_key(buf, lhs)
+		for _, m in ipairs(vim.api.nvim_buf_get_keymap(buf, "n")) do
+			if m.lhs == lhs then
+				return m
+			end
+		end
+	end
+	local load_map = buf_key(match, "<F6>")
+	local nop_map = buf_key(match, "<F7>")
+	local function global_mapped(lhs)
+		for _, m in ipairs(vim.api.nvim_get_keymap("n")) do
+			if m.lhs == lhs then
+				return true
+			end
+		end
+		return false
+	end
+	local global_absent = not global_mapped("<F6>") and not global_mapped("<F7>")
+	local ok = global_absent -- never global
+		and load_map ~= nil
+		and load_map.callback ~= nil
+		and nop_map ~= nil
+		and nop_map.callback == nil
+		and (nop_map.rhs == "" or nop_map.rhs:lower() == "<nop>")
+		and buf_key(other, "<F6>") == nil
+		and buf_key(other, "<F7>") == nil
+
+	vim.api.nvim_set_current_buf(match)
+	vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<F6><F7>", true, false, true), "x", false)
+	local fired = ran.load == true and ran.config == true
+	local nop_quiet = ran.nop_config == nil
+	-- the nop map stays buffer-local; nothing leaks to the global table
+	local scoped = buf_key(match, "<F7>") ~= nil and not global_mapped("<F6>") and not global_mapped("<F7>")
+
+	if ok and fired and nop_quiet and scoped then
+		print("  ✓ keys: ft installs a buffer-local trigger on FileType and loads; <nop> stays local")
+		passed = passed + 1
+	else
+		print(
+			("  ✗ keys: ft — setup=%s fired=%s nop_quiet=%s scoped=%s ran=%s"):format(
+				tostring(ok),
+				tostring(fired),
+				tostring(nop_quiet),
+				tostring(scoped),
+				vim.inspect(ran)
+			)
+		)
+		failed = failed + 1
+	end
+	pcall(vim.api.nvim_buf_delete, match, { force = true })
+	pcall(vim.api.nvim_buf_delete, other, { force = true })
+end
+
 -- FileType dispatcher is registered for ft routes (single "*" entry),
 -- fires only for the matching filetype, and ignores unrelated ones
 do

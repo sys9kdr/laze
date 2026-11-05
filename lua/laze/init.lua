@@ -2,6 +2,7 @@
 ---@field mode? string|string[]
 ---@field desc? string
 ---@field silent? boolean
+---@field ft? string|string[] Buffer-local map on matching filetypes
 
 ---@class LazeKeySpec: LazeKeySpecBase
 ---@field [1] string lhs
@@ -71,6 +72,7 @@
 ---@field rhs? string|fun()|false `false` disables the mapping (no trigger, no load)
 ---@field desc? string
 ---@field silent? boolean
+---@field ft? string[] Buffer-local trigger installed on matching FileType
 
 ---@class LazeRoutes
 ---@field events table<string, {ids: string[], pattern?: string}[]> One pattern variant per distinct (event, pattern) pair
