@@ -43,7 +43,9 @@ unsupported `keys` entry options are dropped; see
 [docs/migration.md](docs/migration.md). Extensions are outside the subset and
 use non-colliding names. Known differences are indexed in
 [docs/known-differences.md](docs/known-differences.md) with stable IDs and
-test references.
+test references. Differences tagged `compile` emit one warning per compile
+naming the KD id; pass `{ known_differences = false }` to `compile`/`setup`
+to silence them.
 
 Notable gaps: no `:Lazy` UI or install/sync surface (only the opt-in `:Laze`
 wrappers); `import`, `specs`, `optional`, `submodules`, and `lazy` are not
@@ -134,7 +136,10 @@ Supported fields:
   `^`/`~`/`>`/`>=`/`<`/`<=`/`=`, `x` wildcards, hyphen ranges, and
   prerelease/build. Multi-range (`||`) and whitespace-separated comparator
   sets are rejected; the only whitespace allowed inside a range is the
-  ` - ` hyphen separator.
+  ` - ` hyphen separator. Prerelease parity with lazy.nvim: a candidate
+  matches only when its prerelease equals the lower bound's prerelease, so
+  `>1.2.3` excludes `1.2.4-alpha` and `1.2.3-alpha` matches only that
+  prerelease.
 * `branch` / `tag` / `commit` — git refs, lowered to vim.pack's version string
   (lazy.nvim precedence: `commit > tag > version > branch`; `version = false`
   skips the range and falls back to `branch` / the default branch)

@@ -95,7 +95,7 @@ local M = {}
 local last_setup = nil
 
 ---@param specs LazeSpec[]
----@param opts? { dev_root?: string }
+---@param opts? { dev_root?: string, known_differences?: boolean }
 ---@return LazeCompiled
 function M.compile(specs, opts)
 	return _compile.compile(specs, opts)
@@ -109,7 +109,7 @@ function M.build_plan(compiled, opts)
 end
 
 ---@param specs LazeSpec[]
----@param opts? { dev_root?: string, on_load?: fun(id: string, time_ms: number), on_fail?: fun(id: string, err: string) }
+---@param opts? { dev_root?: string, known_differences?: boolean, on_load?: fun(id: string, time_ms: number), on_fail?: fun(id: string, err: string) }
 ---@return LazeCompiled
 function M.setup(specs, opts)
 	opts = opts or {}

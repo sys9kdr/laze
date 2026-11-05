@@ -1,3 +1,5 @@
+local known_differences = require("laze.known_differences")
+
 local TRIGGER_FIELDS = { "event", "ft", "cmd", "keys" }
 local ARRAY_TRIGGER_FIELDS = { "ft", "cmd" }
 local SOURCE_FIELDS = { "dir", "url", "name" }
@@ -366,6 +368,49 @@ local function looks_like_semver_range(v)
 	return is_range_operand(v, true)
 end
 
+--- lazy.nvim's SemverRange:matches requires the candidate's prerelease to
+--- equal the lower bound's prerelease (`version.prerelease ~=
+--- self.from.prerelease` -> false). `vim.version.range` does not apply that
+--- filter, so a `>1.2.3` range would otherwise include `1.2.4-alpha`.
+--- Extract the lower bound's prerelease from the input spec (comparator and
+--- hyphen form) and wrap only `has`: the range check itself stays Neovim's.
+---@param spec string
+---@param range vim.VersionRange
+---@return vim.VersionRange
+local function with_lower_prerelease(spec, range)
+	local lower = spec
+	local hyphen = spec:find(" - ", 1, true)
+	if hyphen then
+		lower = spec:sub(1, hyphen - 1)
+	end
+	local version = lower:lower():match("^[%^=<>~]*(.*)$") or ""
+	version = version:gsub("%.[%*x]", "")
+	local ok, parsed = pcall(vim.version.parse, version)
+	local want = ok and parsed and parsed.prerelease or nil
+
+	local wrapper = { from = range.from, to = range.to }
+	wrapper.has = function(_, candidate)
+		local version_obj = candidate
+		if type(candidate) == "string" then
+			local parsed_ok, parsed_obj = pcall(vim.version.parse, (candidate:gsub("^v", "")))
+			if not parsed_ok or not parsed_obj then
+				return false
+			end
+			version_obj = parsed_obj
+		end
+		if (version_obj.prerelease or nil) ~= want then
+			return false
+		end
+		return range:has(version_obj)
+	end
+	return setmetatable(wrapper, {
+		__index = range,
+		__tostring = function()
+			return tostring(range)
+		end,
+	})
+end
+
 ---@param v string
 ---@param idx? integer
 ---@param spec_id? string
@@ -389,7 +434,11 @@ local function to_semver_range(v, idx, spec_id)
 	if not ok or range == nil then
 		error(prefix .. ("version %q is not a valid semver range"):format(v), 0)
 	end
-	return range
+	-- Non-Neovim test stub: keep the value opaque.
+	if type(range) ~= "table" or type(range.has) ~= "function" then
+		return range
+	end
+	return with_lower_prerelease(v, range)
 end
 
 --- Resolve lazy.nvim version spec to a vim.pack-compatible version value.
@@ -588,13 +637,51 @@ local UNSUPPORTED_FIELDS = {
 	specs = "no equivalent; inline your specs instead",
 }
 
-local function warn_unsupported(spec, idx, spec_id, warned)
+local KEY_OPTION_FIELDS = {
+	lhs = true,
+	rhs = true,
+	mode = true,
+	desc = true,
+	silent = true,
+	ft = true,
+}
+
+--- Options accepted by a keys entry but dropped by laze (KD-016). Returns
+--- the sorted option names shared with the route, or nil.
+local function dropped_key_options(keys)
+	local dropped
+	if type(keys) ~= "table" then
+		return nil
+	end
+	for _, item in ipairs(keys) do
+		if type(item) == "table" then
+			for field in pairs(item) do
+				if type(field) == "string" and not KEY_OPTION_FIELDS[field] then
+					dropped = dropped or {}
+					dropped[field] = true
+				end
+			end
+		end
+	end
+	if not dropped then
+		return nil
+	end
+	local names = {}
+	for field in pairs(dropped) do
+		table.insert(names, field)
+	end
+	table.sort(names)
+	return names
+end
+
+local function warn_unsupported(spec, idx, spec_id, warned, notify)
 	for field, reason in pairs(UNSUPPORTED_FIELDS) do
 		if spec[field] ~= nil and not warned[field] then
 			warned[field] = true
-			vim.notify(
-				("laze: spec [%d] (%s): '%s' is not supported by laze (%s)"):format(idx, spec_id, field, reason),
-				vim.log.levels.WARN
+			notify(
+				"KD-020",
+				("spec [%d] (%s): '%s' is not supported by laze (%s)"):format(idx, spec_id, field, reason),
+				"KD-020:" .. field
 			)
 		end
 	end
@@ -731,8 +818,9 @@ end
 ---@param spec LazeSpec
 ---@param idx integer
 ---@param warned table<string, boolean>
+---@param notify fun(id: string, detail: string)
 ---@return vim.VersionRange|nil
-local function validate_spec(spec, idx, warned)
+local function validate_spec(spec, idx, warned, notify)
 	local src = spec[1] or spec.src
 	if not src and not spec.dir and not spec.url then
 		error("spec [" .. idx .. "]: missing source — use [1], .src, .dir, or .url", 0)
@@ -748,7 +836,15 @@ local function validate_spec(spec, idx, warned)
 
 	local spec_id = tostring(src or spec.dir or spec.url)
 
-	warn_unsupported(spec, idx, spec_id, warned)
+	warn_unsupported(spec, idx, spec_id, warned, notify)
+
+	local dropped = dropped_key_options(spec.keys)
+	if dropped then
+		notify(
+			"KD-016",
+			("spec [%d] (%s): keys option(s) %s are dropped"):format(idx, spec_id, table.concat(dropped, ", "))
+		)
+	end
 
 	if spec.dev == "" then
 		vim.notify("laze: spec [" .. idx .. "] (" .. spec_id .. ") has dev='' — ignored", vim.log.levels.WARN)
@@ -765,6 +861,16 @@ local function validate_spec(spec, idx, warned)
 					.. "] ("
 					.. spec_id
 					.. "): config = true is not supported — use opts = {...} with main, or config = function() require(...).setup() end",
+				0
+			)
+		end
+		if type(spec.config) == "table" then
+			error(
+				"spec ["
+					.. idx
+					.. "] ("
+					.. spec_id
+					.. "): config = { ... } (lazy.nvim's deprecated opts alias) is not supported — use main = \"...\" with opts = {...}, or config = function() ... end",
 				0
 			)
 		end
@@ -980,6 +1086,12 @@ function compile(specs, opts)
 	local expanded = {}
 	local expanded_names = {}
 	local expanded_srcs = {}
+	-- Known-difference messages are deduped per compile (issue #12). The
+	-- closure is shared by dependency expansion and spec validation.
+	local kd_notified = {}
+	local function notify_kd(id, detail, key)
+		known_differences.notify(id, detail, kd_notified, opts, key)
+	end
 	-- Dependency-derived `after` names live in a side table, NOT on the
 	-- user's spec tables: compile is a pure transform and must not mutate
 	-- its input (the same spec table passed to lazy.nvim afterwards would
@@ -1019,11 +1131,11 @@ function compile(specs, opts)
 					-- Dependencies of dependencies are not expanded
 					-- (documented as shallow) — warn so the silent drop is
 					-- not a surprise (lazy.nvim expands them).
-					vim.notify(
-						("laze: dependency %q (inline spec) has its own `dependencies` field — nested dependencies are not expanded; move it to the top-level spec list"):format(
+					notify_kd(
+						"KD-021",
+						("dependency %q (inline spec) has its own `dependencies` field — nested dependencies are not expanded; move it to the top-level spec list"):format(
 							dep_name
-						),
-						vim.log.levels.WARN
+						)
 					)
 				end
 				-- Prefer an existing top-level spec by name, then by resolved
@@ -1075,7 +1187,7 @@ function compile(specs, opts)
 	local warned = {}
 
 	for idx, spec in ipairs(expanded) do
-		local version_range = validate_spec(spec, idx, warned)
+		local version_range = validate_spec(spec, idx, warned, notify_kd)
 
 		local src = spec[1] or spec.src
 		local dir = spec.dir

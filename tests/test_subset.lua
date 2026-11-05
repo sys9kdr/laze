@@ -403,6 +403,9 @@ if not doc_fh then
 else
 	local doc = doc_fh:read("*a")
 	doc_fh:close()
+	-- Resolved IDs stay documented for history but are no longer active, so
+	-- they are not part of the active-registry sync check.
+	doc = doc:gsub("## Resolved differences.*$", "")
 	local doc_ids = {}
 	for id in doc:gmatch("KD%-%d%d%d") do
 		doc_ids[id] = true
@@ -431,6 +434,34 @@ else
 		pass("known differences: docs and registry IDs are in sync")
 	else
 		fail("known differences docs and registry IDs are in sync", table.concat(doc_errors, "; "))
+	end
+end
+
+-- Issue #12: runtime compile-time notifications must be a subset of the
+-- active registry, and exactly the entries whose policy is `compile`.
+do
+	local runtime = require("laze.known_differences")
+	local runtime_ids = {}
+	local sync_errors = {}
+	for id in pairs(runtime.entries) do
+		runtime_ids[id] = true
+		if not kd_seen[id] then
+			table.insert(sync_errors, id .. " not in the registry")
+		end
+	end
+	for _, kd in ipairs(known) do
+		if kd.notify == "compile" then
+			if not runtime_ids[kd.id] then
+				table.insert(sync_errors, kd.id .. " missing from lua/laze/known_differences.lua")
+			end
+		elseif runtime_ids[kd.id] then
+			table.insert(sync_errors, kd.id .. " is notify=never but has a runtime message")
+		end
+	end
+	if #sync_errors == 0 then
+		pass("known differences: compile notifications match the registry")
+	else
+		fail("known differences compile notifications match the registry", table.concat(sync_errors, "; "))
 	end
 end
 

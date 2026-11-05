@@ -30,11 +30,16 @@ and the message-policy design in issue
 
 * `never` — docs-only. Warning on every use would be noise (for example, an
   `encoding` difference in every version spec).
-* `compile` — the difference should be surfaced at compile time. Some entries
-  already warn (`KD-020`, `KD-021`); `KD-016` is the first planned addition.
+* `compile` — surfaced at compile time with a `vim.notify` WARN that names
+  the KD id and this file. Messages are deduped per compile, so many specs
+  sharing one difference cost one notification. Opt out with
+  `compile(specs, { known_differences = false })` (or the same option to
+  `setup`). The runtime table is
+  [`lua/laze/known_differences.lua`](../lua/laze/known_differences.lua);
+  `tests/test_subset.lua` keeps it in sync with the registry below.
 
-The registry is metadata, not runtime behavior. It does not read this file or
-the test fixture at runtime.
+The registry is metadata, not runtime behavior: the runtime table lists only
+the IDs it needs, and `docs/known-differences.md` remains canonical.
 
 ## Active registry
 
@@ -45,7 +50,6 @@ registry and note the removal without reassigning the ID.
 | ID | Area | Class | Notify | lazy.nvim | laze | Why | Test |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | KD-001 | version | delegated | never | No tag matches the range: falls back to the default branch. | No tag matches: `vim.pack` errors. Use `branch`/`tag`/`commit` for repos without semver tags. | `vim.pack` owns tag resolution; laze does not run a second resolver. | docs-only |
-| KD-002 | version | encoding | never | `>1.2.3` starts at 1.2.4 and excludes `1.2.4-alpha`. | `vim.version.range('>1.2.3')` starts at `1.2.4-0` and includes `1.2.4-alpha`. | Neovim's `vim.version.range` owns the comparison; laze does not reimplement semver. | `tests/run.lua` |
 | KD-003 | version | encoding | never | `1.2.3` is encoded as `[1.2.3, 1.2.4)`. | `vim.version.range('1.2.3')` is encoded as `[1.2.3, 1.2.3]`; stable-tag membership is the same. | The IR uses Neovim's `VersionRange`; exact versions stay exact. | `tests/run.lua` |
 | KD-004 | version | safe-direction | never | Ignores `version` for `dir` plugins. | Validates the range for `dir` plugins but does not lower it (there is no pack entry). | A malformed range should fail loudly even when there is no pack entry. | `tests/test_compile.lua` |
 | KD-005 | version | safe-direction | never | Does not define compound ranges; `vim.version.range` would parse only the first range or misparse a ref. | Rejects multi-ranges, whitespace-separated comparator sets, and git refs in `version`. | Silently narrowing a range would select the wrong tag; failing loudly is safe. | `tests/test_subset.lua` |
@@ -63,6 +67,14 @@ registry and note the removal without reassigning the ID.
 | KD-021 | dependencies | silent-drop | compile | Supports nested dependency specs and their dependencies. | Warns when an inline dependency has its own `dependencies`; only the first level is registered. | laze does not implement a recursive dependency solver; dependencies load via their parents. | `tests/test_compile.lua` |
 | KD-022 | spec | safe-direction | never | Merges fragments for the same plugin (opts/config/dependencies/triggers) into one spec. | Rejects duplicate ids with a compile error. | Merging fragments changes config/opts precedence and trigger composition; laze keeps compile deterministic and fails loudly instead of silently dropping a fragment. | `tests/test_compile.lua` |
 | KD-023 | keys | silent-drop | never | Treats notation aliases as one handler id (`nvim_replace_termcodes`); `<C-h>` and `<c-H>` share a trigger and every declaring plugin loads. | Routes keys by the raw `lhs`; two spellings create two trigger maps, and Neovim's keymap table lets the later `vim.keymap.set` replace the earlier one. | Normalizing would add a termcode pass and change route keys; laze keeps the raw lhs and documents the alias edge case. | `tests/test_compile.lua` |
+| KD-024 | setup | safe-direction | never | Accepts `config = { ... }` as a deprecated alias for `opts` (merged across fragments). | Compile error; use `main = "..."` with `opts = { ... }`, or a `config` function. | The table form is deprecated upstream and laze has an explicit `opts` path; failing loudly avoids a silent no-op. | `tests/test_compile.lua` |
+| KD-025 | dependencies | delegated | never | Normalizes sources through `url_format`, so `https://github.com/foo/baz.git` and `foo/baz` are the same plugin. | Source matching is verbatim; `.git` and bare spellings are different keys, so the dependency registers a second spec (3 pack entries instead of 2). | Use the same URL spelling or give the dependency the explicit `name`; normalizing sources is a resolver concern laze does not own. | `tests/test_compile.lua` |
+
+## Resolved differences
+
+| ID | Area | Class | Resolved in | Note |
+| --- | --- | --- | --- | --- |
+| KD-002 | version | encoding | laze 0.x (`with_lower_prerelease`) | Prerelease boundary now matches lazy.nvim: the lowered range wraps `has` and requires the candidate's prerelease to equal the lower bound's prerelease. The ID is retired (not reused). |
 
 ## Adding an entry
 

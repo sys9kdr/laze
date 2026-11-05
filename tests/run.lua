@@ -258,17 +258,29 @@ do
 		end
 	end
 
-	-- Known difference, pinned intentionally: vim.version.range(">1.2.3")
-	-- starts at 1.2.4-0, so it includes 1.2.4-alpha. lazy.nvim starts at
-	-- 1.2.4 and excludes prereleases of the lower bound.
+	-- lazy.nvim parity: the lower bound's prerelease gates membership, so a
+	-- stable lower bound never accepts a prerelease of the next version.
 	local gt = compile_one({ "user/gt", name = "gt", version = ">1.2.3" }, "greater-than prerelease boundary")
 	if gt then
 		local v = gt.version
-		if type(v) == "table" and v:has("1.2.4-alpha") and not v:has("1.2.3") then
-			print("  ✓ known difference: >1.2.3 includes 1.2.4-alpha (vim.version.range)")
+		if type(v) == "table" and not v:has("1.2.4-alpha") and v:has("1.2.4") and not v:has("1.2.3") then
+			print("  ✓ version: >1.2.3 excludes 1.2.4-alpha (lazy.nvim prerelease filter)")
 			passed = passed + 1
 		else
 			print(("  ✗ greater-than prerelease boundary: got %s (%s)"):format(tostring(v), type(v)))
+			failed = failed + 1
+		end
+	end
+
+	-- a prerelease lower bound only matches its own prerelease
+	local pre = compile_one({ "user/pre", name = "pre", version = "1.2.3-alpha" }, "prerelease lower bound")
+	if pre then
+		local v = pre.version
+		if type(v) == "table" and v:has("1.2.3-alpha") and not v:has("1.2.3-alpha.1") and not v:has("1.2.3") then
+			print("  ✓ version: prerelease lower bound matches only that prerelease")
+			passed = passed + 1
+		else
+			print(("  ✗ prerelease lower bound: got %s (%s)"):format(tostring(v), type(v)))
 			failed = failed + 1
 		end
 	end
@@ -2847,6 +2859,75 @@ do
 		passed = passed + 1
 	else
 		print(("  ✗ unsupported fields: expected 2 warnings, got %d"):format(#msgs))
+		failed = failed + 1
+	end
+end
+
+-- known-difference notifications (issue #12): compile-time messages carry
+-- the stable KD id and the docs path, dedupe per compile, and can be
+-- opted out with compile(specs, { known_differences = false }).
+do
+	local function capture(fn)
+		local msgs = {}
+		local orig_notify = vim.notify
+		vim.notify = function(msg, _)
+			table.insert(msgs, msg)
+		end
+		local ok, err = pcall(fn)
+		vim.notify = orig_notify
+		return msgs, ok, err
+	end
+
+	local msgs = capture(function()
+		laze.compile({
+			{ "test/kd16a", keys = { { "<F5>", noremap = false, nowait = true } } },
+			{ "test/kd16b", keys = { { "<F6>", expr = true } } },
+		})
+	end)
+	local kd16 = 0
+	for _, m in ipairs(msgs) do
+		if m:find("KD-016", 1, true) and m:find("docs/known-differences.md", 1, true) then
+			kd16 = kd16 + 1
+		end
+	end
+	if kd16 == 1 then
+		print("  ✓ known differences: KD-016 warns once per compile with the docs path")
+		passed = passed + 1
+	else
+		print(("  ✗ known differences: expected one KD-016 warning, got %d of %d"):format(kd16, #msgs))
+		failed = failed + 1
+	end
+
+	msgs = capture(function()
+		laze.compile({
+			{ "test/kd20", lazy = true },
+			{ "test/kd21", dependencies = { { "test/kd21-dep", dependencies = { "grand" } } } },
+		})
+	end)
+	local ids = {}
+	for _, m in ipairs(msgs) do
+		for id in m:gmatch("KD%-%d%d%d") do
+			ids[id] = true
+		end
+	end
+	if ids["KD-020"] and ids["KD-021"] then
+		print("  ✓ known differences: KD-020 and KD-021 messages are tagged")
+		passed = passed + 1
+	else
+		print(("  ✗ known differences: missing KD-020/KD-021 tags in %s"):format(table.concat(msgs, " | ")))
+		failed = failed + 1
+	end
+
+	msgs = capture(function()
+		laze.compile({
+			{ "test/kd-off", lazy = true, keys = { { "<F7>", expr = true } } },
+		}, { known_differences = false })
+	end)
+	if #msgs == 0 then
+		print("  ✓ known differences: known_differences = false silences them")
+		passed = passed + 1
+	else
+		print(("  ✗ known differences: opt-out produced %d warnings"):format(#msgs))
 		failed = failed + 1
 	end
 end

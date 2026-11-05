@@ -694,6 +694,27 @@ do
 end
 
 do
+	-- KD-025: dependency source matching is verbatim. A top-level `.git` URL
+	-- and a dependency short name resolve to different keys, so the renamed
+	-- spec is registered a second time. lazy.nvim normalizes both through
+	-- url_format. Workaround: use the same spelling or an explicit name.
+	local c = compile({
+		{ url = "https://github.com/foo/baz.git", name = "bar" },
+		{ "foo/fee", dependencies = { "foo/baz" } },
+	})
+	expect(c.registry["bar"] ~= nil, "URL .git: renamed top-level spec registered")
+	expect(c.registry["baz"] ~= nil, "URL .git: dependency short name registers a second spec (KD-025)")
+	expect(#c.pack == 3, "URL .git: duplicate pack entry pinned (KD-025)")
+
+	local explicit = compile({
+		{ url = "https://github.com/foo/baz.git", name = "bar" },
+		{ "foo/fee", dependencies = { "bar" } },
+	})
+	expect(explicit.registry["fee"].after[1] == "bar", "URL .git: explicit name is the workaround")
+	expect(#explicit.pack == 2, "URL .git: explicit name avoids the duplicate")
+end
+
+do
 	-- Exact lazy.nvim dependency fixture: a bare string top-level spec and a
 	-- short dependency name that resolves to it.
 	local c = compile({
@@ -772,6 +793,11 @@ local rejection_cases = {
 	{ { "folke/x.nvim", name = "x", event = { { event = "BufEnter", pattern = 42 } } }, "pattern must be a string", "numeric pattern rejected" },
 	{ { "folke/x.nvim", name = "x", event = { "ok", {} } }, "event[2] must have event = string", "bare table in event rejected" },
 	{ { "folke/x.nvim", name = "x", config = true }, "config = true is not supported", "config=true rejected" },
+	{
+		{ "folke/x.nvim", name = "x", config = { foo = 1 } },
+		"config = { ... } (lazy.nvim's deprecated opts alias) is not supported",
+		"table config rejected (KD-024)",
+	},
 	{ { "folke/x.nvim", name = "x", config = 42 }, "config must be a function", "non-function config rejected" },
 	{ { "folke/x.nvim", name = "x", init = 42 }, "init must be a function", "non-function init rejected" },
 	{ { "folke/x.nvim", name = "x", cond = "yes" }, "cond must be a function or boolean", "string cond rejected" },
