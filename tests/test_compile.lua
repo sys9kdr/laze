@@ -1,5 +1,6 @@
 --- test_compile.lua — Standalone compile tests for laze (no Neovim required)
 --- Run: luajit tests/test_compile.lua
+-- luacheck: globals vim
 
 package.path = string.format("./lua/?.lua;%s", package.path)
 
@@ -1154,6 +1155,8 @@ do
 	expect(c.registry["parent"].is_dep == false and c.registry["dep"].is_dep == true, "dep marked is_dep")
 	local c2 = compile(specs)
 	expect(c2.registry["parent"].after[1] == "dep" and specs[1].after == nil, "re-compile deterministic and still pure")
+	local same, same_err = pcall(deep_compare, c2, c)
+	expect(same, "re-compile produces a structurally identical IR — " .. tostring(same_err))
 end
 
 do

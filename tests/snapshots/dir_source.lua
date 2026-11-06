@@ -1,4 +1,4 @@
-local FN = require("tests.fixtures._sentinel").FN
+local FN = require("tests.fixtures._sentinel").FN -- luacheck: ignore FN
 
 return {
 	pack = {

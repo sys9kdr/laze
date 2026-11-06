@@ -233,10 +233,10 @@ local function build_plan(compiled, opts)
 	-- used when a startup `require()` needs a configured plugin right away.
 	-- The hooks run at most once; the VimEnter finalizer then only marks the
 	-- plugin loaded.
-	local function run_hooks(id, entry, start, opts)
+	local function run_hooks(id, entry, start, hook_opts)
 		local pending = startup_pending[id]
 		if pending and pending.hooks_ran then
-			if not (opts and opts.partial) then
+			if not (hook_opts and hook_opts.partial) then
 				loaded[id] = true
 				if on_load and start then on_load(id, (vim.uv.hrtime() - start) / 1e6) end
 			end
@@ -407,8 +407,8 @@ local function build_plan(compiled, opts)
 
 		-- Fast path: no `after` deps means no graph walk — the DFS below
 		-- would allocate stack/cursor tables only to pop once.
-		local entry = registry[id]
-		if not (entry and entry.after and entry.after[1]) then
+		local root_entry = registry[id]
+		if not (root_entry and root_entry.after and root_entry.after[1]) then
 			load_plugin(id)
 			return
 		end
@@ -565,8 +565,6 @@ local function build_plan(compiled, opts)
 
 	local init_ran = false
 	return function()
-		local verylazy_ids
-
 		-- lazy.nvim parity: `init` runs once at startup for every enabled
 		-- plugin whose `cond` passes, before any plugin loads, and receives
 		-- the plugin table. lazy.nvim's own init order is unspecified
@@ -842,24 +840,24 @@ local function build_plan(compiled, opts)
 					-- (lazy.nvim LazyKeysSpec.ft).
 					local function install(buf)
 						local function map_opts(desc)
-							local opts = { desc = desc }
+							local map_options = { desc = desc }
 							if entry.silent ~= nil then
-								opts.silent = entry.silent
+								map_options.silent = entry.silent
 							end
 							if buf then
-								opts.buffer = buf
+								map_options.buffer = buf
 							end
-							return opts
+							return map_options
 						end
 						if type(rhs) == "string" and (rhs == "" or rhs:lower() == "<nop>") then
 							-- lazy.nvim: an empty rhs / <nop> is a plain static
 							-- no-op mapping, not a load trigger — never load for it.
-							local opts = map_opts(entry.desc)
-							vim.keymap.set(mode, lhs, rhs, opts)
-							table.insert(installed_keys, { mode = mode, lhs = lhs, desc = opts.desc, buf = buf })
+							local key_opts = map_opts(entry.desc)
+							vim.keymap.set(mode, lhs, rhs, key_opts)
+							table.insert(installed_keys, { mode = mode, lhs = lhs, desc = key_opts.desc, buf = buf })
 						else
-							local opts = map_opts(entry.desc or "laze: load on key")
-							table.insert(installed_keys, { mode = mode, lhs = lhs, desc = opts.desc, buf = buf })
+							local key_opts = map_opts(entry.desc or "laze: load on key")
+							table.insert(installed_keys, { mode = mode, lhs = lhs, desc = key_opts.desc, buf = buf })
 							vim.keymap.set(mode, lhs, function()
 								-- `cond`/`enabled` were resolved once at plan
 								-- build (lazy.nvim caches them at spec
@@ -896,7 +894,7 @@ local function build_plan(compiled, opts)
 								else
 									vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes(rhs, true, false, true), "i", true)
 								end
-							end, opts)
+							end, key_opts)
 						end
 					end
 					if entry.ft then

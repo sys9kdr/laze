@@ -6,6 +6,7 @@
 --- property as data: every field name laze consumes must be a documented
 --- lazy.nvim spec field, or an explicitly justified exception. It also pins
 --- value-level version semantics (semver range vs git ref, precedence).
+-- luacheck: globals vim
 
 package.path = string.format("./lua/?.lua;%s", package.path)
 

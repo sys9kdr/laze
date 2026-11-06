@@ -66,9 +66,9 @@ for _, scale in ipairs({ 10, 50, 100, 200, 500 }) do
 	for i = 1, scale do
 		table.insert(big, { ("u/p-%d"):format(i), cmd = ("C%d"):format(i) })
 	end
-	local t0 = uv.hrtime()
+	local t_scale = uv.hrtime()
 	laze.compile(big)
-	print(("compile %3d specs: %6.0f μs  (%5.2f μs/spec)"):format(scale, elapsed_us(t0), elapsed_us(t0) / scale))
+	print(("compile %3d specs: %6.0f μs  (%5.2f μs/spec)"):format(scale, elapsed_us(t_scale), elapsed_us(t_scale) / scale))
 end
 
 print("\n=== scale: plan (triggers only) ===\n")
@@ -91,13 +91,13 @@ for _, scale in ipairs({ 10, 50, 100, 200 }) do
 		entry.enabled = false
 	end
 	local p = laze.build_plan(c)
-	local t0 = uv.hrtime()
+	local t_plan = uv.hrtime()
 	p()
 	print(
 		("plan %3d triggers (×4 types): %6.0f μs  (%5.2f μs/trigger)"):format(
 			scale,
-			elapsed_us(t0),
-			elapsed_us(t0) / (scale * 4)
+			elapsed_us(t_plan),
+			elapsed_us(t_plan) / (scale * 4)
 		)
 	)
 end
@@ -121,12 +121,12 @@ end
 
 local best, acc = math.huge, 0
 for _ = 1, 3 do
-	local t0 = uv.hrtime()
+	local t_names = uv.hrtime()
 	acc = 0
 	for i = 1, #srcs do
 		acc = acc + #compile_mod.pkg_name(srcs[i]) + #compile_mod.derive_name(srcs[i])
 	end
-	best = math.min(best, elapsed_us(t0))
+	best = math.min(best, elapsed_us(t_names))
 end
 print(("derive_name+pkg_name x%d: %6.0f μs best-of-3 (%.3f μs/pair, acc=%d)"):format(#srcs, best, best / #srcs, acc))
 

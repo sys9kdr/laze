@@ -5,6 +5,7 @@
 --- Regenerate with: nvim --cmd "set rtp+=." -l tests/update_snapshots.lua
 --- `fast` skips the spawned-session blocks (startup phases, build,
 --- pkg-name parity) so the common loop stays in one nvim instance.
+-- luacheck: globals vim
 local laze = require("laze")
 local FN = require("tests.fixtures._sentinel").FN
 
@@ -1502,7 +1503,7 @@ if is_filtered("perf") or next(filter) == nil then
 		local compiled = laze.compile(specs)
 
 		local start_ms = vim.uv.hrtime() / 1e6
-		local plan_fn = laze.build_plan(compiled)
+		local _ = laze.build_plan(compiled)
 		local elapsed_ms = vim.uv.hrtime() / 1e6 - start_ms
 
 		if elapsed_ms < 50 then
@@ -2090,8 +2091,8 @@ if not fast_only then
 		return vim.fn.readdir(path)
 	end
 
-	local opt_laze = run_install("laze")
-	local opt_vpack = run_install("vpack")
+	run_install("laze")
+	run_install("vpack")
 
 	local pkgs = read_list(root .. "/pkg-laze.txt", "laze predicted-pkg")
 	local disk_laze = read_dir(root .. "/laze-data/nvim/site/pack/core/opt", "laze disk")

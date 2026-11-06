@@ -121,7 +121,7 @@ function M.setup(specs, opts)
 	-- fires synchronously inside add() for a fresh install, so a late
 	-- subscription would silently skip every first build.
 	local builds = {}
-	for id, entry in pairs(compiled.registry) do
+	for _, entry in pairs(compiled.registry) do
 		if entry.build and entry.pkg then
 			-- Key by the PACK name (entry.pkg): PackChanged delivers
 			-- data.spec.name, which is the pack entry name — identical to

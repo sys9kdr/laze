@@ -35,7 +35,7 @@ print(string.format("Time: %.2f ms", t1))
 
 print("\n=== laze.nvim Warm Start (3 runs) ===")
 local times = {}
-for i = 1, 3 do
+for _ = 1, 3 do
 	package.loaded["laze"] = nil
 	table.insert(times, time_it(run_laze))
 end

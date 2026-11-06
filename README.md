@@ -240,6 +240,21 @@ laze.build_plan(compiled, {
 -- later: for _, t in ipairs(timings) do print(("%6.2f  %s"):format(t.time_ms, t.id)) end
 ```
 
+## Development
+
+Run the packaged test suites and the pinned linter from the repository root:
+
+```sh
+nvim --cmd "set rtp+=." -l tests/run.lua        # integration (+ perf)
+luajit tests/test_compile.lua                   # unit
+luajit tests/test_subset.lua                    # spec-surface conformance
+luacheck lua tests                              # static lint (1.2.0)
+```
+
+Install the linter with `sudo luarocks install luacheck 1.2.0-1` (or your
+distribution's package). CI pins the same version; no Rust toolchain is
+required. `tests/vendor/` is excluded from linting.
+
 ## Further reading
 
 * [Design: output model, activation invariant, philosophy](docs/design.md)

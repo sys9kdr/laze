@@ -1049,7 +1049,7 @@ end
 ---@param specs LazeSpec[]|string|LazeSpec
 ---@param opts? { dev_root?: string }
 ---@return LazeCompiled
-function compile(specs, opts)
+local function compile(specs, opts)
 	if specs == nil then
 		error("compile: expected a non-empty array of specs", 0)
 	end
@@ -1257,13 +1257,13 @@ function compile(specs, opts)
 			-- captures only main/opts, so re-compiles are deterministic.
 			local config = spec.config
 			if config == nil and spec.opts ~= nil then
-				local main, opts = spec.main, spec.opts
+				local main, setup_opts = spec.main, spec.opts
 				config = function()
 					local mod = require(main)
 					if type(mod.setup) ~= "function" then
 						error(("module %q has no setup function"):format(main), 0)
 					end
-					mod.setup(opts)
+					mod.setup(setup_opts)
 				end
 			end
 
