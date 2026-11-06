@@ -1,22 +1,35 @@
 # Opt-in extras
 
 The core ships no commands and no runtime machinery. Everything beyond
-compile → plan → setup lives as an **optional module** in `lua/laze/`
-(it is never required by the core — load cost is zero unless you
+compile → plan → setup lives in the **optional** `lua/laze/extras/`
+directory (it is never required by the core — load cost is zero unless you
 `require` it).
 
-## `laze.extra` — maintenance commands
+## `laze.extras` — maintenance commands
 
-Explicit setup only — requiring the module registers nothing:
+The canonical entry point re-exports the maintenance functions and
+registers commands only on explicit `setup()`:
 
 ```lua
-require("laze.extra").setup()
+require("laze.extras").setup()
 ```
+
+The module is split so you can load only what you need:
+
+| Module | Contents |
+| --- | --- |
+| `laze.extras` | `update`, `clean`, `health`, `reload`, `setup` (the convenience API) |
+| `laze.extras.maintenance` | the four functions, no command registration |
+| `laze.extras.commands` | `setup(api)` command wiring, no side effects on require |
+
+The pre-split `laze.extra` path still resolves to `laze.extras` through a
+small compatibility shim (`lua/laze/extra.lua`); new configs should use the
+plural path.
 
 One command with subcommands (lazy.nvim-style, tab-completed):
 
 | Subcommand     | Effect                                                      |
-| -------------- | ----------------------------------------------------------- |
+| --- | --- |
 | `:Laze update` | `vim.pack.update()` for managed plugins                     |
 | `:Laze clean`  | list managed plugins missing from the last setup (dry-run)  |
 | `:Laze clean!` | delete them via `vim.pack.del`                              |
@@ -31,9 +44,10 @@ Prefer your own names? The commands are thin wrappers over public
 functions — wire them yourself instead of calling `setup()`:
 
 ```lua
-local extra = require("laze.extra")
+local extra = require("laze.extras")
 -- extra.update() / extra.clean(true) / extra.health() / extra.reload()
 vim.api.nvim_create_user_command("Sync", function() extra.update() end, {})
+```
 
 ## Pinning versions (no code needed)
 

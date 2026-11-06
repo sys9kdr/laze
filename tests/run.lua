@@ -3161,22 +3161,37 @@ do
 		passed = passed + 1
 	end
 
-	-- extra: requiring registers nothing; setup() creates the commands.
-	-- core must not pull it in either.
-	if package.loaded["laze.extra"] ~= nil then
-		print("  ✗ core pulled in an opt-in module (laze.extra preloaded)")
-		failed = failed + 1
-	else
-		print("  ✓ core never requires opt-in modules (laze.extra untouched)")
-		passed = passed + 1
+	-- extras: requiring registers nothing; setup() creates the commands.
+	-- core must not pull any part of the opt-in tree in either.
+	do
+		local preloaded = {}
+		for _, mod in ipairs({ "laze.extras", "laze.extras.commands", "laze.extras.maintenance", "laze.extra" }) do
+			if package.loaded[mod] ~= nil then
+				table.insert(preloaded, mod)
+			end
+		end
+		if #preloaded == 0 then
+			print("  ✓ core never requires opt-in modules (extras untouched)")
+			passed = passed + 1
+		else
+			print("  ✗ core pulled in an opt-in module: " .. table.concat(preloaded, ", "))
+			failed = failed + 1
+		end
 	end
-	local extra = require("laze.extra")
+	local extra = require("laze.extras")
 	if vim.api.nvim_get_commands({})["LazeHealth"] then
 		print("  ✗ extra: require registered commands without setup()")
 		failed = failed + 1
 	else
 		print("  ✓ extra: require alone registers nothing")
 		passed = passed + 1
+	end
+	if require("laze.extra") == extra then
+		print("  ✓ extra: legacy laze.extra resolves to laze.extras")
+		passed = passed + 1
+	else
+		print("  ✗ extra: legacy laze.extra returned a different module")
+		failed = failed + 1
 	end
 	extra.setup()
 	local laze_cmd = vim.api.nvim_get_commands({})["Laze"]

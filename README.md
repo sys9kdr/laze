@@ -5,7 +5,7 @@ Requires Neovim **0.12+** (`vim.pack`).
 
 It adds a lazy.nvim-shaped spec subset and a small lazy-loading plan on top of native package management. `vim.pack` still owns installation, placement, tag/ref resolution, the lockfile, and dependency handling; laze lowers lazy.nvim ranges/refs to vim.pack's `version` field.
 
-It intentionally does not provide its own dependency solver or `:Lazy`-style manager UI. Opt-in `:Laze update/clean/health/reload` wrappers live in `laze.extra`.
+It intentionally does not provide its own dependency solver or `:Lazy`-style manager UI. Opt-in `:Laze update/clean/health/reload` wrappers live in `laze.extras`.
 
 Its wrapper layer is narrow:
 

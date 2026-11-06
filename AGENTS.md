@@ -9,7 +9,7 @@ dependency solving — `vim.pack` does. Philosophy and the output model live in
 ## Scope
 
 The core is compile → plan → setup. Everything beyond that is an opt-in
-module (`lua/laze/extra.lua`) that the core never requires.
+module under `lua/laze/extras/` that the core never requires.
 
 Out of scope (do not add): a dependency solver, a plugin-manager UI,
 install/update commands in the core, the `opts` abstraction, the import
@@ -42,7 +42,7 @@ lua/laze/init.lua             public API: compile, build_plan, setup, reload_all
 lua/laze/compile.lua          pure spec -> IR transform
 lua/laze/plan.lua             trigger wiring / lazy loading
 lua/laze/known_differences.lua compile-time KD messages
-lua/laze/extra.lua            opt-in :Laze commands and helpers
+lua/laze/extras/              opt-in :Laze commands and helpers (maintenance + commands)
 docs/                         design, extras, commands, migration, known differences
 tests/run.lua                 integration + perf suite
 tests/test_compile.lua        standalone unit tests (luajit)
