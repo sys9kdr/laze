@@ -1,4 +1,4 @@
--- Luacheck configuration (pinned: 1.2.0 in CI).
+-- Luacheck configuration (pinned: 1.2.0).
 --
 -- Luacheck was chosen over Selene: Selene's prebuilt 0.32.0 binary cannot
 -- parse LuaJIT `goto`/labels used by the test loop, and a custom Rust build

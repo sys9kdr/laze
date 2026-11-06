@@ -100,7 +100,7 @@ luajit tests/test_subset.lua                    # spec-surface conformance
 luacheck lua tests                              # static lint (1.2.0)
 ```
 
-Luacheck is pinned to 1.2.0 in CI. Install it with
+Luacheck is pinned to 1.2.0. Install it with
 `sudo luarocks install luacheck 1.2.0-1` (or your distro package); no Rust
 toolchain is needed. Selene was evaluated but its prebuilt binary cannot
 parse the LuaJIT `goto`/labels used by the tests.

@@ -252,8 +252,8 @@ luacheck lua tests                              # static lint (1.2.0)
 ```
 
 Install the linter with `sudo luarocks install luacheck 1.2.0-1` (or your
-distribution's package). CI pins the same version; no Rust toolchain is
-required. `tests/vendor/` is excluded from linting.
+distribution's package). Pin the same version; no Rust toolchain is required.
+`tests/vendor/` is excluded from linting.
 
 ## Further reading
 
