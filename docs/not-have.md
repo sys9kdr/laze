@@ -27,15 +27,6 @@ abstraction, import system, background scheduler, lifecycle framework.
   end, {})
   ```
 
-- **`lazy` flag.** What: `lazy = true` is consumed with a warning
-  (`UNSUPPORTED_FIELDS`: "no equivalent; plugins without triggers are eager").
-  Why not: magic-vs-explicit — triggers already determine laziness.
-  Alternative: delete the flag; add or remove a trigger:
-  ```lua
-  -- before: { "foo/bar", lazy = true, event = "VeryLazy" }
-  { "foo/bar", event = "VeryLazy" }
-  ```
-
 - **`import` / `specs` module system.** What: `import` warns
   ("lazy.nvim-only; load spec files yourself"), `specs` warns
   ("no equivalent; inline your specs instead").
@@ -186,10 +177,13 @@ plus timing and trigger wiring.
   { "foo/bar", version = ">=2.0.0" }
   ```
 
-- **Submodules.** What: consumed, no equivalent
-  (`UNSUPPORTED_FIELDS`: "vim.pack fetches submodules by default").
-  Why not: nothing to do — native already does it.
-  Alternative: none.
+- **`submodules = false`.** What: vim.pack always runs
+  `git submodule update --init --recursive`, so the opt-out cannot be honored
+  (`UNSUPPORTED_FIELDS`). `submodules = true` is silent because it already
+  matches vim.pack.
+  Why not: nothing to do for `true`; `false` needs a fetch policy laze does
+  not own.
+  Alternative: remove the field, or use a checkout without submodules.
 
 - **Build execution.** What: `build` passes through to
   `vim.pack.Spec`; `setup()` runs it on `PackChanged`

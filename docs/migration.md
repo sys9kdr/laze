@@ -5,10 +5,10 @@ laze accepts lazy.nvim's declarative spec shape on purpose (escape hatch first).
 **Works as-is** — `[1]`/`src`, `dir`, `url`, `name`, `dev`, `dev_path`, `event`, `ft`, `cmd`, `keys`, `init`, `config`, `cond`, `enabled`, `dependencies`, `build`, `branch`/`tag`/`commit`, `pin`, `module` (laze's take on it, see below), `main` + `opts` (see below). See the version notes for `version`.
 
 **One-line conversions**
-* `lazy = true` → remove it. In laze, *no trigger* means eager and a trigger means lazy — there is no separate `lazy` flag.
+* `lazy = true`/`false` → honored as an explicit override. Without it, *no trigger* means eager and a trigger means lazy.
 * `import = "..."` → not supported; load your spec files yourself and pass the resulting tables to `setup`.
 * `priority` → **honored for eager ordering** (higher first, tie-break: id), default 50 — matches lazy.nvim's colorscheme-first workflow. Non-number priorities are rejected.
-* `submodules`, `optional`, `specs`: consumed with a per-compile warning (each compile, not one-time), no equivalent.
+* `submodules = false`, `optional`, `specs`: consumed with a per-compile warning (each compile, not one-time), no equivalent. `submodules = true` matches vim.pack and is silent.
 
 **Rejected loudly (safe direction — lazy.nvim never breaks a laze config, only the reverse)**
 

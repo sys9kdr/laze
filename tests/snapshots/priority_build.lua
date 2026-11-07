@@ -33,6 +33,7 @@ return {
 		["build-fn"] = {
 			after = {},
 			build = FN,
+			eager = false,
 			enabled = true,
 			has_route = true,
 			id = "build-fn",
@@ -45,6 +46,7 @@ return {
 		["build-str"] = {
 			after = {},
 			build = "make",
+			eager = false,
 			enabled = true,
 			has_route = true,
 			id = "build-str",
@@ -56,6 +58,7 @@ return {
 		},
 		colorscheme = {
 			after = {},
+			eager = true,
 			enabled = true,
 			has_route = false,
 			id = "colorscheme",
@@ -67,6 +70,7 @@ return {
 		},
 		["default-plugin"] = {
 			after = {},
+			eager = true,
 			enabled = true,
 			has_route = false,
 			id = "default-plugin",
@@ -78,6 +82,7 @@ return {
 		},
 		["low-priority"] = {
 			after = {},
+			eager = false,
 			enabled = true,
 			has_route = true,
 			id = "low-priority",
@@ -89,6 +94,7 @@ return {
 		},
 		["no-build"] = {
 			after = {},
+			eager = false,
 			enabled = true,
 			has_route = true,
 			id = "no-build",

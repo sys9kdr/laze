@@ -1391,8 +1391,39 @@ do
 	vim.fn.delete(dir, "rf")
 end
 
+-- lazy.nvim's explicit `lazy` override: false forces startup load even with
+-- triggers; true keeps a triggerless plugin off the eager list.
+do
+	local log = {}
+	local compiled = laze.compile({
+		{
+			"test/lazy-false",
+			event = "BufRead",
+			lazy = false,
+			config = function()
+				table.insert(log, "false")
+			end,
+		},
+		{
+			"test/lazy-true",
+			lazy = true,
+			config = function()
+				table.insert(log, "true")
+			end,
+		},
+	})
+	laze.build_plan(compiled)()
+	if #log == 1 and log[1] == "false" then
+		print("  ✓ lazy: false forces eager, true stays lazy without triggers")
+		passed = passed + 1
+	else
+		print(("  ✗ lazy: expected only the lazy=false plugin to load, got %s"):format(vim.inspect(log)))
+		failed = failed + 1
+	end
+end
+
 -- dependencies of a lazy plugin are lazy too (lazy.nvim semantics):
--- nothing loads at startup; the dep loads with the parent, dep first.
+-- nothing loads at startup; nested deps load with the parent, deepest first.
 do
 	local log = {}
 	local compiled = laze.compile({
@@ -1403,7 +1434,15 @@ do
 				table.insert(log, "parent")
 			end,
 			dependencies = {
-				{ "test/dep-child", config = function() table.insert(log, "child") end },
+				{
+					"test/dep-child",
+					config = function()
+						table.insert(log, "child")
+					end,
+					dependencies = {
+						{ "test/dep-grand", config = function() table.insert(log, "grand") end },
+					},
+				},
 			},
 		},
 	})
@@ -1415,8 +1454,8 @@ do
 		failed = failed + 1
 	else
 		vim.api.nvim_exec_autocmds("BufRead", { group = "laze_events" })
-		if #log == 2 and log[1] == "child" and log[2] == "parent" then
-			print("  ✓ lazy dep: loads with parent (child first)")
+		if #log == 3 and log[1] == "grand" and log[2] == "child" and log[3] == "parent" then
+			print("  ✓ lazy dep: nested deps load with parent (deepest first)")
 			passed = passed + 1
 		else
 			print(("  ✗ lazy dep: after BufRead got %s"):format(vim.inspect(log)))
@@ -2849,14 +2888,14 @@ do
 		table.insert(msgs, msg)
 	end
 	laze.compile({
-		{ "test/u1", lazy = true },
-		{ "test/u2", lazy = true },
+		{ "test/u1", optional = true },
+		{ "test/u2", optional = true },
 		{ "test/u3", import = "x" },
 		{ "test/u4", main = "m", opts = { foo = 1 } },
 	})
 	vim.notify = orig_notify
 	if #msgs == 2 then
-		print("  ✓ unsupported fields: one warning per field per compile")
+		print("  ✓ unsupported fields: one warning per field per compile (lazy is supported)")
 		passed = passed + 1
 	else
 		print(("  ✗ unsupported fields: expected 2 warnings, got %d"):format(#msgs))
@@ -2901,8 +2940,7 @@ do
 
 	msgs = capture(function()
 		laze.compile({
-			{ "test/kd20", lazy = true },
-			{ "test/kd21", dependencies = { { "test/kd21-dep", dependencies = { "grand" } } } },
+			{ "test/kd20", optional = true },
 		})
 	end)
 	local ids = {}
@@ -2911,17 +2949,17 @@ do
 			ids[id] = true
 		end
 	end
-	if ids["KD-020"] and ids["KD-021"] then
-		print("  ✓ known differences: KD-020 and KD-021 messages are tagged")
+	if ids["KD-020"] then
+		print("  ✓ known differences: KD-020 messages are tagged")
 		passed = passed + 1
 	else
-		print(("  ✗ known differences: missing KD-020/KD-021 tags in %s"):format(table.concat(msgs, " | ")))
+		print(("  ✗ known differences: missing KD-020 tag in %s"):format(table.concat(msgs, " | ")))
 		failed = failed + 1
 	end
 
 	msgs = capture(function()
 		laze.compile({
-			{ "test/kd-off", lazy = true, keys = { { "<F7>", expr = true } } },
+			{ "test/kd-off", optional = true, keys = { { "<F7>", expr = true } } },
 		}, { known_differences = false })
 	end)
 	if #msgs == 0 then

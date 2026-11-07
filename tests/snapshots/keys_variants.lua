@@ -18,6 +18,7 @@ return {
 	registry = {
 		["key-both"] = {
 			after = {},
+			eager = false,
 			enabled = true,
 			has_route = true,
 			id = "key-both",
@@ -29,6 +30,7 @@ return {
 		},
 		["key-i"] = {
 			after = {},
+			eager = false,
 			enabled = true,
 			has_route = true,
 			id = "key-i",
@@ -40,6 +42,7 @@ return {
 		},
 		["key-v-shared"] = {
 			after = {},
+			eager = false,
 			enabled = true,
 			has_route = true,
 			id = "key-v-shared",

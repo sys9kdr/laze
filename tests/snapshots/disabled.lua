@@ -10,6 +10,7 @@ return {
 	registry = {
 		["custom-id"] = {
 			after = {},
+			eager = true,
 			enabled = false,
 			has_route = false,
 			id = "custom-id",

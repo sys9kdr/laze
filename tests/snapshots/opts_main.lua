@@ -15,6 +15,7 @@ return {
 		["opts-eager"] = {
 			after = {},
 			config = FN,
+			eager = true,
 			enabled = true,
 			has_route = false,
 			id = "opts-eager",
@@ -31,6 +32,7 @@ return {
 		["opts-plugin"] = {
 			after = {},
 			config = FN,
+			eager = false,
 			enabled = true,
 			has_route = true,
 			id = "opts-plugin",

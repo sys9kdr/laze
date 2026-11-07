@@ -32,6 +32,7 @@ return {
 	registry = {
 		["plugin-branch"] = {
 			after = {},
+			eager = false,
 			enabled = true,
 			has_route = true,
 			id = "plugin-branch",
@@ -43,6 +44,7 @@ return {
 		},
 		["plugin-commit"] = {
 			after = {},
+			eager = false,
 			enabled = true,
 			has_route = true,
 			id = "plugin-commit",
@@ -54,6 +56,7 @@ return {
 		},
 		["plugin-multiple"] = {
 			after = {},
+			eager = false,
 			enabled = true,
 			has_route = true,
 			id = "plugin-multiple",
@@ -65,6 +68,7 @@ return {
 		},
 		["plugin-pin"] = {
 			after = {},
+			eager = false,
 			enabled = true,
 			has_route = true,
 			id = "plugin-pin",
@@ -76,6 +80,7 @@ return {
 		},
 		["plugin-tag"] = {
 			after = {},
+			eager = false,
 			enabled = true,
 			has_route = true,
 			id = "plugin-tag",

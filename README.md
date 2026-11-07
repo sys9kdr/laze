@@ -38,7 +38,7 @@ Compatibility is pinned to the lazy.nvim spec documented as of **2026-08-18**
 (the reference date in `tests/test_subset.lua`), not to every upstream change.
 When a field cannot be represented faithfully, laze fails loudly at compile
 time or documents the exact conversion. A few fields are explicitly
-warned-and-ignored (`lazy`, `import`, `submodules`, `optional`, `specs`), and
+warned-and-ignored (`import`, `submodules = false`, `optional`, `specs`), and
 unsupported `keys` entry options are dropped; see
 [docs/migration.md](docs/migration.md). Extensions are outside the subset and
 use non-colliding names. Known differences are indexed in
@@ -48,7 +48,7 @@ naming the KD id; pass `{ known_differences = false }` to `compile`/`setup`
 to silence them.
 
 Notable gaps: no `:Lazy` UI or install/sync surface (only the opt-in `:Laze`
-wrappers); `import`, `specs`, `optional`, `submodules`, and `lazy` are not
+wrappers); `import`, `specs`, `optional`, and `submodules = false` are not
 implemented; function-shaped triggers are rejected; `opts` requires an
 explicit `main`; and `version` accepts semver ranges only (refs use
 `branch`/`tag`/`commit`).
@@ -130,6 +130,8 @@ Supported fields:
 * `config`
 * `cond`
 * `enabled`
+* `lazy` — explicit override: `false` forces startup loading even with triggers, `true` keeps a triggerless plugin lazy
+* `submodules` — `true` matches vim.pack's default and is silent; `false` cannot be honored and warns
 * `silent`
 * `version` — semver range (`string|false`), lowered to a `vim.VersionRange`
   via `vim.version.range()`. Single ranges only: `*`, partial versions,
@@ -164,7 +166,7 @@ Accepted value shapes:
 Notes:
 
 * `cond`/`enabled` are resolved once during `setup()`, before `vim.pack.add`: `false` (literal or a function returning false) means the plugin is not installed and its `init`, triggers, keys and `config` are skipped — lazy.nvim parity. Verdicts are shared with the plan, so the hooks are evaluated exactly once. See [docs/design.md](docs/design.md).
-* `dependencies` is a **shallow, non-recursive** syntax sugar: each dependency is registered as a separate spec and mapped to `after`. A dependency is matched by explicit `name`, derived name, or resolved source, so a renamed top-level spec is referenced instead of registered a second time. Dependencies of an `enabled = false` or `cond = false` spec are not registered (lazy.nvim behavior). No config/trigger inheritance, no transitive resolution — an inline dep spec that carries its own `dependencies` field gets a compile-time warning (move it to the top-level spec list). Dependencies are **never eager**: they load with their parents — eagerly when the parent is eager, lazily when the parent is lazy (lazy.nvim-compatible: *"Dependencies are always lazy-loaded unless specified otherwise"*). To load a dep independently, give it its own trigger (e.g. `event = "InsertEnter"`).
+* `dependencies` is **recursive** syntax sugar: each dependency is registered as a separate spec and mapped to `after`, and an inline dep's own `dependencies` are expanded first (deepest-first load order). A dependency is matched by explicit `name`, derived name, or resolved source, so a renamed top-level spec is referenced instead of registered a second time; a shared dep is registered once. Dependencies of an `enabled = false` or `cond = false` spec are not registered (lazy.nvim behavior). No config/trigger inheritance. Dependencies are **never eager** unless `lazy = false` says otherwise: they load with their parents — eagerly when the parent is eager, lazily when the parent is lazy (lazy.nvim-compatible: *"Dependencies are always lazy-loaded unless specified otherwise"*). To load a dep independently, give it its own trigger (e.g. `event = "InsertEnter"`).
 * `[1]`/`src` is content-aware: absolute and `.`-prefixed paths (`./foo`, `../foo`) are treated as local dirs, `~` expands, `https://`/`git@` URLs as-is, anything else is expanded to `https://github.com/<src>`. A bare relative path like `foo/bar` is NOT a local dir — it becomes a GitHub URL.
 * `name` is used for internal routing (routes, after deps) and defaults to the plugin's repository name with `.nvim`/`.lua` stripped (lazy.nvim-compatible: `folke/which-key.nvim` → `which-key`). The installed directory (`pack/<pkg>/opt/<name>`) and `:packadd` use the *full* repository name (vim.pack's own derivation) — for `which-key.nvim` that directory is `which-key.nvim`, matching existing installs. It is **not** passed directly to `require` — laze only requires module names explicitly declared via `module`.
 * `silent = true` suppresses `vim.notify` warnings when `require` fails (e.g. for optional plugins).

@@ -41,7 +41,7 @@ offline.
 | --- | --- |
 | `tests/manage/semver_spec.lua` | `tests/fixtures/lazy_semver_cases.lua`, `tests/run.lua`; KD-002, KD-003, KD-005 |
 | `tests/core/plugin_spec.lua` — URL/name and spec lists | `derive_name`/`pkg_name` and bare-string/nested-list tests in `tests/test_compile.lua`; no KD |
-| `tests/core/plugin_spec.lua` — dependencies | dependency tests in `tests/test_compile.lua` and `tests/run.lua` (name/source matching, disabled/cond pruning); KD-021 |
+| `tests/core/plugin_spec.lua` — dependencies | dependency tests in `tests/test_compile.lua` and `tests/run.lua` (name/source matching, disabled/cond pruning) |
 | `tests/core/plugin_spec.lua` — optional | KD-020 |
 | `tests/core/plugin_spec.lua` — duplicate fragments / opts | KD-022 |
 | `tests/handlers/keys_spec.lua` | raw-lhs route test in `tests/test_compile.lua`; KD-023 |
@@ -66,7 +66,6 @@ Still intentionally different (see the KD registry):
 - duplicate spec fragments are merged by lazy.nvim and rejected by laze
   (KD-022);
 - `optional = true` does not make dependencies optional in laze (KD-020);
-- nested dependencies are not expanded (KD-021);
 - key notation aliases are separate raw-lhs routes, so two spellings can
   replace each other's trigger map (KD-023);
 - a table-valued `config = { ... }` is lazy.nvim's deprecated opts form and

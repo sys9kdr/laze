@@ -18,6 +18,7 @@ return {
 	registry = {
 		["plugin-always"] = {
 			after = {},
+			eager = false,
 			enabled = true,
 			has_route = true,
 			id = "plugin-always",
@@ -30,6 +31,7 @@ return {
 		["plugin-cond-false"] = {
 			after = {},
 			cond = FN,
+			eager = false,
 			enabled = true,
 			has_route = true,
 			id = "plugin-cond-false",
@@ -42,6 +44,7 @@ return {
 		["plugin-cond-true"] = {
 			after = {},
 			cond = FN,
+			eager = false,
 			enabled = true,
 			has_route = true,
 			id = "plugin-cond-true",

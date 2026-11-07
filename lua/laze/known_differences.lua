@@ -17,7 +17,6 @@ M.docs = "docs/known-differences.md"
 M.entries = {
 	["KD-016"] = "unsupported key options are dropped",
 	["KD-020"] = "field has no laze equivalent",
-	["KD-021"] = "nested dependencies are not expanded",
 }
 
 ---@param id string Stable KD id (e.g. "KD-016").

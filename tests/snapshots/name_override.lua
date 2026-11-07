@@ -10,6 +10,7 @@ return {
 	registry = {
 		wk = {
 			after = {},
+			eager = false,
 			enabled = true,
 			has_route = true,
 			id = "wk",

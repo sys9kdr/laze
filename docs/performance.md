@@ -47,7 +47,7 @@ now disabled between compile and build_plan.
 ### compile.lua: unsupported-field warnings paid per spec — resolved (2026-09)
 
 `warn_unsupported` called `vim.notify` once per offending spec — measured
-~180 µs per notify headless, so 20 specs sharing `lazy = true` paid
+~180 µs per notify headless, so 20 specs sharing `optional = true` paid
 ~3.6 ms on every startup for the same message. Warnings are now deduped
 to one per field per compile (first offending spec named): same case
 ~0.7 ms. Clean configs pay nothing extra (one table alloc per compile;
