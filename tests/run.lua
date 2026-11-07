@@ -3165,7 +3165,7 @@ do
 	-- core must not pull any part of the opt-in tree in either.
 	do
 		local preloaded = {}
-		for _, mod in ipairs({ "laze.extras", "laze.extras.commands", "laze.extras.maintenance", "laze.extra" }) do
+		for _, mod in ipairs({ "laze.extra", "laze.extras.commands", "laze.extras.maintenance" }) do
 			if package.loaded[mod] ~= nil then
 				table.insert(preloaded, mod)
 			end
@@ -3178,20 +3178,13 @@ do
 			failed = failed + 1
 		end
 	end
-	local extra = require("laze.extras")
+	local extra = require("laze.extra")
 	if vim.api.nvim_get_commands({})["LazeHealth"] then
 		print("  ✗ extra: require registered commands without setup()")
 		failed = failed + 1
 	else
 		print("  ✓ extra: require alone registers nothing")
 		passed = passed + 1
-	end
-	if require("laze.extra") == extra then
-		print("  ✓ extra: legacy laze.extra resolves to laze.extras")
-		passed = passed + 1
-	else
-		print("  ✗ extra: legacy laze.extra returned a different module")
-		failed = failed + 1
 	end
 	extra.setup()
 	local laze_cmd = vim.api.nvim_get_commands({})["Laze"]

@@ -1,5 +1,5 @@
 --- `:Laze` command wiring. Requiring this module registers nothing; call
---- `setup(api)` with the maintenance table (normally `laze.extras`).
+--- `setup(api)` with the maintenance table (normally `laze.extra`).
 
 local M = {}
 

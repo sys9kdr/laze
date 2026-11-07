@@ -1,6 +1,6 @@
 # Custom commands
 
-The core ships no commands; [`laze.extras`](extras.md) registers four maintenance commands but only on explicit `setup()`. For anything else, add your own against the compiled table returned by `setup`: 
+The core ships no commands; [`laze.extra`](extras.md) registers four maintenance commands but only on explicit `setup()`. For anything else, add your own against the compiled table returned by `setup`: 
 
 ## Sync (update all)
 

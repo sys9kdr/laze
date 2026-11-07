@@ -2,29 +2,28 @@
 
 The core ships no commands and no runtime machinery. Everything beyond
 compile → plan → setup lives in the **optional** `lua/laze/extras/`
-directory (it is never required by the core — load cost is zero unless you
-`require` it).
+implementation directory (it is never required by the core — load cost is
+zero unless you `require` it). The public module is `laze.extra`.
 
-## `laze.extras` — maintenance commands
+## `laze.extra` — maintenance commands
 
-The canonical entry point re-exports the maintenance functions and
-registers commands only on explicit `setup()`:
+The entry point re-exports the maintenance functions and registers commands
+only on explicit `setup()`:
 
 ```lua
-require("laze.extras").setup()
+require("laze.extra").setup()
 ```
 
-The module is split so you can load only what you need:
+The implementation is split so you can load only what you need:
 
 | Module | Contents |
 | --- | --- |
-| `laze.extras` | `update`, `clean`, `health`, `reload`, `setup` (the convenience API) |
+| `laze.extra` | `update`, `clean`, `health`, `reload`, `setup` (the public API) |
 | `laze.extras.maintenance` | the four functions, no command registration |
 | `laze.extras.commands` | `setup(api)` command wiring, no side effects on require |
 
-The pre-split `laze.extra` path still resolves to `laze.extras` through a
-small compatibility shim (`lua/laze/extra.lua`); new configs should use the
-plural path.
+`laze.extra` is the public name; `laze.extras.*` modules are implementation
+details under `lua/laze/extras/`. There is no `laze.extras` alias module.
 
 One command with subcommands (lazy.nvim-style, tab-completed):
 
@@ -44,7 +43,7 @@ Prefer your own names? The commands are thin wrappers over public
 functions — wire them yourself instead of calling `setup()`:
 
 ```lua
-local extra = require("laze.extras")
+local extra = require("laze.extra")
 -- extra.update() / extra.clean(true) / extra.health() / extra.reload()
 vim.api.nvim_create_user_command("Sync", function() extra.update() end, {})
 ```

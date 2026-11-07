@@ -42,7 +42,8 @@ lua/laze/init.lua             public API: compile, build_plan, setup, reload_all
 lua/laze/compile.lua          pure spec -> IR transform
 lua/laze/plan.lua             trigger wiring / lazy loading
 lua/laze/known_differences.lua compile-time KD messages
-lua/laze/extras/              opt-in :Laze commands and helpers (maintenance + commands)
+lua/laze/extra.lua            opt-in :Laze public entry point
+lua/laze/extras/              opt-in implementation (maintenance, commands)
 docs/                         design, extras, commands, migration, known differences
 tests/run.lua                 integration + perf suite
 tests/test_compile.lua        standalone unit tests (luajit)

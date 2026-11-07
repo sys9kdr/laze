@@ -1,6 +1,26 @@
---- Compatibility shim for the pre-split module name.
+--- Opt-in maintenance entry point (lazy.nvim-style, without the UI).
 ---
---- `laze.extras` is the canonical path; this file only keeps existing
---- `require("laze.extra")` configs working and can be deleted once the
---- singular name is retired.
-return require("laze.extras")
+--- The core never requires this module. The implementation lives in
+--- lua/laze/extras/ so consumers can load only what they need:
+---
+---   require("laze.extra").setup()          -- register :Laze
+---   require("laze.extras.commands")        -- command wiring only
+---   require("laze.extras.maintenance")     -- update/clean/health/reload
+---
+--- `laze.extra` is the public name; `extras/` is the implementation detail.
+
+local maintenance = require("laze.extras.maintenance")
+
+local M = {
+	update = maintenance.update,
+	clean = maintenance.clean,
+	health = maintenance.health,
+	reload = maintenance.reload,
+}
+
+--- Register the `:Laze` user command (update/clean/health/reload).
+function M.setup()
+	require("laze.extras.commands").setup(M)
+end
+
+return M
