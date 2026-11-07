@@ -49,9 +49,8 @@ to silence them.
 
 Notable gaps: no `:Lazy` UI or install/sync surface (only the opt-in `:Laze`
 wrappers); `import`, `specs`, `optional`, and `submodules = false` are not
-implemented; function-shaped triggers are rejected; `opts` requires an
-explicit `main`; and `version` accepts semver ranges only (refs use
-`branch`/`tag`/`commit`).
+implemented; function-shaped triggers are rejected; and `version` accepts
+semver ranges only (refs use `branch`/`tag`/`commit`).
 
 The guiding principle is to preserve compatibility where practical, without
 letting it undermine laze's primary goal: a small, maintainable alternative
@@ -150,9 +149,10 @@ Supported fields:
 * `after`
 * `dependencies`
 * `module` — module name(s) that trigger lazy load on `require`
-* `main` — module name for `opts` (explicit; never guessed from the repo)
-* `opts` — table passed to `require(main).setup(opts)` at load (requires `main`)
-* `build` — build command or function (passed to `vim.pack`)
+* `main` — module used by `opts` / `config = true`; resolved at load when omitted (explicit name, normalized name match, or the plugin's single top-level module)
+* `opts` — table or `function(plugin, opts)` mutator passed to `require(main).setup(opts)` at load
+* `config` — function, or `true` for the `opts` shorthand (the function receives `(plugin, opts)`)
+* `build` — build command, function, or list of those (run sequentially after install/update)
 * `priority` — eager plugin load order: higher loads first, tie-break by id (default 50)
 * `dev_path` — local path for dev mode (used by your own commands)
 

@@ -229,11 +229,42 @@ local function build_plan(compiled, opts)
 		end
 	end
 
+	--- Resolve lazy.nvim-style opts at load time. A function receives the
+	--- plugin object and a mutable base table; returning a table replaces
+	--- it, returning nil keeps the (possibly mutated) base, and a non-table
+	--- return is wrapped as lazy.nvim does.
+	---@param entry LazeEntry
+	---@param plugin table
+	---@return table
+	local function resolve_opts(entry, plugin)
+		local entry_opts = entry.opts
+		if type(entry_opts) == "function" then
+			local base = {}
+			local res = entry_opts(plugin, base)
+			if type(res) == "table" then
+				return res
+			elseif res then
+				return { res }
+			end
+			return base
+		end
+		return type(entry_opts) == "table" and entry_opts or {}
+	end
+
 	-- With `opts.partial` the hooks run but the plugin stays "pending_startup":
 	-- used when a startup `require()` needs a configured plugin right away.
 	-- The hooks run at most once; the VimEnter finalizer then only marks the
 	-- plugin loaded.
-	local function run_hooks(id, entry, start, hook_opts)
+	local function run_hooks(id, entry, start, plugin_dir, hook_opts)
+		local plugin = {
+			name = id,
+			dir = plugin_dir or entry.dir,
+			url = entry.src,
+			pkg = entry.pkg,
+			main = entry.main,
+			opts = entry.opts,
+			lazy = not entry.eager,
+		}
 		local pending = startup_pending[id]
 		if pending and pending.hooks_ran then
 			if not (hook_opts and hook_opts.partial) then
@@ -256,7 +287,9 @@ local function build_plan(compiled, opts)
 			end
 		end
 		if entry.config then
-			local ok_cfg, err_cfg = pcall(entry.config)
+			local ok_cfg, err_cfg = pcall(function()
+				entry.config(plugin, resolve_opts(entry, plugin))
+			end)
 			if not ok_cfg then vim.notify("laze: config failed for " .. id .. ": " .. tostring(err_cfg), vim.log.levels.WARN) end
 		end
 		if pending then pending.hooks_ran = true end
@@ -279,7 +312,7 @@ local function build_plan(compiled, opts)
 					source_glob(pending.dir, "/ftdetect/*.vim")
 					source_after_plugin(pending.dir)
 				end
-				run_hooks(id, pending.entry, pending.start)
+				run_hooks(id, pending.entry, pending.start, pending.dir)
 				if ft_ids then
 					for _, ft_id in ipairs(ft_ids) do
 						if ft_id == id then
@@ -397,7 +430,7 @@ local function build_plan(compiled, opts)
 			source_after_plugin(plugin_dir)
 		end
 
-		run_hooks(id, entry, start)
+		run_hooks(id, entry, start, plugin_dir)
 	end
 
 	local function load_with_deps(id)
@@ -556,7 +589,7 @@ local function build_plan(compiled, opts)
 					-- returns. Run the hooks now; plugin/ scripts are still left
 					-- to the startup phase / VimEnter finalizer, so the
 					-- source-exactly-once invariant holds.
-					run_hooks(id, pending.entry, pending.start, { partial = true })
+					run_hooks(id, pending.entry, pending.start, pending.dir, { partial = true })
 				end
 			end
 			return mod
