@@ -141,7 +141,13 @@ local function build_plan(compiled, opts)
 		vim.api.nvim_create_autocmd("SourcePre", {
 			group = group,
 			callback = function(ev)
-				if ev.match:find("[/\\]plugin[/\\]") then
+				-- Plain finds, not "[/\\]plugin[/\\]": patterns never enter
+				-- traces, plain find does (fresh-process A/B, best-of-3,
+				-- tests/benchmarks/jit_ab.lua WORKLOAD=probe): 286 → 37 ns
+				-- per SourcePre event with the JIT on, 304 → 65 ns with it
+				-- off. This fires for every file Neovim is about to source.
+				local m = ev.match
+				if m:find("/plugin/", 1, true) or m:find("\\plugin\\", 1, true) then
 					startup_plugin_phase_started = true
 					return true -- delete this autocmd
 				end
