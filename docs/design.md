@@ -30,6 +30,8 @@ Every plugin's `plugin/` and `after/plugin/` files are sourced **exactly once**,
 > `vim_did_enter == 0` (during startup) → eager plugins use `:packadd!` only; startup-requested lazy plugins are finalized once at `VimEnter`.
 > `vim_did_enter ~= 0` (after startup) → `:packadd` (sources `plugin/`, `ftdetect/`) + manually source the plugin's own `after/plugin/` files (`:packadd` never sources those — startup-only).
 
+The one exception: a load reached from inside an eager plugin's startup load (its `dependencies`) is not deferred to `VimEnter` — it loads with its parent, so the parent's `config` sees it already loaded (lazy.nvim recurses into deps inside `load()`; see `tests/run.lua`, "startup eager deps").
+
 Breaking this invariant produces double-source (side effects run twice) or missing files. The startup-phase integration test in `tests/run.lua` asserts it by spawning real sessions; keep it green when touching activation.
 
 Note: `:packadd` after startup also sources `ftdetect/`; during startup the runtime's filetype machinery picks it up from the runtimepath on demand.
