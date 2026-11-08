@@ -1507,6 +1507,60 @@ do
 	end
 end
 
+-- Startup dependency order: an eager plugin's non-lazy dependencies load
+-- WITH it — deepest dependency first, each config sourced before the
+-- dependent's config — and their Lua modules are require-able from the
+-- parent's config. Deferring them to after startup broke parents that
+-- require a dependency's modules at setup (issue #42; lazy.nvim measured
+-- dep-config-before-parent-config). Spawned session, because the startup
+-- deferral of non-eager plugins only exists during real startup.
+-- Skipped under `fast`.
+if not fast_only then
+	local root = vim.fn.tempname() .. "_lazestartdep"
+	local function write(path, content)
+		vim.fn.mkdir(vim.fn.fnamemodify(path, ":h"), "p")
+		local fd = io.open(path, "w")
+		fd:write(content)
+		fd:close()
+	end
+	-- chain: eager parent -> dep -> grand (config order); moddep provides a
+	-- module the parent's config requires.
+	write(root .. "/moddep/lua/lazestartdep_mod.lua", "return { answer = 7 }\n")
+
+	local result = root .. "/result"
+	local init_file = root .. "/init.lua"
+	write(
+		init_file,
+		("vim.opt.rtp:prepend(%q)\n"):format(vim.fn.getcwd())
+			.. "local log = {}\n"
+			.. "local req_ok = 'unset'\n"
+			.. "local laze = require('laze')\n"
+			.. "laze.build_plan(laze.compile({\n"
+			.. ("  { dir = %q, name = 'sdparent', dependencies = { 'sddep', 'sdmoddep' }, config = function()\n"):format(root .. "/parent")
+			.. "    req_ok = tostring(pcall(function() return require('lazestartdep_mod').answer == 7 end))\n"
+			.. "    table.insert(log, 'parent')\n"
+			.. "  end },\n"
+			.. ("  { dir = %q, name = 'sddep', dependencies = { 'sdgrand' }, config = function() table.insert(log, 'dep') end },\n"):format(root .. "/dep")
+			.. ("  { dir = %q, name = 'sdgrand', config = function() table.insert(log, 'grand') end },\n"):format(root .. "/grand")
+			.. ("  { dir = %q, name = 'sdmoddep', config = function() table.insert(log, 'moddep') end },\n"):format(root .. "/moddep")
+			.. "}))()\n"
+			.. 'vim.api.nvim_create_autocmd("VimEnter", { once = true, callback = function()\n'
+			.. ("  vim.fn.writefile({ table.concat(log, ',') .. ':' .. req_ok }, %q)\n"):format(result)
+			.. '  vim.cmd("qa!")\n'
+			.. "end })\n"
+	)
+	vim.system({ vim.v.progpath, "-u", init_file, "--headless" }, { timeout = 30000 }):wait()
+	local got = vim.fn.filereadable(result) == 1 and vim.fn.readfile(result)[1] or "<missing>"
+	if got == "grand,dep,moddep,parent:true" then
+		print("  ✓ startup eager deps: configs run deepest-first before parent, dep module require-able")
+		passed = passed + 1
+	else
+		print(("  ✗ startup eager deps: got %s (expected grand,dep,moddep,parent:true)"):format(got))
+		failed = failed + 1
+	end
+	vim.fn.delete(root, "rf")
+end
+
 -- after/plugin scripts of a lazily-loaded plugin run at trigger, not startup
 do
 	local dir = vim.fn.tempname() .. "_afterdir"

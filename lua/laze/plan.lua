@@ -122,6 +122,14 @@ local function build_plan(compiled, opts)
 	local startup_finalizer_installed = false
 	local startup_cmd_calls = {}
 	local startup_cmd_proxy_desc = "laze: defer command until VimEnter"
+	-- Depth inside a plugin.load() call that started during startup. While
+	-- non-zero, a dependency reached from that call loads with its dependent
+	-- instead of being deferred to VimEnter: lazy.nvim's loader recurses into
+	-- deps inside load(), so a non-lazy dep always loads — config sourced —
+	-- before the eager plugin that triggered the load (measured, lazy.nvim
+	-- @ 306a055). Nested plugin.load() calls only stack this while startup
+	-- is already in flight, so post-startup loads never see it.
+	local eager_depth = 0
 
 	-- Neovim's startup plugin/ phase sources every directory on 'runtimepath'
 	-- when it begins. Packs activated before that point are sourced by Neovim
@@ -273,6 +281,29 @@ local function build_plan(compiled, opts)
 			end
 			return
 		end
+		if pending and hook_opts and hook_opts.partial then
+			-- A startup require() needs a configured plugin before it returns:
+			-- run its hooks now, but the plugin stays pending_startup so the
+			-- VimEnter finalizer still owns the plugin/ sourcing bookkeeping.
+			local modules = entry.module
+			if type(modules) == "string" then modules = { modules } end
+			local plugin_modules = type(modules) == "table" and modules or nil
+			local ok, err = pcall(function()
+				if plugin_modules then
+					for _, mod in ipairs(plugin_modules) do original_require(mod) end
+				end
+				if entry.config then
+					entry.config(plugin, resolve_opts(entry, plugin))
+				end
+			end)
+			if not ok then
+				loaded[id] = "failed"
+				if not entry.silent then vim.notify("laze: failed to load " .. id .. ": " .. tostring(err), vim.log.levels.WARN) end
+			else
+				pending.hooks_ran = true
+			end
+			return
+		end
 		local modules = entry.module
 		if type(modules) == "string" then modules = { modules } end
 		if type(modules) == "table" then
@@ -406,7 +437,11 @@ local function build_plan(compiled, opts)
 			end
 		end
 
-		if during_startup and not entry.eager then
+		-- eager_depth > 0: this load happens inside an eager plugin's startup
+		-- load, i.e. on its behalf. Deferring it to VimEnter would run the
+		-- parent's config before the dependency it depends on (issue #42), so
+		-- it loads with the parent instead.
+		if during_startup and eager_depth == 0 and not entry.eager then
 			loaded[id] = "pending_startup"
 			startup_pending[id] = {
 				entry = entry,
@@ -971,7 +1006,15 @@ local function build_plan(compiled, opts)
 			end)
 		end
 		for _, entry in ipairs(eager) do
-			load_with_deps(entry.id)
+			-- Deps reached from here load synchronously with their parent
+			-- (see the eager_depth note above), matching lazy.nvim's
+			-- dep-config-before-parent-config order for eager plugins.
+			eager_depth = eager_depth + 1
+			local ok, err = pcall(load_with_deps, entry.id)
+			eager_depth = eager_depth - 1
+			if not ok then
+				vim.notify(("laze: failed to load %s: %s"):format(entry.id, tostring(err)), vim.log.levels.WARN)
+			end
 		end
 
 		-- VeryLazy fires via a one-shot UIEnter autocmd in a normal startup
