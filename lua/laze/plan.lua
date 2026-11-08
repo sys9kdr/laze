@@ -105,9 +105,6 @@ local function resolve_verdicts(registry, data_dir)
 	return enabled_ok, cond_ok
 end
 
----@param compiled LazeCompiled
----@param opts? { on_load?: fun(id: string, time_ms: number), on_fail?: fun(id: string, err: string), enabled_ok?: table<string, boolean>, cond_ok?: table<string, boolean> }
----@return LazePlan
 --- Normalize an entry's `module` (string | array | false | nil) to an array
 --- of module names, or nil when the plugin requires no module triggers.
 ---@param entry LazeEntry
@@ -120,6 +117,9 @@ local function modules_array(entry)
 	return type(m) == "table" and m or nil
 end
 
+---@param compiled LazeCompiled
+---@param opts? { on_load?: fun(id: string, time_ms: number), on_fail?: fun(id: string, err: string), enabled_ok?: table<string, boolean>, cond_ok?: table<string, boolean> }
+---@return LazePlan
 local function build_plan(compiled, opts)
 	opts = opts or {}
 	local on_load = opts.on_load
@@ -193,7 +193,9 @@ local function build_plan(compiled, opts)
 	-- Mirrors lazy.nvim ("Dependencies are always lazy-loaded unless
 	-- specified otherwise" — `lazy = false` is the explicit override).
 
-	-- Store original require before wrapping
+	-- Pin require at plan-build time: plugin code (or another manager) can
+	-- replace _G.require later, and the loader core plus the preload
+	-- closures must keep calling the builtin one.
 	local original_require = require
 
 	-- Source a plugin's own after/plugin/* scripts. :packadd sources
