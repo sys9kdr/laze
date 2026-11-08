@@ -13,7 +13,44 @@ All critical paths are one-shot (compile/setup) or deferred (load time).
 Nothing in the startup path scales with plugin count beyond O(N) table
 walks. Items below are grouped by status.
 
+## JIT on this engine (measured 2026-11, LuaJIT 2.1.1793383622)
+
+This engine is a rewrite of the one the older entries below were measured
+on. `jit.attach` trace/record/compile/abort callbacks never fire, and
+`jit.profile`/`jit.dump`/`jit.v`/`jit.util` do not exist (`pairs(jit)`
+yields arch attach flush off on opt os security status version
+version_num). Entries citing `jit.v` output are pre-rewrite measurements
+and are not reproducible here. The only surviving mechanism is
+fresh-process timing A/B — `tests/benchmarks/jit_ab.lua`; protocol rules
+and pitfalls: `.agents/skills/perf-tuning/SKILL.md`.
+
+- Cold vs warm flips the JIT verdict on one-shot paths: the first
+  `compile()` pass is FASTER with `jit.off()` (trace-build overhead:
+  0.21 vs 0.89 ms at n=40, 0.70 vs 1.33 at n=100, 2.13 vs 2.89 at n=400);
+  the JIT wins only warm (reload×10: 0.36 vs 0.42 ms/iter at n=100, 1.20
+  vs 1.66 at n=400). Startup never warms traces.
+- "Byte loops stay JIT-compiled" therefore justifies warm loops, not
+  startup. A compiled byte loop runs ~0.75 ns/byte, an interpreted one
+  ~19 ns/byte — 2.8x SLOWER than the ~7 µs/call interpreted patterns it
+  replaced, cold. The `last_segment` rewrite still stands on its own
+  measurements (patterns never enter traces at all), but re-measure with
+  `jit_ab.lua` before citing the folklore for new work.
+- `jit.off()` does not evict compiled traces, so same-session A/B
+  silently reports 1.0x; every JIT number here comes from fresh
+  processes, best-of-3.
+
 ## Resolved
+
+### plan.lua: SourcePre startup probe ran an interpreted pattern — resolved (2026-11)
+
+The `startup_plugin_phase_started` probe fires on every SourcePre event —
+one per file Neovim is about to source — and used
+`find("[/\\]plugin[/\\]")`. Patterns never enter traces; plain finds do.
+Fresh-process A/B over rotating paths (`jit_ab.lua WORKLOAD=probe`):
+286 → 37 ns per call with the JIT on, 304 → 65 ns with it off (two plain
+finds, `/plugin/` and `\plugin\`). The absolute saving is event-count ×
+~250 ns, but the cost was paid on every startup regardless of plugin
+count. Probe semantics unchanged (both separators, same segments).
 
 ### tests/benchmarks/compile_compare.lua: lazy.nvim profile UI inside the timed region — resolved (2026-10)
 
@@ -290,6 +327,10 @@ nvim -u NONE --headless -l tests/benchmarks/compile_only.lua
 
 # Fair comparison: laze.nvim vs lazy.nvim
 nvim -u NONE --headless -l tests/benchmarks/compile_compare.lua
+
+# JIT A/B oracle (fresh process per row; JIT=on|off, WORKLOAD=compile|probe)
+for m in on off; do JIT=$m N=100 nvim --clean -l tests/benchmarks/jit_ab.lua; done
+WORKLOAD=probe nvim --clean -l tests/benchmarks/jit_ab.lua
 ```
 
 Latest manual run (2026-10-29, Neovim 0.12.6, 4 real dir plugins):
