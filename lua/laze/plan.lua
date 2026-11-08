@@ -316,7 +316,9 @@ local function build_plan(compiled, opts)
 		if pending and pending.hooks_ran then
 			if not (hook_opts and hook_opts.partial) then
 				loaded[id] = true
-				if on_load and start then on_load(id, (vim.uv.hrtime() - start) / 1e6) end
+				if on_load and start then
+					on_load(id, (vim.uv.hrtime() - start) / 1e6)
+				end
 			end
 			return
 		end
@@ -327,7 +329,9 @@ local function build_plan(compiled, opts)
 			local plugin_modules = modules_array(entry)
 			local ok, err = pcall(function()
 				if plugin_modules then
-					for _, mod in ipairs(plugin_modules) do original_require(mod) end
+					for _, mod in ipairs(plugin_modules) do
+						original_require(mod)
+					end
 				end
 				if entry.config then
 					entry.config(plugin, resolve_opts(entry, plugin))
@@ -343,11 +347,15 @@ local function build_plan(compiled, opts)
 		local plugin_modules = modules_array(entry)
 		if plugin_modules then
 			local ok_req, err_req = pcall(function()
-				for _, mod in ipairs(plugin_modules) do original_require(mod) end
+				for _, mod in ipairs(plugin_modules) do
+					original_require(mod)
+				end
 			end)
 			if not ok_req then
 				mark_failed(err_req)
-				if on_fail then on_fail(id, err_req) end
+				if on_fail then
+					on_fail(id, err_req)
+				end
 				return
 			end
 		end
@@ -355,11 +363,17 @@ local function build_plan(compiled, opts)
 			local ok_cfg, err_cfg = pcall(function()
 				entry.config(plugin, resolve_opts(entry, plugin))
 			end)
-			if not ok_cfg then require("laze.diag").warn("config failed for " .. id .. ": " .. tostring(err_cfg)) end
+			if not ok_cfg then
+				require("laze.diag").warn("config failed for " .. id .. ": " .. tostring(err_cfg))
+			end
 		end
-		if pending then pending.hooks_ran = true end
+		if pending then
+			pending.hooks_ran = true
+		end
 		loaded[id] = true
-		if on_load and start then on_load(id, (vim.uv.hrtime() - start) / 1e6) end
+		if on_load and start then
+			on_load(id, (vim.uv.hrtime() - start) / 1e6)
+		end
 	end
 
 	local function finalize_startup_pending()

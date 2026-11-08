@@ -1,0 +1,15 @@
+# StyLua 2.6.0 (pinned in CI): the formatting source of truth.
+# Run `stylua .` after editing Lua; CI checks the same with `stylua --check .`.
+# Generated/vendored trees stay untouched via .styluaignore (a config-file
+# `exclude` key does not exist; CLI -g globs would disable the Lua-extension
+# filter and make Stylua try to parse markdown files as Lua).
+column_width = 120
+indent_type = "Tabs"
+indent_width = 2
+line_endings = "Unix"
+# AutoPreferDouble flips a literal to single quotes only when that removes
+# escapes; string contents are never wrapped, so the long subset-note
+# literals survive as-is (matches selene and the human style).
+quote_style = "AutoPreferDouble"
+call_parentheses = "Always"
+collapse_simple_statement = "Never"

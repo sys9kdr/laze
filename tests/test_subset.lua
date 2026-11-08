@@ -131,13 +131,19 @@ for key in pairs(consumed) do
 		elseif just.kind == "vim.pack" then
 			table.insert(passthroughs, key)
 		else
-			fail(("field %q: invalid justification kind %q"):format(key, tostring(just.kind)), "kinds allowed: extension | vim.pack")
+			fail(
+				("field %q: invalid justification kind %q"):format(key, tostring(just.kind)),
+				"kinds allowed: extension | vim.pack"
+			)
 		end
 		if just.kind == "extension" and not just.note then
 			fail(("field %q: extension without a note"):format(key), "add a note explaining the lazy.nvim migration path")
 		end
 	else
-		fail(("field %q is consumed by laze but is NOT a lazy.nvim spec field"):format(key), "add it to LAZY_NVIM_FIELDS or justify it in LAZE_ONLY_FIELDS")
+		fail(
+			("field %q is consumed by laze but is NOT a lazy.nvim spec field"):format(key),
+			"add it to LAZY_NVIM_FIELDS or justify it in LAZE_ONLY_FIELDS"
+		)
 	end
 end
 
@@ -145,7 +151,10 @@ end
 -- otherwise the warning text is misleading.
 for key in pairs(unsupported) do
 	if not LAZY_NVIM_FIELDS[key] then
-		fail(("unsupported field %q is not a lazy.nvim field"):format(key), "remove it from UNSUPPORTED_FIELDS in compile.lua")
+		fail(
+			("unsupported field %q is not a lazy.nvim field"):format(key),
+			"remove it from UNSUPPORTED_FIELDS in compile.lua"
+		)
 	end
 end
 
@@ -198,7 +207,7 @@ local notes = {
 	"keys entries: laze keeps lhs/rhs/mode/desc/silent/ft; ft (string|string[]) installs a buffer-local trigger map on the matching FileType, like lazy.nvim. Other vim.keymap.set options (noremap, nowait, expr, callback, buffer) are silently dropped.",
 	"function-shaped triggers (event/cmd/ft/keys = fun(self, list)): valid in lazy.nvim (evaluated at startup). laze REJECTS them with a compile error — silently ignoring them would turn the plugin eager. Rejecting is the safe direction: a laze config never contains them, and migrating laze → lazy.nvim is unaffected.",
 	"keys mode: laze accepts mode = string | string[] ('n','v',...); lazy.nvim's LazyKeysSpec mode also accepts a mode table. Shared shape. Empty values are passed through: mode = \"\" becomes a multi-mode mapping via vim.keymap.set, while mode = {} installs no key handler but keeps the plugin lazy (lazy.nvim parity).",
-	"keys rhs: optional in both the positional ({ lhs, rhs? }) and named ({ lhs, rhs? }) form. Accepted values are string | fun() | false | vim.NIL: a string feeds the key after load, a function runs after load, false/vim.NIL drops the entry (a later entry for the same lhs/mode/ft replaces an earlier one), and \"\"/\"<nop>\" becomes a static no-op map. lazy.nvim's LazyKeysSpec.rhs is string|fun():string?|false — same shape.",
+	'keys rhs: optional in both the positional ({ lhs, rhs? }) and named ({ lhs, rhs? }) form. Accepted values are string | fun() | false | vim.NIL: a string feeds the key after load, a function runs after load, false/vim.NIL drops the entry (a later entry for the same lhs/mode/ft replaces an earlier one), and ""/"<nop>" becomes a static no-op map. lazy.nvim\'s LazyKeysSpec.rhs is string|fun():string?|false — same shape.',
 	"keys = function(): rejected at compile time (lazy.nvim evaluates it at startup). Rejecting is the safe direction: silently ignoring it would make the plugin eager.",
 	"dev = string: laze uses it as the dev directory. lazy.nvim documents dev as boolean only (a string is truthy there and triggers config.dev.path).",
 }

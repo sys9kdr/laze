@@ -13,8 +13,7 @@ local function is_wildcard(b)
 end
 
 local function is_ident_byte(b)
-	return b ~= nil
-		and ((b >= 48 and b <= 57) or (b >= 65 and b <= 90) or (b >= 97 and b <= 122) or b == 45)
+	return b ~= nil and ((b >= 48 and b <= 57) or (b >= 65 and b <= 90) or (b >= 97 and b <= 122) or b == 45)
 end
 
 -- Scan one version token after an optional comparator. Accepts the shapes
@@ -230,4 +229,4 @@ end
 
 return {
 	to_semver_range = to_semver_range,
-};
+}

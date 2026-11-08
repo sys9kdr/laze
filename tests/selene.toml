@@ -2,7 +2,6 @@ std = "lua51+neovim"
 exclude = ["tests/vendor/**", "tests/snapshots/**"]
 
 [lints]
-multiple_statements = "allow"
 # Plugin-spec fixtures are mixed tables by nature (positional name + keyed
 # fields) and the harness pokes _G to observe setup()/sourcing side effects.
 mixed_table = "allow"

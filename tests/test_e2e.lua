@@ -56,7 +56,9 @@ local compiled = laze.compile(specs)
 vim.pack.add(compiled.pack)
 local timings = {}
 local plan = laze.build_plan(compiled, {
-	on_load = function(id, ms) table.insert(timings, { id = id, time_ms = ms }) end,
+	on_load = function(id, ms)
+		table.insert(timings, { id = id, time_ms = ms })
+	end,
 })
 plan()
 

@@ -68,7 +68,9 @@ for _, scale in ipairs({ 10, 50, 100, 200, 500 }) do
 	end
 	local t_scale = uv.hrtime()
 	laze.compile(big)
-	print(("compile %3d specs: %6.0f μs  (%5.2f μs/spec)"):format(scale, elapsed_us(t_scale), elapsed_us(t_scale) / scale))
+	print(
+		("compile %3d specs: %6.0f μs  (%5.2f μs/spec)"):format(scale, elapsed_us(t_scale), elapsed_us(t_scale) / scale)
+	)
 end
 
 print("\n=== scale: plan (triggers only) ===\n")
@@ -129,4 +131,3 @@ for _ = 1, 3 do
 	best = math.min(best, elapsed_us(t_names))
 end
 print(("derive_name+pkg_name x%d: %6.0f μs best-of-3 (%.3f μs/pair, acc=%d)"):format(#srcs, best, best / #srcs, acc))
-

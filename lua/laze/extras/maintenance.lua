@@ -75,7 +75,11 @@ function M.health()
 	for id, entry in pairs(compiled.registry) do
 		local installed = entry.dir and vim.fn.isdirectory(entry.dir) == 1
 			or (entry.pkg and #vim.fn.glob(data_dir .. "/site/pack/*/opt/" .. entry.pkg, false, true) > 0)
-		lines[#lines + 1] = ("%-30s %s %s"):format(id, installed and "installed" or "MISSING", entry.has_route and "lazy" or "eager")
+		lines[#lines + 1] = ("%-30s %s %s"):format(
+			id,
+			installed and "installed" or "MISSING",
+			entry.has_route and "lazy" or "eager"
+		)
 	end
 	table.sort(lines)
 	table.insert(lines, 1, ("laze: %d plugin(s)"):format(#lines))

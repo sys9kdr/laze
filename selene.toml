@@ -7,8 +7,3 @@
 #   selene lua && selene --config tests/selene.toml tests
 std = "lua51+neovim"
 exclude = ["tests/vendor/**", "tests/snapshots/**"]
-
-[lints]
-# Compact one-line if/function scaffolding is deliberate style (and the shape
-# StyLua keeps when collapse_simple_statement stays "Never").
-multiple_statements = "allow"

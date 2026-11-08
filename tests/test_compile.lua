@@ -12,9 +12,11 @@ vim.fn = {
 		return s:gsub("^~", os.getenv("HOME") or "")
 	end,
 }
-vim.version = { range = function(v)
-	return "RANGE:" .. v
-end }
+vim.version = {
+	range = function(v)
+		return "RANGE:" .. v
+	end,
+}
 vim.inspect = function(v)
 	if type(v) == "string" then
 		return string.format("%q", v)
@@ -170,7 +172,11 @@ local derive_cases = {
 	{ "https://github.com/user/repo.nvim.git", "repo", ".git then .nvim stripped" },
 	{ "https://github.com/user/plugin/", "plugin", "trailing slash tolerated" },
 	{ "https://github.com/user/plugin.git/", "plugin", "trailing slash after .git" },
-	{ "https://github.com/user/repo//", "https://github.com/user/repo/", "double trailing slash: pattern fails, raw fallback (match parity)" },
+	{
+		"https://github.com/user/repo//",
+		"https://github.com/user/repo/",
+		"double trailing slash: pattern fails, raw fallback (match parity)",
+	},
 	{ "///", "//", "all-separator input falls back raw" },
 	{ ":", ":", "lone colon falls back raw" },
 	{ "a:b/c", "c", "colon and slash both segment separators" },
@@ -233,7 +239,12 @@ local pkg_cases = {
 	{ "https://github.com/user/plugin.git/", nil, "plugin", "slash then .git" },
 	{ "https://github.com/", nil, "github.com", "host-only URL: host as name" },
 	{ "user/repo", "custom", "custom", "explicit name wins" },
-	{ "https://github.com/user/repo//", nil, "https://github.com/user/repo/", "double trailing slash: raw fallback (match parity)" },
+	{
+		"https://github.com/user/repo//",
+		nil,
+		"https://github.com/user/repo/",
+		"double trailing slash: raw fallback (match parity)",
+	},
 	{ "//:", nil, "//:", "all-separator input falls back raw" },
 	{ "user/repo.git.git", nil, "repo.git", "only one .git stripped" },
 	{ "a/b/.git", nil, "a/b/", ".git strip leaves trailing slash: raw fallback (match parity)" },
@@ -405,51 +416,71 @@ local function event_routes(specs)
 	return compile(specs).routes.events
 end
 
-check(event_routes({
-	{ "test/plain", event = "BufReadPre" },
-	{ "test/lua", event = { { event = "BufReadPre", pattern = "*.lua" } } },
-}), {
-	BufReadPre = {
-		{ ids = { "plain" } },
-		{ pattern = "*.lua", ids = { "lua" } },
+check(
+	event_routes({
+		{ "test/plain", event = "BufReadPre" },
+		{ "test/lua", event = { { event = "BufReadPre", pattern = "*.lua" } } },
+	}),
+	{
+		BufReadPre = {
+			{ ids = { "plain" } },
+			{ pattern = "*.lua", ids = { "lua" } },
+		},
 	},
-}, "same event, patternless first: separate variants")
+	"same event, patternless first: separate variants"
+)
 
-check(event_routes({
-	{ "test/lua", event = { { event = "BufReadPre", pattern = "*.lua" } } },
-	{ "test/plain", event = "BufReadPre" },
-}), {
-	BufReadPre = {
-		{ pattern = "*.lua", ids = { "lua" } },
-		{ ids = { "plain" } },
+check(
+	event_routes({
+		{ "test/lua", event = { { event = "BufReadPre", pattern = "*.lua" } } },
+		{ "test/plain", event = "BufReadPre" },
+	}),
+	{
+		BufReadPre = {
+			{ pattern = "*.lua", ids = { "lua" } },
+			{ ids = { "plain" } },
+		},
 	},
-}, "same event, patterned first: separate variants")
+	"same event, patterned first: separate variants"
+)
 
-check(event_routes({
-	{ "test/a", event = { { event = "BufReadPre", pattern = "*.lua" } } },
-	{ "test/b", event = { { event = "BufReadPre", pattern = "*.lua" } } },
-}), {
-	BufReadPre = {
-		{ pattern = "*.lua", ids = { "a", "b" } },
+check(
+	event_routes({
+		{ "test/a", event = { { event = "BufReadPre", pattern = "*.lua" } } },
+		{ "test/b", event = { { event = "BufReadPre", pattern = "*.lua" } } },
+	}),
+	{
+		BufReadPre = {
+			{ pattern = "*.lua", ids = { "a", "b" } },
+		},
 	},
-}, "same event + same pattern: deduped into one variant")
+	"same event + same pattern: deduped into one variant"
+)
 
-check(event_routes({
-	{ "test/a", event = "BufReadPre" },
-	{ "test/b", event = "BufReadPre" },
-}), {
-	BufReadPre = {
-		{ ids = { "a", "b" } },
+check(
+	event_routes({
+		{ "test/a", event = "BufReadPre" },
+		{ "test/b", event = "BufReadPre" },
+	}),
+	{
+		BufReadPre = {
+			{ ids = { "a", "b" } },
+		},
 	},
-}, "same event + no pattern: deduped into one variant")
+	"same event + no pattern: deduped into one variant"
+)
 
-check(event_routes({
-	{ "test/map", event = { event = "BufReadPre", pattern = "*.lua" } },
-}), {
-	BufReadPre = {
-		{ pattern = "*.lua", ids = { "map" } },
+check(
+	event_routes({
+		{ "test/map", event = { event = "BufReadPre", pattern = "*.lua" } },
+	}),
+	{
+		BufReadPre = {
+			{ pattern = "*.lua", ids = { "map" } },
+		},
 	},
-}, "single { event, pattern } table compiles to a route variant")
+	"single { event, pattern } table compiles to a route variant"
+)
 
 local map_compiled = compile({
 	{ "test/map-lazy", event = { event = "BufWritePost", pattern = "*.lua" } },
@@ -724,7 +755,10 @@ do
 		{ "foo/bar", dependencies = { { "dep1" }, "foo/dep2" } },
 		"foo/dep1",
 	})
-	expect(c.registry["bar"].after[1] == "dep1" and c.registry["bar"].after[2] == "dep2", "dependencies: bare string spec resolves")
+	expect(
+		c.registry["bar"].after[1] == "dep1" and c.registry["bar"].after[2] == "dep2",
+		"dependencies: bare string spec resolves"
+	)
 	expect(c.registry["dep1"].src == "https://github.com/foo/dep1", "dependencies: short name resolves to top-level src")
 	expect(#c.pack == 3, "dependencies: exact lazy fixture has three pack entries")
 end
@@ -736,7 +770,10 @@ do
 	expect(disabled.registry["disabled"] ~= nil and disabled.registry["bar"] == nil, "disabled spec deps not registered")
 	expect(#disabled.pack == 1, "disabled spec dep has no pack entry")
 	local conditional = compile({ { "foo/conditional", cond = false, dependencies = { "foo/bar" } } })
-	expect(conditional.registry["conditional"] ~= nil and conditional.registry["bar"] == nil, "cond=false spec deps not registered")
+	expect(
+		conditional.registry["conditional"] ~= nil and conditional.registry["bar"] == nil,
+		"cond=false spec deps not registered"
+	)
 	expect(#conditional.pack == 1, "cond=false spec dep has no pack entry")
 	local active = compile({ { "foo/active", dependencies = { "foo/bar" } } })
 	expect(active.registry["bar"] ~= nil, "active spec deps still registered")
@@ -775,26 +812,58 @@ print("\n=== trigger validation tests ===\n")
 
 local rejection_cases = {
 	{
-		{ "folke/x.nvim", name = "x", keys = function()
-			return {}
-		end },
+		{
+			"folke/x.nvim",
+			name = "x",
+			keys = function()
+				return {}
+			end,
+		},
 		"function triggers are not supported",
 		"keys function rejected (never silently eager)",
 	},
 	{ { "folke/x.nvim", name = "x", event = 42 }, "event must be a string or array", "numeric event rejected" },
-	{ { "folke/x.nvim", name = "x", event = function() end }, "function triggers are not supported", "event function rejected" },
+	{
+		{ "folke/x.nvim", name = "x", event = function() end },
+		"function triggers are not supported",
+		"event function rejected",
+	},
 	{ { "folke/x.nvim", name = "x", ft = { "lua", 42 } }, "ft[2] must be a string", "non-string inside ft rejected" },
 	{ { "folke/x.nvim", name = "x", cmd = { {} } }, "cmd[1] must be a string", "table inside cmd rejected" },
 	{ { "folke/x.nvim", name = "x", ft = false }, "ft must be a string or array", "boolean ft rejected" },
 	{ { "folke/x.nvim", name = "x", keys = { {} } }, "non-empty lhs", "keys entry without lhs rejected" },
 	{ { "folke/x.nvim", name = "x", keys = { { lhs = "" } } }, "non-empty lhs", "empty lhs rejected" },
-	{ { "folke/x.nvim", name = "x", keys = { { lhs = "a", mode = 42 } } }, "mode must be a string or string[]", "numeric mode rejected" },
-	{ { "folke/x.nvim", name = "x", keys = { { lhs = "a", ft = 42 } } }, "must be a string or string[]", "numeric keys ft rejected" },
+	{
+		{ "folke/x.nvim", name = "x", keys = { { lhs = "a", mode = 42 } } },
+		"mode must be a string or string[]",
+		"numeric mode rejected",
+	},
+	{
+		{ "folke/x.nvim", name = "x", keys = { { lhs = "a", ft = 42 } } },
+		"must be a string or string[]",
+		"numeric keys ft rejected",
+	},
 	{ { "folke/x.nvim", name = "x", keys = { { lhs = "a", ft = "" } } }, "must not be empty", "empty keys ft rejected" },
-	{ { "folke/x.nvim", name = "x", event = { { event = 42 } } }, "must have event = string", "numeric event in table rejected" },
-	{ { "folke/x.nvim", name = "x", event = { { event = { "A", 42 } } } }, "must have event = string", "non-string in event array rejected" },
-	{ { "folke/x.nvim", name = "x", event = { { event = "BufEnter", pattern = 42 } } }, "pattern must be a string", "numeric pattern rejected" },
-	{ { "folke/x.nvim", name = "x", event = { "ok", {} } }, "event[2] must have event = string", "bare table in event rejected" },
+	{
+		{ "folke/x.nvim", name = "x", event = { { event = 42 } } },
+		"must have event = string",
+		"numeric event in table rejected",
+	},
+	{
+		{ "folke/x.nvim", name = "x", event = { { event = { "A", 42 } } } },
+		"must have event = string",
+		"non-string in event array rejected",
+	},
+	{
+		{ "folke/x.nvim", name = "x", event = { { event = "BufEnter", pattern = 42 } } },
+		"pattern must be a string",
+		"numeric pattern rejected",
+	},
+	{
+		{ "folke/x.nvim", name = "x", event = { "ok", {} } },
+		"event[2] must have event = string",
+		"bare table in event rejected",
+	},
 	{
 		{ "folke/x.nvim", name = "x", config = { foo = 1 } },
 		"config = { ... } (lazy.nvim's deprecated opts alias) is not supported",
@@ -803,22 +872,54 @@ local rejection_cases = {
 	{ { "folke/x.nvim", name = "x", config = 42 }, "config must be a function or true", "non-function config rejected" },
 	{ { "folke/x.nvim", name = "x", init = 42 }, "init must be a function", "non-function init rejected" },
 	{ { "folke/x.nvim", name = "x", cond = "yes" }, "cond must be a function or boolean", "string cond rejected" },
-	{ { "folke/x.nvim", name = "x", enabled = "yes" }, "enabled must be a function or boolean", "string enabled rejected" },
+	{
+		{ "folke/x.nvim", name = "x", enabled = "yes" },
+		"enabled must be a function or boolean",
+		"string enabled rejected",
+	},
 	{ { "folke/x.nvim", name = "x", lazy = "yes" }, "lazy must be a boolean", "string lazy rejected" },
 	{ { "folke/x.nvim", name = "x", after = "dep" }, "after must be an array", "string after rejected" },
-	{ { "folke/x.nvim", name = "x", after = { 42 } }, "after[1] must be a non-empty plugin id", "numeric after element rejected" },
-	{ { "folke/x.nvim", name = "x", after = { "" } }, "after[1] must be a non-empty plugin id", "empty after element rejected" },
+	{
+		{ "folke/x.nvim", name = "x", after = { 42 } },
+		"after[1] must be a non-empty plugin id",
+		"numeric after element rejected",
+	},
+	{
+		{ "folke/x.nvim", name = "x", after = { "" } },
+		"after[1] must be a non-empty plugin id",
+		"empty after element rejected",
+	},
 	{ { "folke/x.nvim", name = "x", build = 42 }, "build must be a string, function, false", "numeric build rejected" },
 	{ { "folke/x.nvim", name = "x", build = true }, "build must be a string, function, false", "boolean build rejected" },
-	{ { "folke/x.nvim", name = "x", build = { "make", 42 } }, "build[2] must be a string or function", "invalid build list item rejected" },
-	{ { "folke/x.nvim", name = "x", module = 42 }, "module must be a string, array, or false", "numeric module rejected" },
-	{ { "folke/x.nvim", name = "x", module = { "a", 42 } }, "module[2] must be a non-empty string", "non-string module element rejected" },
+	{
+		{ "folke/x.nvim", name = "x", build = { "make", 42 } },
+		"build[2] must be a string or function",
+		"invalid build list item rejected",
+	},
+	{
+		{ "folke/x.nvim", name = "x", module = 42 },
+		"module must be a string, array, or false",
+		"numeric module rejected",
+	},
+	{
+		{ "folke/x.nvim", name = "x", module = { "a", 42 } },
+		"module[2] must be a non-empty string",
+		"non-string module element rejected",
+	},
 	{ { "folke/x.nvim", name = "x", module = {} }, "module must not be an empty array", "empty module array rejected" },
 	{ { "folke/x.nvim", name = "x", version = 42 }, "version must be a string", "numeric version rejected" },
 	{ { "folke/x.nvim", name = "x", version = {} }, "version must be a string", "table version rejected" },
 	{ { "folke/x.nvim", name = "x", version = "main" }, "not a supported semver range", "git ref in version rejected" },
-	{ { "folke/x.nvim", name = "x", version = "abc123" }, "not a supported semver range", "commit hash in version rejected" },
-	{ { "folke/x.nvim", name = "x", version = "1.2 || 1.3" }, "not a supported semver range", "multi-range version rejected" },
+	{
+		{ "folke/x.nvim", name = "x", version = "abc123" },
+		"not a supported semver range",
+		"commit hash in version rejected",
+	},
+	{
+		{ "folke/x.nvim", name = "x", version = "1.2 || 1.3" },
+		"not a supported semver range",
+		"multi-range version rejected",
+	},
 	{ { "folke/x.nvim", name = "x", branch = 42 }, "branch must be a non-empty string", "numeric branch rejected" },
 	{ { "folke/x.nvim", name = "x", tag = "" }, "tag must be a non-empty string", "empty tag rejected" },
 	{ { "folke/x.nvim", name = "x", commit = {} }, "commit must be a non-empty string", "table commit rejected" },
@@ -843,8 +944,16 @@ local rejection_cases = {
 		"keys[1].rhs must be a string, function, false",
 		"table key rhs rejected",
 	},
-	{ { "folke/x.nvim", name = "x", event = { { event = "" } } }, "event must not be empty", "empty event in entry rejected" },
-	{ { "folke/x.nvim", name = "x", event = { { event = { "A", "" } } } }, "event must not be empty", "empty event in array rejected" },
+	{
+		{ "folke/x.nvim", name = "x", event = { { event = "" } } },
+		"event must not be empty",
+		"empty event in entry rejected",
+	},
+	{
+		{ "folke/x.nvim", name = "x", event = { { event = { "A", "" } } } },
+		"event must not be empty",
+		"empty event in array rejected",
+	},
 	{ { "folke/x.nvim", name = "" }, "name must be a non-empty string", "empty name rejected" },
 	{ { "folke/x.nvim", name = "x", dir = "" }, "dir must be a non-empty string", "empty dir rejected" },
 	{ { "folke/x.nvim", name = "x", url = "" }, "url must be a non-empty string", "empty url rejected" },
@@ -951,7 +1060,10 @@ do
 			table.insert(got, v.mode)
 		end
 		table.sort(got)
-		expect(#got == #modes and table.concat(got, ",") == table.concat(modes, ","), "keys surface: " .. lhs .. " routes " .. table.concat(modes, ","))
+		expect(
+			#got == #modes and table.concat(got, ",") == table.concat(modes, ","),
+			"keys surface: " .. lhs .. " routes " .. table.concat(modes, ",")
+		)
 	end
 	expect(routes["e"] == nil, "keys surface: false rhs drops the route (lazy.nvim parity)")
 	expect(routes["h"][2].mode == "x", "keys surface: mode array expands")
@@ -1058,11 +1170,7 @@ do
 	})
 	local route = c.routes.keys["<leader>ko"][1]
 	expect(
-		route ~= nil
-			and route.noremap == nil
-			and route.nowait == nil
-			and route.expr == nil
-			and route.buffer == nil,
+		route ~= nil and route.noremap == nil and route.nowait == nil and route.expr == nil and route.buffer == nil,
 		"keys: unsupported vim.keymap.set options are dropped"
 	)
 end
@@ -1075,14 +1183,8 @@ do
 	})
 	local variants = c.routes.keys["x"]
 	expect(#variants == 2, "same lhs across specs: one variant per mode")
-	expect(
-		variants[1].mode == "n" and variants[1].ids[1] == "first",
-		"n variant keeps only the n declaration"
-	)
-	expect(
-		variants[2].mode == "v" and variants[2].ids[1] == "second",
-		"v variant keeps only the v declaration"
-	)
+	expect(variants[1].mode == "n" and variants[1].ids[1] == "first", "n variant keeps only the n declaration")
+	expect(variants[2].mode == "v" and variants[2].ids[1] == "second", "v variant keeps only the v declaration")
 end
 
 do
@@ -1116,7 +1218,10 @@ do
 	local variants = c.routes.keys["x"]
 	expect(#variants == 2, "same lhs within one spec: one variant per mode")
 	expect(
-		variants[1].mode == "n" and variants[1].rhs == "<cmd>N<CR>" and variants[2].mode == "v" and variants[2].rhs == "<cmd>V<CR>",
+		variants[1].mode == "n"
+			and variants[1].rhs == "<cmd>N<CR>"
+			and variants[2].mode == "v"
+			and variants[2].rhs == "<cmd>V<CR>",
 		"within-spec variants keep their own rhs"
 	)
 	expect(#variants[1].ids == 1 and #variants[2].ids == 1, "within-spec variants route the plugin once each")
@@ -1132,10 +1237,7 @@ do
 	})
 	local variants = c.routes.keys["x"]
 	expect(#variants == 3, "duplicate modes in an array collapse into one variant")
-	expect(
-		variants[1].mode == "n" and variants[2].mode == "v" and variants[3].mode == "x",
-		"mode-array order preserved"
-	)
+	expect(variants[1].mode == "n" and variants[2].mode == "v" and variants[3].mode == "x", "mode-array order preserved")
 end
 
 -- Same lhs + same mode: shared trigger map, first declaration's rhs/opts
@@ -1152,8 +1254,14 @@ do
 	vim.notify = function() end
 	local variants = c.routes.keys["x"]
 	expect(#variants == 1, "same lhs + same mode: single shared variant")
-	expect(variants[1].rhs == "<cmd>First<CR>" and variants[1].desc == "first", "same lhs + same mode: first rhs/opts kept")
-	expect(#variants[1].ids == 2 and variants[1].ids[1] == "first" and variants[1].ids[2] == "second", "same-mode variant loads every declaring plugin")
+	expect(
+		variants[1].rhs == "<cmd>First<CR>" and variants[1].desc == "first",
+		"same lhs + same mode: first rhs/opts kept"
+	)
+	expect(
+		#variants[1].ids == 2 and variants[1].ids[1] == "first" and variants[1].ids[2] == "second",
+		"same-mode variant loads every declaring plugin"
+	)
 	local warned = false
 	for _, m in ipairs(msgs) do
 		if m:find("shared by multiple plugins", 1, true) then
@@ -1292,8 +1400,16 @@ end
 
 do
 	local cases = {
-		{ { "folke/x.nvim", name = "x", dependencies = 42 }, "dependencies must be a string", "numeric dependencies rejected" },
-		{ { "folke/x.nvim", name = "x", dependencies = { "a", 42 } }, "dependencies[2] must be a string", "non-string element in dependencies rejected" },
+		{
+			{ "folke/x.nvim", name = "x", dependencies = 42 },
+			"dependencies must be a string",
+			"numeric dependencies rejected",
+		},
+		{
+			{ "folke/x.nvim", name = "x", dependencies = { "a", 42 } },
+			"dependencies[2] must be a string",
+			"non-string element in dependencies rejected",
+		},
 	}
 	for _, case in ipairs(cases) do
 		local ok, err = pcall(compile, { case[1] })
@@ -1331,7 +1447,10 @@ do
 		{ "folke/a.nvim", name = "dup-id" },
 		{ "folke/b.nvim", name = "dup-id" },
 	})
-	expect(not ok and err and err:find("duplicate name", 1, true) ~= nil, "duplicate id rejected (was a silent overwrite)")
+	expect(
+		not ok and err and err:find("duplicate name", 1, true) ~= nil,
+		"duplicate id rejected (was a silent overwrite)"
+	)
 	local ok2, err2 = pcall(compile, {})
 	expect(not ok2 and err2 and err2:find("non-empty array", 1, true) ~= nil, "empty spec array rejected")
 	local ok3, err3 = pcall(compile)
@@ -1339,11 +1458,17 @@ do
 	local s1 = { "folke/a.nvim", name = "sparse-a" }
 	local sparse = { [1] = s1, [3] = { "folke/b.nvim", name = "sparse-b" } }
 	local ok4, err4 = pcall(compile, sparse)
-	expect(not ok4 and err4 and err4:find("must not be sparse", 1, true) ~= nil, "sparse spec array rejected (ipairs would drop [3])")
+	expect(
+		not ok4 and err4 and err4:find("must not be sparse", 1, true) ~= nil,
+		"sparse spec array rejected (ipairs would drop [3])"
+	)
 	local ok5, err5 = pcall(compile, { 42 })
 	expect(not ok5 and err5 and err5:find("must be a spec table or string", 1, true) ~= nil, "non-table element rejected")
 	local ok6, err6 = pcall(compile, { { "folke/a.nvim", name = "dup-name", build = 42 } })
-	expect(not ok6 and err6 and err6:find("build must be a string", 1, true) ~= nil, "invalid build still caught before duplicate check")
+	expect(
+		not ok6 and err6 and err6:find("build must be a string", 1, true) ~= nil,
+		"invalid build still caught before duplicate check"
+	)
 end
 
 do
@@ -1423,7 +1548,10 @@ do
 	end
 	expect(found, "submodules = false warns (vim.pack cannot opt out)")
 	local ok, err = pcall(compile, { { "folke/sub-bad.nvim", name = "sub-bad", submodules = "yes" } })
-	expect(not ok and tostring(err):find("submodules must be a boolean", 1, true) ~= nil, "non-boolean submodules rejected")
+	expect(
+		not ok and tostring(err):find("submodules must be a boolean", 1, true) ~= nil,
+		"non-boolean submodules rejected"
+	)
 end
 
 do
@@ -1447,7 +1575,10 @@ do
 			dependencies = { { dir = "/tmp/depdir" } },
 		},
 	})
-	expect(c.registry["depdir"] ~= nil and c.registry["p-dir"].after[1] == "depdir", "inline dir-only dep resolves by dir name")
+	expect(
+		c.registry["depdir"] ~= nil and c.registry["p-dir"].after[1] == "depdir",
+		"inline dir-only dep resolves by dir name"
+	)
 	local c2 = compile({
 		{ "folke/p2.nvim", name = "p-dup", dependencies = { "d1", "d1" } },
 		{ "folke/d1.nvim", name = "d1" },

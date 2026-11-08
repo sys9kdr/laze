@@ -67,4 +67,4 @@ end
 
 return {
 	get_main = get_main,
-};
+}
