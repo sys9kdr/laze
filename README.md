@@ -1,62 +1,16 @@
 # Laze.nvim
 
-Tiny package manager. A thin wrapper around Neovim's `vim.pack` APIs.
-Requires Neovim **0.12+** (`vim.pack`).
+A tiny package manager with lazy.nvim-style specs, built on Neovim's native `vim.pack` APIs. Requires Neovim **0.12+**.
 
-It adds a lazy.nvim-shaped spec subset and a small lazy-loading plan on top of native package management. `vim.pack` still owns installation, placement, tag/ref resolution, the lockfile, and dependency handling; laze lowers lazy.nvim ranges/refs to vim.pack's `version` field.
-
-It intentionally does not provide its own dependency solver or `:Lazy`-style manager UI. Opt-in `:Laze update/clean/health/reload` wrappers live in `laze.extra`.
-
-Its wrapper layer is narrow:
-
-* accept a small lazy.nvim-shaped spec subset
-* normalize it into a pure IR
-* build a thin execution plan
-* delegate package operations to Neovim-native primitives (`vim.pack`, startup phases, autocmds)
-
-It has:
-
-* small surface area — easy to debug, easy to delete
-* deterministic compilation — identical specs → identical IR
-* escape hatch first — migrate (back) to lazy.nvim with little or no changes ([docs/migration.md](docs/migration.md))
-* opt-in extras only — everything beyond compile → plan → setup lives next to the core, opt-in ([docs/extras.md](docs/extras.md))
-
-It does not have:
-
-* 100% lazy.nvim compatibility — see [Compatibility](#compatibility)
+Laze adds a subset of lazy.nvim's spec syntax and lazy-loading on top of `vim.pack`. Package management (e.g. installation) is handled by `vim.pack`.
 
 ## Compatibility
 
-laze aims to be a lightweight alternative to lazy.nvim: it accepts a
-lazy.nvim-shaped declarative spec so most ordinary plugin configurations can
-be reused with minimal changes. It does not aim for 100% compatibility. Some
-lazy.nvim features, manager commands, and edge cases behave differently or
-remain unsupported; the goal is to cover the common declarative core while
-keeping the implementation small, simple, and maintainable.
+Laze is **not fully compatible with lazy.nvim**.
 
-Compatibility is pinned to the lazy.nvim spec documented as of **2026-08-18**
-(the reference date in `tests/test_subset.lua`), not to every upstream change.
-When a field cannot be represented faithfully, laze fails loudly at compile
-time or documents the exact conversion. A few fields are explicitly
-warned-and-ignored (`import`, `submodules = false`, `optional`, `specs`), and
-unsupported `keys` entry options are dropped; see
-[docs/migration.md](docs/migration.md). Extensions are outside the subset and
-use non-colliding names. Known differences are indexed in
-[docs/known-differences.md](docs/known-differences.md) with stable IDs and
-test references. Differences tagged `compile` emit one warning per compile
-naming the KD id; pass `{ known_differences = false }` to `compile`/`setup`
-to silence them.
-
-Notable gaps: no `:Lazy` UI or install/sync surface (only the opt-in `:Laze`
-wrappers); `import`, `specs`, `optional`, and `submodules = false` are not
-implemented; function-shaped triggers are rejected; and `version` accepts
-semver ranges only (refs use `branch`/`tag`/`commit`).
-
-The guiding principle is to preserve compatibility where practical, without
-letting it undermine laze's primary goal: a small, maintainable alternative
-built around Neovim's native plugin management. See
-[docs/migration.md](docs/migration.md) for field-by-field expectations and
-[AGENTS.md](AGENTS.md) for the subset discipline.
+- **Spec subset.** Most common specs work as-is. See [known differences](docs/known-differences.md) and [design](docs/design.md).
+- **No manager UI.** Laze focuses on specs and lazy-loading, not plugin management commands.
+    - `laze.extra` is opt-in and experimental util commands, they use no UIs or `vim.pack()` UIs.
 
 ## Quick start
 
@@ -103,144 +57,38 @@ Or just one call if you have specs elsewhere:
 local compiled = laze.setup(specs)   -- compile + vim.pack.add + plan(), returns compiled
 ```
 
-`setup()` returns the compiled IR (`LazeCompiled`). You can hand it to [`laze.build_plan`](#instrumenting-load-time) for hooks like load-time timings, or just keep it around for inspection — otherwise ignore it. Pinning needs no code: commit `vim.pack`'s own lockfile (`$XDG_CONFIG_HOME/nvim/nvim-pack-lock.json`).
+`setup()` returns the compiled IR (`LazeCompiled`). You can hand it to [`laze.build_plan`](docs/performance.md#instrumenting-load-time) for hooks like load-time timings, or just keep it around for inspection — otherwise ignore it. Pinning needs no code: commit `vim.pack`'s own lockfile (`$XDG_CONFIG_HOME/nvim/nvim-pack-lock.json`).
 
 That's it. Everything else in laze is declarative spec fields, opt-in extras, and your own commands — [see below](#spec-shape).
 
 ## Spec shape
 
-The spec list follows lazy.nvim's shape: each entry may be a spec table, a
-bare source string (`"folke/which-key.nvim"`), or a nested list of those.
-A single spec table is also accepted. Nested lists are flattened before
-compilation; sparse lists are rejected instead of silently dropping entries.
+A spec is a table, a bare `"owner/repo"` string, or a nested list of those.
+Nested lists are flattened; sparse lists are rejected.
 
-Supported fields:
-
-* `[1]` or `src`
-* `name`
-* `dir`
-* `url`
-* `event`
-* `ft`
-* `cmd`
-* `keys`
-* `dev`
-* `init`
-* `config`
-* `cond`
-* `enabled`
-* `lazy` — explicit override: `false` forces startup loading even with triggers, `true` keeps a triggerless plugin lazy
-* `submodules` — `true` matches vim.pack's default and is silent; `false` cannot be honored and warns
-* `silent`
-* `version` — semver range (`string|false`), lowered to a `vim.VersionRange`
-  via `vim.version.range()`. Single ranges only: `*`, partial versions,
-  `^`/`~`/`>`/`>=`/`<`/`<=`/`=`, `x` wildcards, hyphen ranges, and
-  prerelease/build. Multi-range (`||`) and whitespace-separated comparator
-  sets are rejected; the only whitespace allowed inside a range is the
-  ` - ` hyphen separator. Prerelease parity with lazy.nvim: a candidate
-  matches only when its prerelease equals the lower bound's prerelease, so
-  `>1.2.3` excludes `1.2.4-alpha` and `1.2.3-alpha` matches only that
-  prerelease.
-* `branch` / `tag` / `commit` — git refs, lowered to vim.pack's version string
-  (lazy.nvim precedence: `commit > tag > version > branch`; `version = false`
-  skips the range and falls back to `branch` / the default branch)
-* `pin` — passed through to `vim.pack.Spec`
-* `data`
-* `after`
-* `dependencies`
-* `module` — module name(s) that trigger lazy load on `require`
-* `main` — module used by `opts` / `config = true`; resolved at load when omitted (explicit name, normalized name match, or the plugin's single top-level module)
-* `opts` — table or `function(plugin, opts)` mutator passed to `require(main).setup(opts)` at load
-* `config` — function, or `true` for the `opts` shorthand (the function receives `(plugin, opts)`)
-* `build` — build command, function, or list of those (run sequentially after install/update)
-* `priority` — eager plugin load order: higher loads first, tie-break by id (default 50)
-* `dev_path` — local path for dev mode (used by your own commands)
-
-Accepted value shapes:
-
-* `string`
-* `string[]`
-* `boolean`
-* `function`
-
-Notes:
-
-* `cond`/`enabled` are resolved once during `setup()`, before `vim.pack.add`: `false` (literal or a function returning false) means the plugin is not installed and its `init`, triggers, keys and `config` are skipped — lazy.nvim parity. Verdicts are shared with the plan, so the hooks are evaluated exactly once. See [docs/design.md](docs/design.md).
-* `dependencies` is **recursive** syntax sugar: each dependency is registered as a separate spec and mapped to `after`, and an inline dep's own `dependencies` are expanded first (deepest-first load order). A dependency is matched by explicit `name`, derived name, or resolved source, so a renamed top-level spec is referenced instead of registered a second time; a shared dep is registered once. Dependencies of an `enabled = false` or `cond = false` spec are not registered (lazy.nvim behavior). No config/trigger inheritance. Dependencies are **never eager** unless `lazy = false` says otherwise: they load with their parents — eagerly when the parent is eager, lazily when the parent is lazy (lazy.nvim-compatible: *"Dependencies are always lazy-loaded unless specified otherwise"*). To load a dep independently, give it its own trigger (e.g. `event = "InsertEnter"`).
-* `[1]`/`src` is content-aware: absolute and `.`-prefixed paths (`./foo`, `../foo`) are treated as local dirs, `~` expands, `https://`/`git@` URLs as-is, anything else is expanded to `https://github.com/<src>`. A bare relative path like `foo/bar` is NOT a local dir — it becomes a GitHub URL.
-* `name` is used for internal routing (routes, after deps) and defaults to the plugin's repository name with `.nvim`/`.lua` stripped (lazy.nvim-compatible: `folke/which-key.nvim` → `which-key`). The installed directory (`pack/<pkg>/opt/<name>`) and `:packadd` use the *full* repository name (vim.pack's own derivation) — for `which-key.nvim` that directory is `which-key.nvim`, matching existing installs. It is **not** passed directly to `require` — laze only requires module names explicitly declared via `module`.
-* `silent = true` suppresses `vim.notify` warnings when `require` fails (e.g. for optional plugins).
-* Unknown fields (e.g. `pin`, `data`) are passed through to the `pack` entry for `vim.pack.Spec`. `version` is consumed as a semver range and lowered to a `vim.VersionRange` via `vim.version.range()`; `branch`/`tag`/`commit` are consumed as git refs and lowered to vim.pack's version string. Precedence matches lazy.nvim: `commit > tag > version > branch`. `version = false` skips the range and falls back to `branch` / the default branch. `version` is parsed only when it wins precedence; `dir` plugins do not lower it (lazy.nvim ignores it), but a range is still validated. An active dev path (`dev`/`dev_path`) is a local checkout too: `version`/`branch`/`tag`/`commit` are validated but never lowered into the pack entry, so vim.pack cannot check out a ref in your dev clone (lazy.nvim turns `dev` into a local `dir`). Unsupported version strings (git refs like `"main"`, commit hashes, multi-ranges like `"1.2 || 1.3"`, and whitespace-separated comparator sets) are rejected with a compile error — use `branch`/`tag`/`commit` for refs. vim.pack errors if no tag matches the range; lazy.nvim falls back to the default branch, so use a ref for repos without semver tags.
-* `dir` takes priority over `[1]`, `dev`, and `url`.
-* `dir` plugins are **local**: they are excluded from the `pack` array (vim.pack never installs or manages them) and the plan loads them at trigger/eager time by prepending the exact directory path to `'runtimepath'`. This mirrors lazy.nvim's `dir` behavior — the directory must already exist on disk.
-* `url` takes priority over `[1]` and auto-detected URLs.
-* `keys = { { lhs = "<leader>x" } }` without `rhs` is a *takeover* trigger: the plugin's own keymap for that lhs replaces laze's after load. The replay expands `<leader>` with the **current** `g:mapleader` — set it before `laze.setup()` and don't change it mid-session (the plugin's map is created with whatever leader was active at registration). `rhs = false` (or `vim.NIL`) drops the entry at compile time, so nothing is registered and the key never loads the plugin; the spec still counts as having a `keys` trigger and stays lazy (measured lazy.nvim behavior: `plugin.keys` stays truthy even when the resolved handler map is empty). A later entry for the same `(lhs, mode, ft)` replaces an earlier one, so `{ "<F7>", "x" }, { "<F7>", false }` removes the map while the reverse order re-adds it. `rhs = ""` or `"<nop>"` registers a plain no-op map that never loads it. All of these match lazy.nvim.
-* Triggers (`event`/`ft`/`cmd`/`keys`) accept `string` or `string[]`; `event` additionally accepts lazy.nvim's `{ event, pattern }` table, either alone or in an array (e.g. `event = { event = "BufReadPre", pattern = "*.lua" }` or `event = { "BufEnter", { event = "BufLeave", pattern = "*.md" } }`), and `keys` accepts `{ lhs, mode?, rhs?, desc?, silent? }` entries (`mode` may be a `string[]`, default `"n"`). `pattern` must be a string. Each distinct `(event, pattern)` pair is routed independently: a spec without a pattern never inherits another spec's pattern, and a patterned spec never fires for buffers that do not match. Keys are routed **per `(lhs, mode)` variant**: a `mode` array expands to one independent trigger map per mode, so two entries sharing an `lhs` with different modes both work — an `n`-mode press loads only the `n` variant, a `v`-mode press only the `v` variant. If entries share the same `lhs` *and* mode but disagree on `rhs`/`desc`/`silent`, laze warns and keeps the first entry's map options (the trigger map is shared; every declaring plugin still loads on that key). Empty `mode` values follow lazy.nvim: `mode = ""` is passed to `vim.keymap.set` (multi-mode mapping), and `mode = {}` installs no key trigger but keeps the plugin lazy. Event names use Neovim's stored form — aliases are normalized at compile time (`BufRead`→`BufReadPost`, `BufCreate`→`BufAdd`, `BufWrite`→`BufWritePre`, same mapping `nvim_create_autocmd` applies). **Function-shaped triggers are rejected with a compile error** — laze has no runtime trigger evaluation, and silently treating them as "no trigger" would turn the plugin eager. Key-level `ft` (`keys = { { lhs, ft = "http" } }`, `ft` may be a `string[]`) installs a **buffer-local** trigger map via a `FileType` autocmd and never a global map — lazy.nvim parity; a key-level `ft` and a global declaration for the same `lhs`/mode are independent variants.
-
-## `module` — module-triggered lazy load
+The full field set is the `LazeSpec` LuaCATS type in [`lua/laze/init.lua`](lua/laze/init.lua); behavior details are in [docs/spec.md](docs/spec.md).
 
 ```lua
 {
-  "folke/which-key.nvim",
-  module = "which-key",        -- single module
-  -- or: module = { "which-key", "which-key.util" }
+  { "owner/repo" },                                 -- eager: no trigger
+  { "owner/repo", event = "VeryLazy" },             -- lazy: event
+  { "owner/repo", cmd = "Cmd", keys = { "<F5>" } }, -- lazy: command / key
+  { "owner/repo", module = "mod", config = true },  -- lazy: require("mod")
+  { "owner/repo", dependencies = { "dep/repo" } },
+  { "owner/repo", version = "^1.2" },               -- or branch/tag/commit
+  { "owner/repo", build = ":Build", dev = true },
+  { "owner/repo", dir = "~/src/repo", priority = 60 },
 }
 ```
 
-When you call `require("which-key")`, the plugin loads automatically (with its `after` deps). Triggers are registered as **`package.preload` entries** at plan build time — the global `require` is never wrapped, unrelated requires pay zero overhead, and each entry consumes itself on first use.
-
-## `build` — pass-through to vim.pack
+Rejected at compile time:
 
 ```lua
-{
-  "nvim-treesitter/nvim-treesitter",
-  build = ":TSUpdate",         -- string command
-  -- or:
-  build = function()           -- or function
-    vim.cmd("TSUpdate")
-  end,
-}
+{ "owner/repo", event = function() end }   -- function-shaped triggers
+{ "owner/repo", version = "main" }         -- use branch/tag/commit
 ```
 
-Passed directly to `vim.pack.Spec`.
-
-## `dev` / `dev_path` — local dev clones
-
-```lua
-{ "folke/flash.nvim", dev = true },          -- <dev_root>/<name> (default ~/projects)
-{ "folke/lazydev.nvim", dev = "~/work/lazydev.nvim" }, -- or an explicit path
-
-{
-  "my/plugin",
-  dev_path = "~/projects/my-plugin",  -- just metadata: your own commands decide what to do with it
-}
-```
-
-`dev = true` or a string re-points the install source at your local clone. `~` expands; absolute and relative paths pass through verbatim. `dev_path` is a fallback source with the same effect when `dev` is unset — see [Custom commands](docs/commands.md) for sync / dev-mode / hot-reload recipes.
-
-A dev path is a local checkout, so laze never lowers `version`/`branch`/`tag`/`commit` for it (lazy.nvim treats dev plugins as local `dir`s). A semver `version` is still validated at compile time; it just cannot select a tag in your working tree.
-
-## `VeryLazy`
-
-`VeryLazy` is a convenience post-startup event. `User VeryLazy` is always emitted, even if no spec uses `event = "VeryLazy"`, so your own autocmds on it run too.
-
-In GUI mode it fires on `UIEnter`. In headless mode — or whenever the plan is built after startup (`vim_did_enter ~= 0`, when a one-shot `UIEnter` autocmd would be dead) — it fires immediately after the execution plan is set up.
-
-Use it for plugins that should not be on the critical path.
-
-## Instrumenting load time
-
-Hooks belong to the execution plan, not the compiler — `build_plan` takes two optional hooks (`setup` passes them through). Measure plugin load time in a few lines — no wrapper module needed:
-
-```lua
-local compiled = laze.compile(specs)
-local timings = {}
-laze.build_plan(compiled, {
-  on_load = function(id, ms) table.insert(timings, { id = id, time_ms = ms }) end,
-  on_fail = function(id, err) vim.notify(id .. ": " .. err) end,
-})()
--- later: for _, t in ipairs(timings) do print(("%6.2f  %s"):format(t.time_ms, t.id)) end
-```
+`import`, `specs`, `optional`, and `submodules = false` are warned and ignored.
 
 ## Development
 
@@ -259,31 +107,25 @@ distribution's package). Pin the same version; no Rust toolchain is required.
 
 ## Further reading
 
+* [Spec field details: triggers, keys, dependencies, name/src, refs](docs/spec.md)
 * [Design: output model, activation invariant, philosophy](docs/design.md)
 * [Extras: maintenance commands](docs/extras.md)
 * [Custom commands: sync, dev mode, hot reload, sandbox](docs/commands.md)
 * [Migrating from lazy.nvim](docs/migration.md)
 * [Known differences from lazy.nvim](docs/known-differences.md)
-* [Performance: measured numbers, resolved items, accepted trade-offs](docs/performance.md)
+* [Performance: measured numbers, instrumentation hooks, accepted trade-offs](docs/performance.md#instrumenting-load-time)
 * [What laze doesn't have (and won't)](docs/not-have.md)
 
 ## License and credits
 
-**Apache-2.0** © 2026 Daiki Noda (sys9kdr).
+**Apache-2.0** © 2026 Daiki Noda (sys9kdr). Actively maintained by the author;
+laze's own code and tests are original.
 
-laze is **actively maintained** by Daiki Noda (sys9kdr). Core, extras,
-docs and the laze-specific tests are written for laze itself; no lazy.nvim
-implementation code is vendored or copied. The semver range vectors in
-`tests/fixtures/lazy_semver_cases.lua` are adapted from lazy.nvim's
-`tests/manage/semver_spec.lua` (Apache-2.0) and carry an attribution header.
-A small part of lazy.nvim's own test suite is vendored under
-`tests/vendor/lazy.nvim/` as a behavioral oracle for known-difference
-audits (Apache-2.0; see its `LICENSE` and `NOTICE`). It is not part of the
-laze runtime or CI.
+laze's spec surface is a deliberate subset of **lazy.nvim** (Apache-2.0, ©
+Folke Lemaitre), which also inspired the migration goal. The semver vectors are
+adapted from its `tests/manage/semver_spec.lua`, and a small part of its test
+suite is vendored under `tests/vendor/lazy.nvim/` as a behavioral oracle
+(Apache-2.0; see its `LICENSE` and `NOTICE`). It is not part of the laze runtime
+or CI.
 
-Credits:
-
-* **lazy.nvim** (Apache-2.0, © Folke Lemaitre) — laze's spec surface is a deliberate subset of lazy.nvim's declarative spec format, its name derivation (`Spec.get_name`) informed laze's id/pkg derivation, and the migration-compatibility goal (escape hatch first) is directly inspired by it. Its semver, keys and plugin-spec tests are vendored under `tests/vendor/lazy.nvim/` for compatibility audits. https://github.com/folke/lazy.nvim
-* **Neovim / `vim.pack`** (Apache-2.0) — installation, placement, tag/ref resolution, and the lockfile are delegated to `vim.pack`; laze lowers lazy.nvim ranges/refs to its `version` field.
-
-See AGENTS.md for design invariants and conventions.
+See [AGENTS.md](AGENTS.md) for the repository guide.

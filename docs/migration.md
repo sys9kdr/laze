@@ -9,12 +9,12 @@ laze accepts lazy.nvim's declarative spec shape on purpose (escape hatch first).
 * `import = "..."` → not supported; load your spec files yourself and pass the resulting tables to `setup`.
 * `priority` → **honored for eager ordering** (higher first, tie-break: id), default 50 — matches lazy.nvim's colorscheme-first workflow. Non-number priorities are rejected.
 * `submodules = false`, `optional`, `specs`: consumed with a per-compile warning (each compile, not one-time), no equivalent. `submodules = true` matches vim.pack and is silent.
+* `build = { ... }` (lazy.nvim's array form) → supported; items run sequentially after install/update. `build = false` means "no build", like lazy.nvim.
 
 **Rejected loudly (safe direction — lazy.nvim never breaks a laze config, only the reverse)**
 
 * Function-shaped triggers (`event`/`cmd`/`ft`/`keys` as a function): compile error — laze does not evaluate triggers.
 * `keys[].ft` (per-key filetype scoping): supported — laze installs a buffer-local trigger map on the matching `FileType`, never a global map.
-* `build` as a list of commands (lazy.nvim's array form): compile error — use a single string or function. (`build = false` is accepted and means "no build", like lazy.nvim.)
 * `version` as a prebuilt `vim.VersionRange`, a git ref, a multi-range (`1.2 || 1.3`), or a whitespace-separated comparator set: compile error — pass a single semver range string, or use `branch`/`tag`/`commit` for refs.
 
 **Version notes** — `version` is lazy.nvim's semver range and is lowered to a `vim.VersionRange` via `vim.version.range()`; `branch`/`tag`/`commit` are refs and lower to vim.pack's version string. Precedence is `commit > tag > version > branch`; `version = false` falls back to `branch` / the default branch. A range is parsed only when it wins precedence, so a bad `version` overridden by `tag`/`commit` is ignored (like lazy.nvim). `dir` plugins do not lower `version` (lazy.nvim ignores it), but the range is still validated. An active dev path (`dev`/`dev_path`) is local too: like `dir`, `version`/`branch`/`tag`/`commit` are validated but never lowered, because lazy.nvim turns `dev` into a local `dir` and vim.pack would otherwise clone the dev path and check out the ref there.

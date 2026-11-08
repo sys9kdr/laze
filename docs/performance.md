@@ -258,6 +258,22 @@ None. New hot paths must land with a perf regression test in
 `tests/run.lua perf` (asserted thresholds) or a note here explaining
 why the threshold doesn't apply.
 
+## Instrumenting load time
+
+Hooks belong to the execution plan, not the compiler — `build_plan` takes two
+optional hooks (`setup` passes them through). Measure plugin load time in a few
+lines — no wrapper module needed:
+
+```lua
+local compiled = laze.compile(specs)
+local timings = {}
+laze.build_plan(compiled, {
+  on_load = function(id, ms) table.insert(timings, { id = id, time_ms = ms }) end,
+  on_fail = function(id, err) vim.notify(id .. ": " .. err) end,
+})()
+-- later: for _, t in ipairs(timings) do print(("%6.2f  %s"):format(t.time_ms, t.id)) end
+```
+
 ## Benchmarks
 
 Standalone benchmarks for manual profiling (not part of CI):
