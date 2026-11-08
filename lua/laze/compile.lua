@@ -291,6 +291,11 @@ local function add_to_event_route(route_map, events, plugin_id)
 	end
 end
 
+--- Variant identity for `ft`: an ft set as one comparable string ("" = global).
+local function ft_id(value)
+	return value and table.concat(value, "\0") or ""
+end
+
 --- Key routes are per (lhs, mode) variant: `routes.keys[lhs]` is an array
 --- with one entry per normalized mode (a `mode` array expands to one
 --- variant per mode, in declaration order). Each variant is an independent
@@ -325,9 +330,6 @@ local function add_to_key_route(route_map, keys, plugin_id)
 						table.insert(copy, value)
 					end
 					ft = copy
-				end
-				local function ft_id(value)
-					return value and table.concat(value, "\0") or ""
 				end
 				local variants = route_map[lhs]
 				-- `rhs = false` (or `vim.NIL`) removes this plugin's entry
@@ -677,6 +679,13 @@ local function validate_spec(spec, idx, warned, notify)
 
 	local spec_id = tostring(src or spec.dir or spec.url)
 
+	-- Every check below fails fatally (diag.spec raises). The closure keeps the
+	-- inline lazy require from lua/laze/diag.lua (parsed only when a message
+	-- actually fires) while leaving one short call per check.
+	local function err(msg)
+		require("laze.diag").spec(idx, spec_id, msg)
+	end
+
 	warn_unsupported(spec, idx, spec_id, warned, notify)
 
 	local dropped = dropped_key_options(spec.keys)
@@ -692,61 +701,58 @@ local function validate_spec(spec, idx, warned, notify)
 	end
 
 	if spec.init ~= nil and type(spec.init) ~= "function" then
-		require("laze.diag").spec(idx, spec_id, "init must be a function")
+		err("init must be a function")
 	end
 	if spec.config ~= nil and type(spec.config) ~= "function" and spec.config ~= true then
+		-- The two shapes are exclusive (err raises): the table form is
+		-- lazy.nvim's removed opts alias, so it gets a message naming the
+		-- replacements instead of the generic type error.
 		if type(spec.config) == "table" then
-			require("laze.diag").spec(
-				idx,
-				spec_id,
-				"config = { ... } (lazy.nvim's deprecated opts alias) is not supported — use main = \"...\" with opts = {...}, or config = function() ... end"
-			)
+			err("config = { ... } (lazy.nvim's deprecated opts alias) is not supported — use main = \"...\" with opts = {...}, or config = function() ... end")
+		else
+			err("config must be a function or true")
 		end
-		require("laze.diag").spec(idx, spec_id, "config must be a function or true")
 	end
 	-- opts is lazy.nvim's setup shorthand: a table (or a function returning
 	-- one) passed to require(main).setup(opts) at load. main is resolved
 	-- lazily like lazy.nvim (explicit, name match, or the single top-level
 	-- module) because the plugin is not installed at compile time.
 	if spec.opts ~= nil and type(spec.opts) ~= "table" and type(spec.opts) ~= "function" then
-		require("laze.diag").spec(idx, spec_id, "opts must be a table or function")
+		err("opts must be a table or function")
 	end
 	if spec.main ~= nil and (type(spec.main) ~= "string" or spec.main == "") then
-		require("laze.diag").spec(idx, spec_id, "main must be a non-empty string")
+		err("main must be a non-empty string")
 	end
 	-- lazy.nvim accepts boolean or function for both cond and enabled.
 	if spec.cond ~= nil and type(spec.cond) ~= "function" and type(spec.cond) ~= "boolean" then
-		require("laze.diag").spec(idx, spec_id, "cond must be a function or boolean")
+		err("cond must be a function or boolean")
 	end
 	if spec.enabled ~= nil and type(spec.enabled) ~= "function" and type(spec.enabled) ~= "boolean" then
-		require("laze.diag").spec(idx, spec_id, "enabled must be a function or boolean")
+		err("enabled must be a function or boolean")
 	end
 	if spec.lazy ~= nil and type(spec.lazy) ~= "boolean" then
-		require("laze.diag").spec(idx, spec_id, "lazy must be a boolean")
+		err("lazy must be a boolean")
 	end
 	if spec.submodules ~= nil and type(spec.submodules) ~= "boolean" then
-		require("laze.diag").spec(idx, spec_id, "submodules must be a boolean")
+		err("submodules must be a boolean")
 	end
 	if spec.after ~= nil then
 		if type(spec.after) ~= "table" then
-			require("laze.diag").spec(idx, spec_id, "after must be an array of plugin ids")
+			err("after must be an array of plugin ids")
 		end
 		for i, dep_id in ipairs(spec.after) do
 			if type(dep_id) ~= "string" or dep_id == "" then
-				require("laze.diag").spec(idx, spec_id, "after[" .. i .. "] must be a non-empty plugin id string")
+				err("after[" .. i .. "] must be a non-empty plugin id string")
 			end
 		end
 	end
 	if spec.dependencies ~= nil then
-		local is_str = type(spec.dependencies) == "string"
-		local is_arr = type(spec.dependencies) == "table"
-		if not is_str and not is_arr then
-			require("laze.diag").spec(idx, spec_id, "dependencies must be a string, name array, or spec array")
-		end
-		if is_arr then
+		if type(spec.dependencies) ~= "string" and type(spec.dependencies) ~= "table" then
+			err("dependencies must be a string, name array, or spec array")
+		elseif type(spec.dependencies) == "table" then
 			for i, dep in ipairs(spec.dependencies) do
 				if type(dep) ~= "string" and type(dep) ~= "table" then
-					require("laze.diag").spec(idx, spec_id, "dependencies[" .. i .. "] must be a string or spec table")
+					err("dependencies[" .. i .. "] must be a string or spec table")
 				end
 			end
 		end
@@ -755,38 +761,33 @@ local function validate_spec(spec, idx, warned, notify)
 		if type(spec.build) == "table" then
 			for i, item in ipairs(spec.build) do
 				if type(item) ~= "string" and type(item) ~= "function" then
-					require("laze.diag").spec(idx, spec_id, "build[" .. i .. "] must be a string or function")
+					err("build[" .. i .. "] must be a string or function")
 				end
 			end
 		else
-			require("laze.diag").spec(idx, spec_id, "build must be a string, function, false, or a list of strings/functions")
+			err("build must be a string, function, false, or a list of strings/functions")
 		end
 	end
-	if
-		spec.module ~= nil
-		and type(spec.module) ~= "string"
-		and type(spec.module) ~= "table"
-		and spec.module ~= false
-	then
-		require("laze.diag").spec(idx, spec_id, "module must be a string, array, or false")
+	if spec.module ~= nil and type(spec.module) ~= "string" and type(spec.module) ~= "table" and spec.module ~= false then
+		err("module must be a string, array, or false")
 	end
 	if type(spec.module) == "table" then
 		if #spec.module == 0 then
-			require("laze.diag").spec(idx, spec_id, "module must not be an empty array — use false or omit it")
+			err("module must not be an empty array — use false or omit it")
 		end
 		for i, mod in ipairs(spec.module) do
 			if type(mod) ~= "string" or mod == "" then
-				require("laze.diag").spec(idx, spec_id, "module[" .. i .. "] must be a non-empty string")
+				err("module[" .. i .. "] must be a non-empty string")
 			end
 		end
 	end
 	if spec.priority ~= nil and type(spec.priority) ~= "number" then
-		require("laze.diag").spec(idx, spec_id, "priority must be a number")
+		err("priority must be a number")
 	end
 	local version_range
 	if spec.version ~= nil and spec.version ~= false then
 		if type(spec.version) ~= "string" then
-			require("laze.diag").spec(idx, spec_id, "version must be a string (semver range) or false")
+			err("version must be a string (semver range) or false")
 		end
 		-- lazy.nvim's precedence is commit > tag > version > branch, so a
 		-- range that cannot win is not evaluated. Keep the type check above,
@@ -806,7 +807,7 @@ local function validate_spec(spec, idx, warned, notify)
 	end
 	for _, f in ipairs(VERSION_REF_FIELDS) do
 		if spec[f] ~= nil and (type(spec[f]) ~= "string" or spec[f] == "") then
-			require("laze.diag").spec(idx, spec_id, f .. " must be a non-empty string")
+			err(f .. " must be a non-empty string")
 		end
 	end
 
@@ -844,15 +845,15 @@ local function flatten_spec(spec, out, label)
 		error("compile: " .. label .. " must be a spec table or string", 0)
 	end
 
-	local list = is_list(spec)
-	if #spec > 1 or list then
-		if not list then
-			error("compile: " .. label .. " must not be sparse", 0)
-		end
+	if is_list(spec) then
 		for i = 1, #spec do
 			flatten_spec(spec[i], out, label .. "[" .. i .. "]")
 		end
 		return
+	end
+	-- More entries than a dense 1..n layout but not a list: sparse.
+	if #spec > 1 then
+		error("compile: " .. label .. " must not be sparse", 0)
 	end
 
 	-- Numeric-only keys that are not a dense list are a sparse list (for
@@ -1246,13 +1247,7 @@ local function compile(specs, opts)
 		add_to_route(routes.cmds, norm.cmd, name)
 		add_to_key_route(routes.keys, norm.keys, name)
 		if norm.module then
-			local modules = type(norm.module) == "table" and norm.module or { norm.module }
-			for _, mod in ipairs(modules) do
-				if not routes.modules[mod] then
-					routes.modules[mod] = {}
-				end
-				table.insert(routes.modules[mod], name)
-			end
+			add_to_route(routes.modules, type(norm.module) == "table" and norm.module or { norm.module }, name)
 		end
 		registry[name].has_route = #norm.event > 0
 			or #norm.ft > 0
