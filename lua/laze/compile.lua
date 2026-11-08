@@ -1209,8 +1209,15 @@ local function compile(specs, opts)
 			if spec.data ~= nil then
 				pack_entry.data = spec.data
 			end
-			if spec.build ~= nil and spec.build ~= false then
-				pack_entry.build = spec.build
+			-- Use the normalized value (issue #50): `build = false` and the
+			-- empty list `build = {}` both mean "no build" (measured against
+			-- lazy.nvim 306a055: the build task iterates the builder list, so
+			-- `false` and `{}` run nothing), while `nil` leaves build-file
+			-- discovery open. Passing the raw field through leaked the empty
+			-- table into the pack spec, where it is off-type for
+			-- vim.pack.Spec and disagrees with the registry entry.
+			if norm.build ~= nil then
+				pack_entry.build = norm.build
 			end
 			-- remaining unknown fields still pass through for forward compat
 			for key, value in pairs(spec) do

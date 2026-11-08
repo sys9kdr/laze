@@ -1422,10 +1422,19 @@ end
 do
 	local c = compile({ { "folke/x.nvim", name = "x", build = false } })
 	expect(c.registry["x"].build == nil, "build = false accepted as no-build (lazy.nvim semantics)")
+	expect(c.pack[1].build == nil, "build = false is absent from the pack spec")
 	local c2 = compile({ { "folke/x.nvim", name = "x", build = { "make", "make test" } } })
 	expect(type(c2.registry["x"].build) == "table" and #c2.registry["x"].build == 2, "build list accepted")
+	expect(rawequal(c2.pack[1].build, c2.registry["x"].build), "build list passthrough is the normalized value")
 	local c3 = compile({ { "folke/x.nvim", name = "x", build = {} } })
 	expect(c3.registry["x"].build == nil, "empty build list is a no-op")
+	-- issue #50: `build = {}` normalized to nil in the registry but the raw
+	-- empty table leaked into the pack spec (off-type for vim.pack.Spec).
+	-- Both sides must agree; measured against lazy.nvim 306a055, where the
+	-- build task iterates the builder list so `false` and `{}` run nothing.
+	expect(c3.pack[1].build == nil, "empty build list is absent from the pack spec")
+	local c4 = compile({ { "folke/x.nvim", name = "x", build = "make" } })
+	expect(c4.registry["x"].build == "make" and c4.pack[1].build == "make", "string build agrees in registry and pack")
 end
 
 do

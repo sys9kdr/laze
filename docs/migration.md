@@ -9,7 +9,7 @@ laze accepts lazy.nvim's declarative spec shape on purpose (escape hatch first).
 * `import = "..."` → not supported; load your spec files yourself and pass the resulting tables to `setup`.
 * `priority` → **honored for eager ordering** (higher first, tie-break: id), default 50 — matches lazy.nvim's colorscheme-first workflow. Non-number priorities are rejected.
 * `submodules = false`, `optional`, `specs`: consumed with a per-compile warning (each compile, not one-time), no equivalent. `submodules = true` matches vim.pack and is silent.
-* `build = { ... }` (lazy.nvim's array form) → supported; items run sequentially after install/update. `build = false` means "no build", like lazy.nvim.
+* `build = { ... }` (lazy.nvim's array form) → supported; items run sequentially after install/update. `build = false` means "no build", like lazy.nvim. An empty list `build = {}` normalizes to "no build" everywhere (registry and `vim.pack` spec alike).
 
 **Rejected loudly (safe direction — lazy.nvim never breaks a laze config, only the reverse)**
 
