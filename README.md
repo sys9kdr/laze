@@ -98,12 +98,15 @@ Run the packaged test suites and the pinned linter from the repository root:
 nvim --cmd "set rtp+=." -l tests/run.lua        # integration (+ perf)
 luajit tests/test_compile.lua                   # unit
 luajit tests/test_subset.lua                    # spec-surface conformance
-luacheck lua tests                              # static lint (1.2.0)
+selene lua                                      # static lint, production (0.32.0)
+selene --config tests/selene.toml tests         # static lint, tests
 ```
 
-Install the linter with `sudo luarocks install luacheck 1.2.0-1` (or your
-distribution's package). Pin the same version; no Rust toolchain is required.
-`tests/vendor/` is excluded from linting.
+Install the pinned Selene 0.32.0 from its
+[GitHub Release archive](https://github.com/Kampfkarren/selene/releases/tag/0.32.0)
+(Linux, macOS, and Windows binaries; unpack the zip to get the CLI; no Rust
+toolchain is required). Pin the same version. `tests/vendor/` and
+`tests/snapshots/` are excluded from linting.
 
 ## Further reading
 

@@ -1,6 +1,5 @@
 --- test_compile.lua — Standalone compile tests for laze (no Neovim required)
 --- Run: luajit tests/test_compile.lua
--- luacheck: globals vim
 
 package.path = string.format("./lua/?.lua;%s", package.path)
 
@@ -128,31 +127,33 @@ local compile_fixtures = {
 	"lazy_flag",
 }
 
-for _, name in ipairs(compile_fixtures) do
+local function check_compile_fixture(name)
 	local compiled = compile_fixture(name)
 	if not compiled then
-		print(("  \xe2\x9c\x97 %s: %s"):format(name, compiled))
+		print(("  ✗ %s: %s"):format(name, compiled))
 		failed = failed + 1
-		goto continue_compile
+		return
 	end
 
 	local ok, expected = pcall(require, "tests.snapshots." .. name)
 	if not ok then
-		print(("  \xe2\x9c\x97 %s: could not load snapshot \226\128\148 %s"):format(name, expected))
+		print(("  ✗ %s: could not load snapshot — %s"):format(name, expected))
 		failed = failed + 1
-		goto continue_compile
+		return
 	end
 
 	local ok4, err = pcall(deep_compare, compiled, expected)
 	if ok4 then
-		print(("  \xe2\x9c\x93 %s"):format(name))
+		print(("  ✓ %s"):format(name))
 		passed = passed + 1
 	else
-		print(("  \xe2\x9c\x97 %s\n%s"):format(name, err))
+		print(("  ✗ %s\n%s"):format(name, err))
 		failed = failed + 1
 	end
+end
 
-	::continue_compile::
+for _, name in ipairs(compile_fixtures) do
+	check_compile_fixture(name)
 end
 
 print("\n=== derive_name tests ===\n")
@@ -187,10 +188,10 @@ for _, case in ipairs(derive_cases) do
 	local src, expected, label = case[1], case[2], case[3]
 	local result = derive_name(src)
 	if result == expected then
-		print(("  \xe2\x9c\x93 %s"):format(label))
+		print(("  ✓ %s"):format(label))
 		passed = passed + 1
 	else
-		print(("  \xe2\x9c\x97 %s: expected %q, got %q"):format(label, expected, result))
+		print(("  ✗ %s: expected %q, got %q"):format(label, expected, result))
 		failed = failed + 1
 	end
 end
@@ -201,20 +202,20 @@ local function check(got, expected, label)
 	local ok, err = pcall(deep_compare, got, expected)
 	if ok then
 		passed = passed + 1
-		print(("  \xe2\x9c\x93 %s"):format(label))
+		print(("  ✓ %s"):format(label))
 	else
 		failed = failed + 1
-		print(("  \xe2\x9c\x97 %s: %s"):format(label, err))
+		print(("  ✗ %s: %s"):format(label, err))
 	end
 end
 
 local function expect(cond, label)
 	if cond then
 		passed = passed + 1
-		print(("  \xe2\x9c\x93 %s"):format(label))
+		print(("  ✓ %s"):format(label))
 	else
 		failed = failed + 1
-		print(("  \xe2\x9c\x97 %s"):format(label))
+		print(("  ✗ %s"):format(label))
 	end
 end
 
@@ -299,11 +300,11 @@ for _, seed in ipairs({ 20260824, 1, 424242 }) do
 		fuzz_n = fuzz_n + 1
 		if derive_name(s) ~= oracle_derive(s) then
 			fuzz_bad = fuzz_bad + 1
-			print(("  \xe2\x9c\x97 derive mismatch on %q"):format(s))
+			print(("  ✗ derive mismatch on %q"):format(s))
 		end
 		if pkg_name(s, nil) ~= oracle_pkg(s, nil) then
 			fuzz_bad = fuzz_bad + 1
-			print(("  \xe2\x9c\x97 pkg mismatch on %q"):format(s))
+			print(("  ✗ pkg mismatch on %q"):format(s))
 		end
 	end
 end
