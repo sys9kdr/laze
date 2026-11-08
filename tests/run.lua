@@ -462,30 +462,73 @@ do
 			keys = { { "<F12>", "<NOP>" } },
 			config = function() ran.nop_upper = true end,
 		},
+		{
+			dir = vim.fn.tempname(),
+			name = "keys-rhs-nil",
+			-- vim.NIL (a JSON null / empty keymap value) is removed by
+			-- lazy.nvim's Keys.resolve just like false.
+			keys = { { "<F8>", vim.NIL } },
+			config = function() ran.nil_rhs = true end,
+		},
+		{
+			dir = vim.fn.tempname(),
+			name = "keys-rhs-false-late",
+			-- resolve order matters: the later false cancels the earlier map.
+			keys = { { "<F7>", "<cmd>echo 'x'<CR>" }, { "<F7>", false } },
+			config = function() ran.false_late = true end,
+		},
+		{
+			dir = vim.fn.tempname(),
+			name = "keys-rhs-false-named",
+			keys = { { lhs = "<F6>", rhs = false } },
+			config = function() ran.false_named = true end,
+		},
 	})
 	laze.build_plan(compiled)()
 
 	local function map(lhs)
 		return vim.fn.maparg(lhs, "n", false, true)
 	end
-	local f9, f10, f11, f12 = map("<F9>"), map("<F10>"), map("<F11>"), map("<F12>")
+	local f6, f7, f8, f9, f10, f11, f12 =
+		map("<F6>"), map("<F7>"), map("<F8>"), map("<F9>"), map("<F10>"), map("<F11>"), map("<F12>")
 	local ok_false = f9.lhs == nil -- false: no mapping at all
 	local ok_nop = f10.lhs ~= nil and f10.rhs:lower() == "<nop>" and f10.callback == nil
 	local ok_empty = f11.lhs ~= nil and f11.rhs == "" and f11.callback == nil
 	local ok_nop_upper = f12.lhs ~= nil and f12.rhs:lower() == "<nop>" and f12.callback == nil
+	local ok_nil = f8.lhs == nil
+	local ok_false_late = f7.lhs == nil
+	local ok_false_named = f6.lhs == nil
+	-- false-only/nil-only specs still count as a keys trigger, so they stay
+	-- lazy and their config must not have run at plan time.
+	local stayed_lazy = not ran.disabled and not ran.nil_rhs and not ran.false_late and not ran.false_named
 
-	vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<F9><F10><F11><F12>", true, false, true), "x", false)
-	local loaded_any = ran.disabled or ran.nop or ran.empty or ran.nop_upper
-	if ok_false and ok_nop and ok_empty and ok_nop_upper and not loaded_any then
-		print("  ✓ keys: rhs = false removes the map; ''/<nop> map as no-ops and never load")
+	vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<F6><F7><F8><F9><F10><F11><F12>", true, false, true), "x", false)
+	local loaded_any = ran.disabled or ran.nop or ran.empty or ran.nop_upper or ran.nil_rhs or ran.false_late
+		or ran.false_named
+	if
+		ok_false
+		and ok_nop
+		and ok_empty
+		and ok_nop_upper
+		and ok_nil
+		and ok_false_late
+		and ok_false_named
+		and stayed_lazy
+		and not loaded_any
+	then
+		print("  ✓ keys: rhs = false/vim.NIL removes the map; ''/<nop> map as no-ops and never load")
 		passed = passed + 1
 	else
 		print(
-			("  ✗ keys: rhs false/nop — f9:%s f10:%s f11:%s f12:%s loaded:%s"):format(
+			("  ✗ keys: rhs false/nop — f6:%s f7:%s f8:%s f9:%s f10:%s f11:%s f12:%s lazy:%s loaded:%s"):format(
+				tostring(ok_false_named),
+				tostring(ok_false_late),
+				tostring(ok_nil),
 				tostring(ok_false),
 				tostring(ok_nop),
 				tostring(ok_empty),
 				tostring(ok_nop_upper),
+				tostring(stayed_lazy),
 				vim.inspect(ran)
 			)
 		)

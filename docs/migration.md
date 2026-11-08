@@ -27,7 +27,7 @@ A non-range version string (e.g. `version = "main"`) is rejected — use `branch
 
 **Silently degraded**
 
-* `keys` entries keep `lhs`/`rhs`/`mode`/`desc`/`silent`; other `vim.keymap.set` options (`noremap`, `nowait`, `expr`, `callback`, `buffer`, …) are dropped. The positional `{ lhs, rhs }` form and function `rhs` are supported. Per-key `ft` is rejected rather than dropped (see above).
+* `keys` entries keep `lhs`/`rhs`/`mode`/`desc`/`silent`; other `vim.keymap.set` options (`noremap`, `nowait`, `expr`, `callback`, `buffer`, …) are dropped (KD-016). The positional `{ lhs, rhs }` form and function `rhs` are supported. `rhs = false` / `vim.NIL` drops the entry; `""` / `"<nop>"` is a no-op map. Per-key `ft` is supported (see above).
 * `module = "name"` in laze is an *opt-in* require trigger (registered as a `package.preload` entry); lazy.nvim's `module = false` is an *opt-out* of automatic require-loading. `module = false` in laze means "no module triggers".
 * `opts` / `config = true` work as in lazy.nvim: `main` is optional and resolved at load (explicit value, normalized name match, or the plugin's only top-level Lua module). `opts` may be a table or a `function(plugin, opts)` mutator; `config` and `opts` may be combined, and a config function receives `(plugin, opts)`.
 * `after` is a laze extension for dep ordering (lazy.nvim's equivalent: `dependencies`). lazy.nvim silently ignores it — convert to `dependencies` when moving back.

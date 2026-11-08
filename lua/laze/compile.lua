@@ -210,6 +210,12 @@ local function normalize_keys(v)
 				if rhs == nil then
 					rhs = item[2]
 				end
+				-- lazy.nvim's handler treats `vim.NIL` (a JSON null, or an
+				-- empty keymap value) exactly like `false`: the entry is
+				-- removed from the resolved handler map.
+				if rhs ~= nil and vim.NIL ~= nil and rhs == vim.NIL then
+					rhs = false
+				end
 				table.insert(result, {
 					lhs = item.lhs or item[1],
 					mode = item.mode or "n",
@@ -592,11 +598,6 @@ local function add_to_key_route(route_map, keys, plugin_id)
 			-- leave an empty `routes.keys[lhs]` entry behind.
 			if not seen_modes[mode] then
 				seen_modes[mode] = true
-				local variants = route_map[lhs]
-				if not variants then
-					variants = {}
-					route_map[lhs] = variants
-				end
 				-- `ft` is part of lazy.nvim's handler id (one id per
 				-- lhs+mode+ft set), so a buffer-local declaration and a
 				-- global one for the same lhs/mode are distinct variants.
@@ -614,36 +615,70 @@ local function add_to_key_route(route_map, keys, plugin_id)
 				local function ft_id(value)
 					return value and table.concat(value, "\0") or ""
 				end
-				local variant
-				for k = 1, #variants do
-					if variants[k].mode == mode and ft_id(variants[k].ft) == ft_id(ft) then
-						variant = variants[k]
-						break
+				local variants = route_map[lhs]
+				-- `rhs = false` (or `vim.NIL`) removes this plugin's entry
+				-- from lazy.nvim's resolved handler map
+				-- (lazy/core/handler/keys.lua: `values[keys.id] = nil`).
+				-- Process entries in declaration order so a later `false`
+				-- cancels an earlier real binding, while a later real
+				-- binding re-adds it. A variant shared with other plugins
+				-- only loses this plugin's id.
+				if ke.rhs == false then
+					if variants then
+						local want = ft_id(ft)
+						for k = #variants, 1, -1 do
+							local variant = variants[k]
+							if variant.mode == mode and ft_id(variant.ft) == want then
+								for n = #variant.ids, 1, -1 do
+									if variant.ids[n] == plugin_id then
+										table.remove(variant.ids, n)
+									end
+								end
+								if #variant.ids == 0 then
+									table.remove(variants, k)
+								end
+							end
+						end
+						if #variants == 0 then
+							route_map[lhs] = nil
+						end
 					end
-				end
-				if not variant then
-					variant = { mode = mode, ids = {}, rhs = ke.rhs, desc = ke.desc, silent = ke.silent, ft = ft }
-					table.insert(variants, variant)
-				elseif variant.rhs ~= ke.rhs or variant.desc ~= ke.desc or variant.silent ~= ke.silent then
-					vim.notify(
-						("laze: keys %q in mode %q is shared by multiple plugins with different rhs/opts — keeping the first"):format(
-							lhs,
-							mode
-						),
-						vim.log.levels.WARN
-					)
-				end
-				-- A plugin may declare the same (lhs, mode) more than once;
-				-- its id still appears once (it is loaded at most once).
-				local duplicate = false
-				for k = 1, #variant.ids do
-					if variant.ids[k] == plugin_id then
-						duplicate = true
-						break
+				else
+					if not variants then
+						variants = {}
+						route_map[lhs] = variants
 					end
-				end
-				if not duplicate then
-					table.insert(variant.ids, plugin_id)
+					local variant
+					for k = 1, #variants do
+						if variants[k].mode == mode and ft_id(variants[k].ft) == ft_id(ft) then
+							variant = variants[k]
+							break
+						end
+					end
+					if not variant then
+						variant = { mode = mode, ids = {}, rhs = ke.rhs, desc = ke.desc, silent = ke.silent, ft = ft }
+						table.insert(variants, variant)
+					elseif variant.rhs ~= ke.rhs or variant.desc ~= ke.desc or variant.silent ~= ke.silent then
+						vim.notify(
+							("laze: keys %q in mode %q is shared by multiple plugins with different rhs/opts — keeping the first"):format(
+								lhs,
+								mode
+							),
+							vim.log.levels.WARN
+						)
+					end
+					-- A plugin may declare the same (lhs, mode) more than once;
+					-- its id still appears once (it is loaded at most once).
+					local duplicate = false
+					for k = 1, #variant.ids do
+						if variant.ids[k] == plugin_id then
+							duplicate = true
+							break
+						end
+					end
+					if not duplicate then
+						table.insert(variant.ids, plugin_id)
+					end
 				end
 			end
 		end
@@ -847,6 +882,24 @@ local function validate_triggers(spec, idx, spec_id)
 				local lhs = item.lhs or item[1]
 				if type(lhs) ~= "string" or lhs == "" then
 					bad("keys[" .. i .. "]", "must have a non-empty lhs (string)")
+				end
+				-- lazy.nvim's LazyKeysSpec.rhs is string|fun|false (plus
+				-- vim.NIL from a JSON null). Anything else used to fail at
+				-- keypress time inside nvim_replace_termcodes; reject it at
+				-- compile time instead.
+				local rhs = item.rhs
+				if rhs == nil then
+					rhs = item[2]
+				end
+				local is_nil = rhs ~= nil and vim.NIL ~= nil and rhs == vim.NIL
+				if
+					rhs ~= nil
+					and not is_nil
+					and rhs ~= false
+					and type(rhs) ~= "string"
+					and type(rhs) ~= "function"
+				then
+					bad("keys[" .. i .. "].rhs", "must be a string, function, false, or vim.NIL")
 				end
 				if item.ft ~= nil then
 					-- lazy.nvim: string|string[], used as the FileType

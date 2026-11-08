@@ -827,6 +827,21 @@ local rejection_cases = {
 	{ { "folke/x.nvim", name = "x", event = "" }, "must not be empty", "empty event rejected" },
 	{ { "folke/x.nvim", name = "x", keys = "" }, "must not be empty", "empty keys string rejected" },
 	{ { "folke/x.nvim", name = "x", keys = { "" } }, "must not be empty", "empty keys element rejected" },
+	{
+		{ "folke/x.nvim", name = "x", keys = { { lhs = "a", rhs = 42 } } },
+		"keys[1].rhs must be a string, function, false",
+		"numeric key rhs rejected",
+	},
+	{
+		{ "folke/x.nvim", name = "x", keys = { { "a", true } } },
+		"keys[1].rhs must be a string, function, false",
+		"boolean key rhs rejected",
+	},
+	{
+		{ "folke/x.nvim", name = "x", keys = { { "a", {} } } },
+		"keys[1].rhs must be a string, function, false",
+		"table key rhs rejected",
+	},
 	{ { "folke/x.nvim", name = "x", event = { { event = "" } } }, "event must not be empty", "empty event in entry rejected" },
 	{ { "folke/x.nvim", name = "x", event = { { event = { "A", "" } } } }, "event must not be empty", "empty event in array rejected" },
 	{ { "folke/x.nvim", name = "" }, "name must be a non-empty string", "empty name rejected" },
@@ -850,12 +865,46 @@ do
 end
 
 do
-	-- rhs = false disables the mapping but the spec still declares a key
-	-- (lazy.nvim keeps plugin.keys, so the plugin stays lazy and never
-	-- loads from that key); the route must carry the false to the plan.
+	-- Measured lazy.nvim behavior: Keys.resolve does
+	-- `values[keys.id] = nil` for rhs = false / vim.NIL, so no handler is
+	-- installed. plugin.keys is still the raw (truthy) spec table, so the
+	-- plugin stays lazy and simply never loads from that key.
 	local c = compile({ { "folke/x.nvim", name = "x", keys = { { "<leader>d", false } } } })
-	expect(c.routes.keys["<leader>d"][1].rhs == false, "rhs = false kept in the key route")
+	expect(c.routes.keys["<leader>d"] == nil, "rhs = false drops the key route")
 	expect(c.registry["x"].has_route == true, "rhs = false keys still make the plugin lazy (lazy.nvim parity)")
+end
+
+do
+	local c = compile({ { "folke/x.nvim", name = "x", keys = { { lhs = "<leader>d", rhs = false } } } })
+	expect(c.routes.keys["<leader>d"] == nil, "named rhs = false drops the key route")
+	local d = compile({ { "folke/x.nvim", name = "x", keys = { { "<leader>d", "" } } } })
+	expect(d.routes.keys["<leader>d"] ~= nil, "empty rhs is a no-op map, not a dropped entry")
+end
+
+do
+	local c = compile({
+		{ "folke/x.nvim", name = "x", keys = { { "<leader>e", "x" }, { "<leader>e", false } } },
+	})
+	expect(c.routes.keys["<leader>e"] == nil, "a later rhs = false cancels an earlier binding (resolve order)")
+	local d = compile({
+		{ "folke/x.nvim", name = "x", keys = { { "<leader>e", false }, { "<leader>e", "x" } } },
+	})
+	expect(
+		d.routes.keys["<leader>e"] ~= nil and d.routes.keys["<leader>e"][1].rhs == "x",
+		"a later binding re-adds after rhs = false"
+	)
+end
+
+do
+	local c = compile({
+		{ "A/first.nvim", name = "first", keys = { { "<leader>s", "x" } } },
+		{ "B/second.nvim", name = "second", keys = { { "<leader>s", false } } },
+	})
+	local variants = c.routes.keys["<leader>s"]
+	expect(
+		variants ~= nil and #variants == 1 and #variants[1].ids == 1 and variants[1].ids[1] == "first",
+		"rhs = false only removes its own plugin from a shared route"
+	)
 end
 
 do
@@ -888,7 +937,6 @@ do
 		["b"] = { "n" },
 		["c"] = { "n" },
 		["d"] = { "n" },
-		["e"] = { "n" },
 		["f"] = { "n" },
 		["g"] = { "i" },
 		["h"] = { "n", "x" },
@@ -904,7 +952,7 @@ do
 		table.sort(got)
 		expect(#got == #modes and table.concat(got, ",") == table.concat(modes, ","), "keys surface: " .. lhs .. " routes " .. table.concat(modes, ","))
 	end
-	expect(routes["e"][1].rhs == false, "keys surface: false rhs preserved")
+	expect(routes["e"] == nil, "keys surface: false rhs drops the route (lazy.nvim parity)")
 	expect(routes["h"][2].mode == "x", "keys surface: mode array expands")
 	expect(routes["j"][1].ft[1] == "lua", "keys surface: ft string normalized")
 	expect(routes["k"][1].ft[2] == "vim", "keys surface: ft array preserved")
