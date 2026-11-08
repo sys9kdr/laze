@@ -657,13 +657,12 @@ local function add_to_key_route(route_map, keys, plugin_id)
 						variant = { mode = mode, ids = {}, rhs = ke.rhs, desc = ke.desc, silent = ke.silent, ft = ft }
 						table.insert(variants, variant)
 					elseif variant.rhs ~= ke.rhs or variant.desc ~= ke.desc or variant.silent ~= ke.silent then
-						vim.notify(
-							("laze: keys %q in mode %q is shared by multiple plugins with different rhs/opts — keeping the first"):format(
-								lhs,
-								mode
-							),
-							vim.log.levels.WARN
-						)
+							require("laze.diag").warn(
+								("keys %q in mode %q is shared by multiple plugins with different rhs/opts — keeping the first"):format(
+									lhs,
+									mode
+								)
+							)
 					end
 					-- A plugin may declare the same (lhs, mode) more than once;
 					-- its id still appears once (it is loaded at most once).
@@ -805,7 +804,7 @@ end
 --- to "no trigger" would turn the plugin eager — the worst failure mode.
 local function validate_triggers(spec, idx, spec_id)
 	local function bad(field, msg)
-		error(("spec [%d] (%s): %s %s"):format(idx, spec_id, field, msg), 0)
+		require("laze.diag").bad(idx, spec_id, field, msg)
 	end
 
 	for _, field in ipairs(TRIGGER_FIELDS) do
@@ -955,14 +954,14 @@ end
 local function validate_spec(spec, idx, warned, notify)
 	local src = spec[1] or spec.src
 	if not src and not spec.dir and not spec.url then
-		error("spec [" .. idx .. "]: missing source — use [1], .src, .dir, or .url", 0)
+		require("laze.diag").spec_at(idx, "missing source — use [1], .src, .dir, or .url")
 	end
 	if src ~= nil and (type(src) ~= "string" or src == "") then
-		error("spec [" .. idx .. "]: [1]/src must be a non-empty string", 0)
+		require("laze.diag").spec_at(idx, "[1]/src must be a non-empty string")
 	end
 	for _, f in ipairs(SOURCE_FIELDS) do
 		if spec[f] ~= nil and (type(spec[f]) ~= "string" or spec[f] == "") then
-			error("spec [" .. idx .. "]: " .. f .. " must be a non-empty string", 0)
+			require("laze.diag").spec_at(idx, f .. " must be a non-empty string")
 		end
 	end
 
@@ -979,55 +978,52 @@ local function validate_spec(spec, idx, warned, notify)
 	end
 
 	if spec.dev == "" then
-		vim.notify("laze: spec [" .. idx .. "] (" .. spec_id .. ") has dev='' — ignored", vim.log.levels.WARN)
+		require("laze.diag").warn(("spec [%d] (%s) has dev='' — ignored"):format(idx, spec_id))
 	end
 
 	if spec.init ~= nil and type(spec.init) ~= "function" then
-		error("spec [" .. idx .. "] (" .. spec_id .. "): init must be a function", 0)
+		require("laze.diag").spec(idx, spec_id, "init must be a function")
 	end
 	if spec.config ~= nil and type(spec.config) ~= "function" and spec.config ~= true then
 		if type(spec.config) == "table" then
-			error(
-				"spec ["
-					.. idx
-					.. "] ("
-					.. spec_id
-					.. "): config = { ... } (lazy.nvim's deprecated opts alias) is not supported — use main = \"...\" with opts = {...}, or config = function() ... end",
-				0
+			require("laze.diag").spec(
+				idx,
+				spec_id,
+				"config = { ... } (lazy.nvim's deprecated opts alias) is not supported — use main = \"...\" with opts = {...}, or config = function() ... end"
 			)
 		end
-		error("spec [" .. idx .. "] (" .. spec_id .. "): config must be a function or true", 0)
+		require("laze.diag").spec(idx, spec_id, "config must be a function or true")
 	end
 	-- opts is lazy.nvim's setup shorthand: a table (or a function returning
 	-- one) passed to require(main).setup(opts) at load. main is resolved
 	-- lazily like lazy.nvim (explicit, name match, or the single top-level
 	-- module) because the plugin is not installed at compile time.
 	if spec.opts ~= nil and type(spec.opts) ~= "table" and type(spec.opts) ~= "function" then
-		error("spec [" .. idx .. "] (" .. spec_id .. "): opts must be a table or function", 0)
+		require("laze.diag").spec(idx, spec_id, "opts must be a table or function")
 	end
 	if spec.main ~= nil and (type(spec.main) ~= "string" or spec.main == "") then
-		error("spec [" .. idx .. "] (" .. spec_id .. "): main must be a non-empty string", 0)
+		require("laze.diag").spec(idx, spec_id, "main must be a non-empty string")
 	end
 	-- lazy.nvim accepts boolean or function for both cond and enabled.
 	if spec.cond ~= nil and type(spec.cond) ~= "function" and type(spec.cond) ~= "boolean" then
-		error("spec [" .. idx .. "] (" .. spec_id .. "): cond must be a function or boolean", 0)
+		require("laze.diag").spec(idx, spec_id, "cond must be a function or boolean")
 	end
 	if spec.enabled ~= nil and type(spec.enabled) ~= "function" and type(spec.enabled) ~= "boolean" then
-		error("spec [" .. idx .. "] (" .. spec_id .. "): enabled must be a function or boolean", 0)
+		require("laze.diag").spec(idx, spec_id, "enabled must be a function or boolean")
 	end
 	if spec.lazy ~= nil and type(spec.lazy) ~= "boolean" then
-		error("spec [" .. idx .. "] (" .. spec_id .. "): lazy must be a boolean", 0)
+		require("laze.diag").spec(idx, spec_id, "lazy must be a boolean")
 	end
 	if spec.submodules ~= nil and type(spec.submodules) ~= "boolean" then
-		error("spec [" .. idx .. "] (" .. spec_id .. "): submodules must be a boolean", 0)
+		require("laze.diag").spec(idx, spec_id, "submodules must be a boolean")
 	end
 		if spec.after ~= nil then
 		if type(spec.after) ~= "table" then
-			error("spec [" .. idx .. "] (" .. spec_id .. "): after must be an array of plugin ids", 0)
+			require("laze.diag").spec(idx, spec_id, "after must be an array of plugin ids")
 		end
 		for i, dep_id in ipairs(spec.after) do
 			if type(dep_id) ~= "string" or dep_id == "" then
-				error("spec [" .. idx .. "] (" .. spec_id .. "): after[" .. i .. "] must be a non-empty plugin id string", 0)
+				require("laze.diag").spec(idx, spec_id, "after[" .. i .. "] must be a non-empty plugin id string")
 			end
 		end
 	end
@@ -1035,12 +1031,12 @@ local function validate_spec(spec, idx, warned, notify)
 		local is_str = type(spec.dependencies) == "string"
 		local is_arr = type(spec.dependencies) == "table"
 		if not is_str and not is_arr then
-			error("spec [" .. idx .. "] (" .. spec_id .. "): dependencies must be a string, name array, or spec array", 0)
+			require("laze.diag").spec(idx, spec_id, "dependencies must be a string, name array, or spec array")
 		end
 		if is_arr then
 			for i, dep in ipairs(spec.dependencies) do
 				if type(dep) ~= "string" and type(dep) ~= "table" then
-					error("spec [" .. idx .. "] (" .. spec_id .. "): dependencies[" .. i .. "] must be a string or spec table", 0)
+					require("laze.diag").spec(idx, spec_id, "dependencies[" .. i .. "] must be a string or spec table")
 				end
 			end
 		end
@@ -1049,27 +1045,11 @@ local function validate_spec(spec, idx, warned, notify)
 		if type(spec.build) == "table" then
 			for i, item in ipairs(spec.build) do
 				if type(item) ~= "string" and type(item) ~= "function" then
-					error(
-						"spec ["
-							.. idx
-							.. "] ("
-							.. spec_id
-							.. "): build["
-							.. i
-							.. "] must be a string or function",
-						0
-					)
+					require("laze.diag").spec(idx, spec_id, "build[" .. i .. "] must be a string or function")
 				end
 			end
 		else
-			error(
-				"spec ["
-					.. idx
-					.. "] ("
-					.. spec_id
-					.. "): build must be a string, function, false, or a list of strings/functions",
-				0
-			)
+			require("laze.diag").spec(idx, spec_id, "build must be a string, function, false, or a list of strings/functions")
 		end
 	end
 		if
@@ -1078,25 +1058,25 @@ local function validate_spec(spec, idx, warned, notify)
 		and type(spec.module) ~= "table"
 		and spec.module ~= false
 	then
-		error("spec [" .. idx .. "] (" .. spec_id .. "): module must be a string, array, or false", 0)
+		require("laze.diag").spec(idx, spec_id, "module must be a string, array, or false")
 	end
 	if type(spec.module) == "table" then
 		if #spec.module == 0 then
-			error("spec [" .. idx .. "] (" .. spec_id .. "): module must not be an empty array — use false or omit it", 0)
+			require("laze.diag").spec(idx, spec_id, "module must not be an empty array — use false or omit it")
 		end
 		for i, mod in ipairs(spec.module) do
 			if type(mod) ~= "string" or mod == "" then
-				error("spec [" .. idx .. "] (" .. spec_id .. "): module[" .. i .. "] must be a non-empty string", 0)
+				require("laze.diag").spec(idx, spec_id, "module[" .. i .. "] must be a non-empty string")
 			end
 		end
 	end
 	if spec.priority ~= nil and type(spec.priority) ~= "number" then
-		error("spec [" .. idx .. "] (" .. spec_id .. "): priority must be a number", 0)
+		require("laze.diag").spec(idx, spec_id, "priority must be a number")
 	end
 	local version_range
 	if spec.version ~= nil and spec.version ~= false then
 		if type(spec.version) ~= "string" then
-			error("spec [" .. idx .. "] (" .. spec_id .. "): version must be a string (semver range) or false", 0)
+			require("laze.diag").spec(idx, spec_id, "version must be a string (semver range) or false")
 		end
 		-- lazy.nvim's precedence is commit > tag > version > branch, so a
 		-- range that cannot win is not evaluated. Keep the type check above,
@@ -1114,7 +1094,7 @@ local function validate_spec(spec, idx, warned, notify)
 	end
 	for _, f in ipairs(VERSION_REF_FIELDS) do
 		if spec[f] ~= nil and (type(spec[f]) ~= "string" or spec[f] == "") then
-			error("spec [" .. idx .. "] (" .. spec_id .. "): " .. f .. " must be a non-empty string", 0)
+			require("laze.diag").spec(idx, spec_id, f .. " must be a non-empty string")
 		end
 	end
 
@@ -1513,11 +1493,10 @@ local function compile(specs, opts)
 
 		if is_local then
 			if norm.build ~= nil then
-				vim.notify(
-					"laze: plugin '"
+				require("laze.diag").warn(
+					"plugin '"
 						.. name
-						.. "' is a local dir; build is not run (vim.pack does not install or rebuild local dirs)",
-					vim.log.levels.WARN
+						.. "' is a local dir; build is not run (vim.pack does not install or rebuild local dirs)"
 				)
 			end
 		else
@@ -1581,9 +1560,8 @@ local function compile(specs, opts)
 	for id, entry in pairs(registry) do
 		for _, dep_id in ipairs(entry.after or {}) do
 			if not registry[dep_id] then
-				vim.notify(
-					"laze: plugin '" .. id .. "' has after dependency on '" .. dep_id .. "' which does not exist",
-					vim.log.levels.WARN
+				require("laze.diag").warn(
+					"plugin '" .. id .. "' has after dependency on '" .. dep_id .. "' which does not exist"
 				)
 			end
 		end

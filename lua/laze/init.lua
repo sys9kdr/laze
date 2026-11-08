@@ -198,16 +198,9 @@ function M.setup(specs, opts)
 				end
 				local plugin = { name = data.spec.name, dir = data.path, spec = data.spec }
 				local ok, build_ok, err = pcall(run_build, build, plugin, data.path)
-				if not ok then
-					vim.notify(
-						("laze: build failed for %s: %s"):format(data.spec.name, tostring(build_ok)),
-						vim.log.levels.WARN
-					)
-				elseif not build_ok then
-					vim.notify(
-						("laze: build failed for %s: %s"):format(data.spec.name, tostring(err)),
-						vim.log.levels.WARN
-					)
+				if not ok or not build_ok then
+					-- pcall failure: the message is in build_ok; build failure: in err.
+					require("laze.diag").warn(("build failed for %s: %s"):format(data.spec.name, tostring(ok and err or build_ok)))
 				end
 		end,
 		})
@@ -277,7 +270,7 @@ end
 ---@return LazeCompiled
 function M.reload_all(new_specs)
 	if not last_setup and not new_specs then
-		vim.notify("laze: reload_all: no setup has run yet", vim.log.levels.WARN)
+		require("laze.diag").warn("reload_all: no setup has run yet")
 		return nil
 	end
 	if new_specs then

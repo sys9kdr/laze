@@ -69,7 +69,7 @@ local function resolve_verdicts(registry, data_dir)
 		if type(entry.enabled) == "function" then
 			local ok, res = pcall(entry.enabled)
 			if not ok then
-				vim.notify(("laze: enabled hook failed for %s: %s"):format(id, tostring(res)), vim.log.levels.WARN)
+				require("laze.diag").warn(("enabled hook failed for %s: %s"):format(id, tostring(res)))
 				enabled_ok[id] = false
 			else
 				enabled_ok[id] = res ~= false
@@ -82,7 +82,7 @@ local function resolve_verdicts(registry, data_dir)
 			-- warn and treat it as false (never throw in plan).
 			local ok, res = pcall(entry.cond, plugin_view(id, entry, data_dir))
 			if not ok then
-				vim.notify(("laze: cond hook failed for %s: %s"):format(id, tostring(res)), vim.log.levels.WARN)
+				require("laze.diag").warn(("cond hook failed for %s: %s"):format(id, tostring(res)))
 				cond_ok[id] = false
 			else
 				cond_ok[id] = res ~= false
@@ -298,7 +298,7 @@ local function build_plan(compiled, opts)
 			end)
 			if not ok then
 				loaded[id] = "failed"
-				if not entry.silent then vim.notify("laze: failed to load " .. id .. ": " .. tostring(err), vim.log.levels.WARN) end
+				if not entry.silent then require("laze.diag").warn("failed to load " .. id .. ": " .. tostring(err)) end
 			else
 				pending.hooks_ran = true
 			end
@@ -312,7 +312,7 @@ local function build_plan(compiled, opts)
 			end)
 			if not ok_req then
 				loaded[id] = "failed"
-				if not entry.silent then vim.notify("laze: failed to load " .. id .. ": " .. tostring(err_req), vim.log.levels.WARN) end
+				if not entry.silent then require("laze.diag").warn("failed to load " .. id .. ": " .. tostring(err_req)) end
 				if on_fail then on_fail(id, err_req) end
 				return
 			end
@@ -321,7 +321,7 @@ local function build_plan(compiled, opts)
 			local ok_cfg, err_cfg = pcall(function()
 				entry.config(plugin, resolve_opts(entry, plugin))
 			end)
-			if not ok_cfg then vim.notify("laze: config failed for " .. id .. ": " .. tostring(err_cfg), vim.log.levels.WARN) end
+			if not ok_cfg then require("laze.diag").warn("config failed for " .. id .. ": " .. tostring(err_cfg)) end
 		end
 		if pending then pending.hooks_ran = true end
 		if opts and opts.partial then return end
@@ -500,10 +500,7 @@ local function build_plan(compiled, opts)
 					local has_cycle = false
 					for j = 1, depth do
 						if stack[j] == dep then
-							vim.notify(
-								("laze: cycle in after deps (%s)"):format(dep),
-								vim.log.levels.WARN
-							)
+							require("laze.diag").warn(("cycle in after deps (%s)"):format(dep))
 							has_cycle = true
 							break
 						end
@@ -652,7 +649,7 @@ local function build_plan(compiled, opts)
 				local entry = registry[id]
 				local ok_init, err_init = pcall(entry.init, plugin_view(id, entry, data_dir))
 				if not ok_init then
-					vim.notify(("laze: init failed for %s: %s"):format(id, tostring(err_init)), vim.log.levels.WARN)
+					require("laze.diag").warn(("init failed for %s: %s"):format(id, tostring(err_init)))
 				end
 			end
 		end
@@ -1013,7 +1010,7 @@ local function build_plan(compiled, opts)
 			local ok, err = pcall(load_with_deps, entry.id)
 			eager_depth = eager_depth - 1
 			if not ok then
-				vim.notify(("laze: failed to load %s: %s"):format(entry.id, tostring(err)), vim.log.levels.WARN)
+				require("laze.diag").warn(("failed to load %s: %s"):format(entry.id, tostring(err)))
 			end
 		end
 
