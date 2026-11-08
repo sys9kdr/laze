@@ -12,8 +12,9 @@ known differences is [known-differences.md](known-differences.md).
 
 Explicitness over magic, pure transforms over stateful managers
 (`docs/design.md` Philosophy). Out of scope per `AGENTS.md`:
-dependency solver, manager UI, install/update commands, `opts`
-abstraction, import system, background scheduler, lifecycle framework.
+dependency solver, manager UI, install/update commands, lazy.nvim's
+fragment/`opts` merge pipeline, import system, background scheduler,
+lifecycle framework.
 
 - **UI / commands in core.** What: no dashboard, update UI,
   install/update command surface in `setup()`.
