@@ -55,6 +55,19 @@ local function plugin_view(id, entry, data_dir)
 	}
 end
 
+--- Delete the exact map for `lhs` in `mode`, buffer-local when `buf` is set,
+--- ignoring errors (mirrors every keymap-delete site in this module).
+---@param mode string
+---@param lhs string
+---@param buf? integer
+local function del_map(mode, lhs, buf)
+	if buf then
+		pcall(vim.keymap.del, mode, lhs, { buffer = buf })
+	else
+		pcall(vim.keymap.del, mode, lhs)
+	end
+end
+
 --- Evaluate `enabled` and `cond` once (lazy.nvim resolves both while
 --- processing the spec and caches the verdict for the session). setup() calls
 --- this before vim.pack.add, so a false verdict also skips installation;
@@ -64,32 +77,30 @@ end
 ---@return table<string, boolean> enabled_ok
 ---@return table<string, boolean> cond_ok
 local function resolve_verdicts(registry, data_dir)
+	-- One boolean verdict field: a function hook runs once; throwing is
+	-- contained (warn, treat as false — never throw in plan). Only `cond`
+	-- gets the lazy.nvim plugin argument, so build plugin_view for it.
+	local function verdict(value, hook, id, entry)
+		if type(value) ~= "function" then
+			return value ~= false
+		end
+		local ok, res
+		if entry then
+			ok, res = pcall(value, plugin_view(id, entry, data_dir))
+		else
+			ok, res = pcall(value)
+		end
+		if not ok then
+			require("laze.diag").warn(("%s hook failed for %s: %s"):format(hook, id, tostring(res)))
+			return false
+		end
+		return res ~= false
+	end
+
 	local enabled_ok, cond_ok = {}, {}
 	for id, entry in pairs(registry) do
-		if type(entry.enabled) == "function" then
-			local ok, res = pcall(entry.enabled)
-			if not ok then
-				require("laze.diag").warn(("enabled hook failed for %s: %s"):format(id, tostring(res)))
-				enabled_ok[id] = false
-			else
-				enabled_ok[id] = res ~= false
-			end
-		else
-			enabled_ok[id] = entry.enabled ~= false
-		end
-		if type(entry.cond) == "function" then
-			-- lazy.nvim calls cond(plugin); a throwing cond is contained:
-			-- warn and treat it as false (never throw in plan).
-			local ok, res = pcall(entry.cond, plugin_view(id, entry, data_dir))
-			if not ok then
-				require("laze.diag").warn(("cond hook failed for %s: %s"):format(id, tostring(res)))
-				cond_ok[id] = false
-			else
-				cond_ok[id] = res ~= false
-			end
-		else
-			cond_ok[id] = entry.cond ~= false
-		end
+		enabled_ok[id] = verdict(entry.enabled, "enabled", id)
+		cond_ok[id] = verdict(entry.cond, "cond", id, entry)
 	end
 	return enabled_ok, cond_ok
 end
@@ -483,7 +494,9 @@ local function build_plan(compiled, opts)
 	end
 
 	local function load_with_deps(id)
-		if loaded[id] == true or loaded[id] == "failed" or loaded[id] == "pending_startup" then
+		-- Any assigned loaded[] state (true / "failed" / "pending_startup")
+		-- means this id is already processed or deferred (see load_plugin).
+		if loaded[id] then
 			return
 		end
 
@@ -510,7 +523,7 @@ local function build_plan(compiled, opts)
 			if i <= #deps then
 				cursor[depth] = i + 1
 				local dep = deps[i]
-				if loaded[dep] ~= true and loaded[dep] ~= "failed" and loaded[dep] ~= "pending_startup" then
+				if not loaded[dep] then
 					local has_cycle = false
 					for j = 1, depth do
 						if stack[j] == dep then
@@ -678,22 +691,16 @@ local function build_plan(compiled, opts)
 			-- way before comparing (mirrors the lookup in tests/run.lua).
 			local want = vim.api.nvim_replace_termcodes(k.lhs, true, false, true)
 			local maps
-			if k.buf then
-				if not vim.api.nvim_buf_is_valid(k.buf) then
-					maps = {}
-				else
-					maps = vim.api.nvim_buf_get_keymap(k.buf, k.mode)
-				end
-			else
+			if not k.buf then
 				maps = vim.api.nvim_get_keymap(k.mode)
+			elseif vim.api.nvim_buf_is_valid(k.buf) then
+				maps = vim.api.nvim_buf_get_keymap(k.buf, k.mode)
+			else
+				maps = {}
 			end
 			for _, km in ipairs(maps) do
 				if km.lhs == want and km.desc == k.desc then
-					if k.buf then
-						pcall(vim.keymap.del, k.mode, k.lhs, { buffer = k.buf })
-					else
-						pcall(vim.keymap.del, k.mode, k.lhs)
-					end
+					del_map(k.mode, k.lhs, k.buf)
 					break
 				end
 			end
@@ -951,11 +958,7 @@ local function build_plan(compiled, opts)
 									-- map too (vim.keymap.del removes every map for the
 									-- lhs in the mode). An ft variant deletes only its
 									-- buffer-local map.
-									if buf then
-										pcall(vim.keymap.del, mode, lhs, { buffer = buf })
-									else
-										pcall(vim.keymap.del, mode, lhs)
-									end
+									del_map(mode, lhs, buf)
 								end
 								for _, id in ipairs(ids) do
 									load_with_deps(id)
