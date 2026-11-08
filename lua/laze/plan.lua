@@ -97,6 +97,18 @@ end
 ---@param compiled LazeCompiled
 ---@param opts? { on_load?: fun(id: string, time_ms: number), on_fail?: fun(id: string, err: string), enabled_ok?: table<string, boolean>, cond_ok?: table<string, boolean> }
 ---@return LazePlan
+--- Normalize an entry's `module` (string | array | false | nil) to an array
+--- of module names, or nil when the plugin requires no module triggers.
+---@param entry LazeEntry
+---@return string[]?
+local function modules_array(entry)
+	local m = entry.module
+	if type(m) == "string" then
+		return { m }
+	end
+	return type(m) == "table" and m or nil
+end
+
 local function build_plan(compiled, opts)
 	opts = opts or {}
 	local on_load = opts.on_load
@@ -291,9 +303,7 @@ local function build_plan(compiled, opts)
 			-- A startup require() needs a configured plugin before it returns:
 			-- run its hooks now, but the plugin stays pending_startup so the
 			-- VimEnter finalizer still owns the plugin/ sourcing bookkeeping.
-			local modules = entry.module
-			if type(modules) == "string" then modules = { modules } end
-			local plugin_modules = type(modules) == "table" and modules or nil
+			local plugin_modules = modules_array(entry)
 			local ok, err = pcall(function()
 				if plugin_modules then
 					for _, mod in ipairs(plugin_modules) do original_require(mod) end
@@ -310,11 +320,10 @@ local function build_plan(compiled, opts)
 			end
 			return
 		end
-		local modules = entry.module
-		if type(modules) == "string" then modules = { modules } end
-		if type(modules) == "table" then
+		local plugin_modules = modules_array(entry)
+		if plugin_modules then
 			local ok_req, err_req = pcall(function()
-				for _, mod in ipairs(modules) do original_require(mod) end
+				for _, mod in ipairs(plugin_modules) do original_require(mod) end
 			end)
 			if not ok_req then
 				loaded[id] = "failed"
@@ -330,7 +339,6 @@ local function build_plan(compiled, opts)
 			if not ok_cfg then require("laze.diag").warn("config failed for " .. id .. ": " .. tostring(err_cfg)) end
 		end
 		if pending then pending.hooks_ran = true end
-		if opts and opts.partial then return end
 		loaded[id] = true
 		if on_load and start then on_load(id, (vim.uv.hrtime() - start) / 1e6) end
 	end

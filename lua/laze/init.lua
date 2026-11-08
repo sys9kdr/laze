@@ -202,7 +202,7 @@ function M.setup(specs, opts)
 					-- pcall failure: the message is in build_ok; build failure: in err.
 					require("laze.diag").warn(("build failed for %s: %s"):format(data.spec.name, tostring(ok and err or build_ok)))
 				end
-		end,
+			end,
 		})
 	end
 

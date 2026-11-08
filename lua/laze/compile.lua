@@ -50,11 +50,9 @@ end
 
 ---@param src string
 ---@return string
-local function derive_name(src)
-	-- lazy.nvim-compatible (lazy/core/plugin.lua Spec.get_name): strip a
-	-- trailing `.git`, then one trailing slash, then take the last path
-	-- segment. Without the braces, "user/repo.git" keeps the .git suffix
-	-- and "…/plugin/" (trailing slash) falls back to the raw URL as id.
+local function strip_src_suffix(src)
+	-- Strip a trailing "/", then a trailing ".git": lazy.nvim and vim.pack
+	-- both do exactly this before taking the last path segment.
 	local name = src
 	if name:sub(-1) == "/" then
 		name = name:sub(1, -2)
@@ -62,6 +60,17 @@ local function derive_name(src)
 	if name:sub(-4) == ".git" then
 		name = name:sub(1, -5)
 	end
+	return name
+end
+
+---@param src string
+---@return string
+local function derive_name(src)
+	-- lazy.nvim-compatible (lazy/core/plugin.lua Spec.get_name): strip a
+	-- trailing `.git`, then one trailing slash, then take the last path
+	-- segment. Without the braces, "user/repo.git" keeps the .git suffix
+	-- and "…/plugin/" (trailing slash) falls back to the raw URL as id.
+	local name = strip_src_suffix(src)
 	name = last_segment(name) or name
 	if name:sub(-5) == ".nvim" then
 		name = name:sub(1, -6)
@@ -146,24 +155,25 @@ local function pkg_name(src, spec_name)
 	if spec_name then
 		return spec_name
 	end
-	local name = src
-	if name:sub(-1) == "/" then
-		name = name:sub(1, -2)
-	end
-	if name:sub(-4) == ".git" then
-		name = name:sub(1, -5)
-	end
+	local name = strip_src_suffix(src)
 	return last_segment(name) or name
+end
+
+--- Expand a leading "~" via the API (one call per dev/dir spec; compile is
+--- one-shot). Byte test, not `:match("^~")`: patterns are NYI in LuaJIT and
+--- run interpreted (~50 ns vs sub-ns per call on this hot path).
+---@param path string
+---@return string
+local function expand_home(path)
+	if path:byte(1) == 126 then -- "~"
+		return vim.fn.expand(path)
+	end
+	return path
 end
 
 local function resolve_src(src, dir, url)
 	if dir then
-		-- Byte test, not `:match("^~")`: patterns are NYI in LuaJIT and
-		-- run interpreted (~50 ns vs sub-ns per call on this hot path).
-		if dir:byte(1) == 126 then -- "~"
-			return vim.fn.expand(dir)
-		end
-		return dir
+		return expand_home(dir)
 	end
 
 	if url then
@@ -933,12 +943,6 @@ local function validate_triggers(spec, idx, spec_id)
 end
 
 ---@param spec LazeSpec
----@param idx integer
----@param warned table<string, boolean>
----@param notify fun(id: string, detail: string)
----@return vim.VersionRange|nil
---- A `dev`/`dev_path` source is a local checkout, just like `dir`.
----@param spec LazeSpec
 ---@return boolean
 local function has_dev_source(spec)
 	return spec.dev == true
@@ -1017,7 +1021,7 @@ local function validate_spec(spec, idx, warned, notify)
 	if spec.submodules ~= nil and type(spec.submodules) ~= "boolean" then
 		require("laze.diag").spec(idx, spec_id, "submodules must be a boolean")
 	end
-		if spec.after ~= nil then
+	if spec.after ~= nil then
 		if type(spec.after) ~= "table" then
 			require("laze.diag").spec(idx, spec_id, "after must be an array of plugin ids")
 		end
@@ -1052,7 +1056,7 @@ local function validate_spec(spec, idx, warned, notify)
 			require("laze.diag").spec(idx, spec_id, "build must be a string, function, false, or a list of strings/functions")
 		end
 	end
-		if
+	if
 		spec.module ~= nil
 		and type(spec.module) ~= "string"
 		and type(spec.module) ~= "table"
@@ -1350,85 +1354,85 @@ local function compile(specs, opts)
 		-- order, without touching the user's spec table (compile purity).
 		-- Dedup preserved: a dep named both ways is wired once.
 		local after = dep_after[spec] or {}
-			if spec.after then
-				local merged = {}
-				for _, n in ipairs(spec.after) do
+		if spec.after then
+			local merged = {}
+			for _, n in ipairs(spec.after) do
+				table.insert(merged, n)
+			end
+			for _, n in ipairs(after) do
+				local already = false
+				for _, existing in ipairs(merged) do
+					if existing == n then
+						already = true
+						break
+					end
+				end
+				if not already then
 					table.insert(merged, n)
 				end
-				for _, n in ipairs(after) do
-					local already = false
-					for _, existing in ipairs(merged) do
-						if existing == n then
-							already = true
-							break
-						end
-					end
-					if not already then
-						table.insert(merged, n)
-					end
+			end
+			after = merged
+		end
+
+		-- build = false means "no build" (lazy.nvim semantics). NOT
+		-- `spec.build == false and nil or spec.build` — that Lua gotcha
+		-- returns false again (nil can't flow through and/or).
+		local build = spec.build
+		if build == false or (type(build) == "table" and #build == 0) then
+			build = nil
+		end
+
+		-- opts without config and config = true both desugar to
+		-- require(main).setup(opts) at load. The main module is resolved
+		-- at load time (like lazy.nvim) because a remote plugin is not
+		-- installed yet during compile. The closure captures only pure
+		-- values, so re-compiles are deterministic.
+		local config = spec.config
+		if config == nil and spec.opts ~= nil then
+			config = true
+		end
+		if config == true then
+			local explicit_main = spec.main
+			local plugin_name = name
+			config = function(plugin, config_opts)
+				local main = explicit_main or get_main(plugin and plugin.dir, plugin_name)
+				if not main then
+					error(
+						("Lua module not found for config of %s. Please use a `config()` function instead"):format(
+							plugin_name
+						),
+						0
+					)
 				end
-				after = merged
-			end
-
-			-- build = false means "no build" (lazy.nvim semantics). NOT
-			-- `spec.build == false and nil or spec.build` — that Lua gotcha
-			-- returns false again (nil can't flow through and/or).
-			local build = spec.build
-			if build == false or (type(build) == "table" and #build == 0) then
-				build = nil
-			end
-
-			-- opts without config and config = true both desugar to
-			-- require(main).setup(opts) at load. The main module is resolved
-			-- at load time (like lazy.nvim) because a remote plugin is not
-			-- installed yet during compile. The closure captures only pure
-			-- values, so re-compiles are deterministic.
-			local config = spec.config
-			if config == nil and spec.opts ~= nil then
-				config = true
-			end
-			if config == true then
-				local explicit_main = spec.main
-				local plugin_name = name
-				config = function(plugin, config_opts)
-					local main = explicit_main or get_main(plugin and plugin.dir, plugin_name)
-					if not main then
-						error(
-							("Lua module not found for config of %s. Please use a `config()` function instead"):format(
-								plugin_name
-							),
-							0
-						)
-					end
-					local mod = require(main)
-					if type(mod.setup) ~= "function" then
-						error(("module %q has no setup function"):format(main), 0)
-					end
-					mod.setup(config_opts or {})
+				local mod = require(main)
+				if type(mod.setup) ~= "function" then
+					error(("module %q has no setup function"):format(main), 0)
 				end
+				mod.setup(config_opts or {})
 			end
+		end
 
-			local norm = {
-				src = src,
-				name = name,
-				event = normalize_events(spec.event),
-				ft = normalize_array(spec.ft),
-				cmd = normalize_array(spec.cmd),
-				keys = normalize_keys(spec.keys),
-				dev = spec.dev,
-				dir = dir,
-				url = url,
-				init = spec.init,
-				config = config,
-				cond = spec.cond,
-				enabled = enabled,
-				after = after,
-				build = build,
-				module = spec.module,
-				main = spec.main,
-				opts = spec.opts,
-				dev_path = spec.dev_path,
-			}
+		local norm = {
+			src = src,
+			name = name,
+			event = normalize_events(spec.event),
+			ft = normalize_array(spec.ft),
+			cmd = normalize_array(spec.cmd),
+			keys = normalize_keys(spec.keys),
+			dev = spec.dev,
+			dir = dir,
+			url = url,
+			init = spec.init,
+			config = config,
+			cond = spec.cond,
+			enabled = enabled,
+			after = after,
+			build = build,
+			module = spec.module,
+			main = spec.main,
+			opts = spec.opts,
+			dev_path = spec.dev_path,
+		}
 
 		local resolved_src = resolve_src(norm.src, norm.dir, norm.url)
 
@@ -1447,17 +1451,9 @@ local function compile(specs, opts)
 			-- dev = "path" is the per-plugin dev directory (lazy.nvim
 			-- semantics): ~ expands, absolute/relative stay verbatim —
 			-- consistent with dev_path and the README notes.
-			if norm.dev:byte(1) == 126 then -- "~"
-				dev_src = vim.fn.expand(norm.dev)
-			else
-				dev_src = norm.dev
-			end
+			dev_src = expand_home(norm.dev)
 		elseif norm.dev_path then
-			if norm.dev_path:byte(1) == 126 then -- "~"
-				dev_src = vim.fn.expand(norm.dev_path)
-			else
-				dev_src = norm.dev_path
-			end
+			dev_src = expand_home(norm.dev_path)
 		end
 		local final_src = dev_src or resolved_src
 
