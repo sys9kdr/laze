@@ -1,5 +1,3 @@
-local known_differences = require("laze.known_differences")
-
 local TRIGGER_FIELDS = { "event", "ft", "cmd", "keys" }
 local ARRAY_TRIGGER_FIELDS = { "ft", "cmd" }
 local SOURCE_FIELDS = { "dir", "url", "name" }
@@ -1232,7 +1230,8 @@ local function compile(specs, opts)
 	-- closure is shared by dependency expansion and spec validation.
 	local kd_notified = {}
 	local function notify_kd(id, detail, key)
-		known_differences.notify(id, detail, kd_notified, opts, key)
+		-- Lazy-load: this path is rarely hit, so avoid paying the require cost at startup.
+		require("laze.known_differences").notify(id, detail, kd_notified, opts, key)
 	end
 	-- Dependency-derived `after` names live in a side table, NOT on the
 	-- user's spec tables: compile is a pure transform and must not mutate
