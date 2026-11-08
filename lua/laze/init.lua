@@ -128,10 +128,16 @@ function M.setup(specs, opts)
 	local function run_build_item(item, plugin, cwd)
 		if type(item) == "function" then
 			local ok, err = pcall(item, plugin)
-			return ok, ok and nil or tostring(err)
+			if not ok then
+				return false, tostring(err)
+			end
+			return true
 		elseif item:sub(1, 1) == ":" then
 			local ok, err = pcall(vim.cmd, item)
-			return ok, ok and nil or tostring(err)
+			if not ok then
+				return false, tostring(err)
+			end
+			return true
 		end
 		local result = vim.system({ "sh", "-c", item }, { cwd = cwd }):wait()
 		if result.code ~= 0 then
@@ -257,7 +263,7 @@ end
 --- Read-only view: do not mutate the returned table.
 ---@return LazeSpec[]?
 function M.get_specs()
-	return last_setup and last_setup.specs or nil
+	return last_setup and last_setup.specs
 end
 
 --- Re-run the last setup() call: re-compile, re-add to vim.pack

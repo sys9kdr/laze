@@ -295,6 +295,14 @@ local function build_plan(compiled, opts)
 	-- The hooks run at most once; the VimEnter finalizer then only marks the
 	-- plugin loaded.
 	local function run_hooks(id, entry, start, plugin_dir, hook_opts)
+		-- Shared failed-load treatment: mark the id and warn unless the
+		-- spec opted out with `silent`. Both failure sites below use it.
+		local function mark_failed(err)
+			loaded[id] = "failed"
+			if not entry.silent then
+				require("laze.diag").warn("failed to load " .. id .. ": " .. tostring(err))
+			end
+		end
 		local plugin = {
 			name = id,
 			dir = plugin_dir or entry.dir,
@@ -326,8 +334,7 @@ local function build_plan(compiled, opts)
 				end
 			end)
 			if not ok then
-				loaded[id] = "failed"
-				if not entry.silent then require("laze.diag").warn("failed to load " .. id .. ": " .. tostring(err)) end
+				mark_failed(err)
 			else
 				pending.hooks_ran = true
 			end
@@ -339,8 +346,7 @@ local function build_plan(compiled, opts)
 				for _, mod in ipairs(plugin_modules) do original_require(mod) end
 			end)
 			if not ok_req then
-				loaded[id] = "failed"
-				if not entry.silent then require("laze.diag").warn("failed to load " .. id .. ": " .. tostring(err_req)) end
+				mark_failed(err_req)
 				if on_fail then on_fail(id, err_req) end
 				return
 			end
