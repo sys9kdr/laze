@@ -14,6 +14,17 @@ Related: [migration notes](migration.md), [what laze does not have](not-have.md)
 and the message-policy design in issue
 [#12](https://github.com/sys9kdr/laze/issues/12).
 
+## Baseline
+
+The subset is measured against lazy.nvim's documented spec at
+<https://lazy.folke.io/spec>, fetched **2026-08-18**. Coverage targets
+documented fields; undocumented behavior that happens to work is not part of
+the contract.
+
+The vendored behavioral oracle in
+[`tests/vendor/lazy.nvim/`](../tests/vendor/lazy.nvim/) is pinned to lazy.nvim
+commit [`306a055`](https://github.com/folke/lazy.nvim/tree/306a05526ada86a7b30af95c5cc81ffba93fef97).
+
 ## Classes
 
 | Class | Meaning |

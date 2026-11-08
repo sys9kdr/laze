@@ -11,6 +11,8 @@ Laze produces a pure IR with three parts:
 The execution plan is then generated from that IR.
 At load time, laze only requires module names explicitly declared via `module`. It never guesses the module from the repo name (`hrsh7th/cmp-buffer` ships the `cmp_buffer` module), and `config` functions do their own requires — mirroring lazy.nvim.
 
+Laze is deliberately small: specs compile to a pure IR, the plan only wires triggers, and everything else is an opt-in extra.
+
 ## When does a plugin's code run?
 
 * **Disabled** (`enabled = false` or `cond = false`, literal or a function returning false): resolved once at setup while the spec is processed, before `vim.pack.add`, so the spec is not installed at all (lazy.nvim parity). The verdicts are shared with the plan, so `init`, loads and key triggers agree, and the hooks are evaluated once.
