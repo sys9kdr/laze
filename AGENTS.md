@@ -38,7 +38,7 @@ the test the oracle; do not trust an issue's assumed behavior. Source reading
 alone is not enough: run lazy.nvim and inspect the state laze actually
 consumes (`Config.plugins[name].lazy`, raw spec fields, resolved handlers).
 The probe recipe and its gotchas live in
-[`.opencode/skills/lazy-oracle/SKILL.md`](.opencode/skills/lazy-oracle/SKILL.md).
+[`.agents/skills/lazy-oracle/SKILL.md`](.agents/skills/lazy-oracle/SKILL.md).
 Record the measured result in a test comment next to the upstream file path.
 
 ## Structure
@@ -56,7 +56,7 @@ tests/test_compile.lua        standalone unit tests (luajit)
 tests/test_subset.lua         spec-surface conformance (luajit)
 tests/fixtures/, tests/snapshots/  input specs and generated expected IR
 tests/benchmarks/, tests/profile/  manual benchmarks
-.opencode/skills/             project skills (lazy.nvim measurement recipe)
+.agents/skills/              project skills (lazy.nvim measurement recipe)
 ```
 
 Types (LuaCATS) are defined in code: `lua/laze/init.lua` (`LazeSpec`,
