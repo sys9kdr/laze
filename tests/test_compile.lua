@@ -1,17 +1,19 @@
---- test_compile.lua — Standalone compile tests for laze (no Neovim required)
---- Run: luajit tests/test_compile.lua
+--- test_compile.lua — Standalone compile tests for laze
+--- Run: nvim --clean -l tests/test_compile.lua   (luajit also works, no nvim)
 
 package.path = string.format("./lua/?.lua;%s", package.path)
 
--- Stub vim module for non-Neovim environments
-vim = {}
+-- Stub the vim module: the compile core must work with exactly this surface.
+-- Override fields rather than replacing the global vim table so this file
+-- also runs under `nvim -l`, whose own require machinery breaks on a
+-- clobbered vim.
+vim = vim or {}
 vim.log = { levels = { WARN = "WARN" } }
 vim.notify = function() end
-vim.fn = {
-	expand = function(s)
-		return s:gsub("^~", os.getenv("HOME") or "")
-	end,
-}
+vim.fn = vim.fn or {}
+vim.fn.expand = function(s)
+	return s:gsub("^~", os.getenv("HOME") or "")
+end
 vim.version = {
 	range = function(v)
 		return "RANGE:" .. v
