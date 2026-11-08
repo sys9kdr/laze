@@ -50,11 +50,9 @@ end
 
 ---@param src string
 ---@return string
-local function derive_name(src)
-	-- lazy.nvim-compatible (lazy/core/plugin.lua Spec.get_name): strip a
-	-- trailing `.git`, then one trailing slash, then take the last path
-	-- segment. Without the braces, "user/repo.git" keeps the .git suffix
-	-- and "…/plugin/" (trailing slash) falls back to the raw URL as id.
+local function strip_src_suffix(src)
+	-- Strip a trailing "/", then a trailing ".git": lazy.nvim and vim.pack
+	-- both do exactly this before taking the last path segment.
 	local name = src
 	if name:sub(-1) == "/" then
 		name = name:sub(1, -2)
@@ -62,6 +60,17 @@ local function derive_name(src)
 	if name:sub(-4) == ".git" then
 		name = name:sub(1, -5)
 	end
+	return name
+end
+
+---@param src string
+---@return string
+local function derive_name(src)
+	-- lazy.nvim-compatible (lazy/core/plugin.lua Spec.get_name): strip a
+	-- trailing `.git`, then one trailing slash, then take the last path
+	-- segment. Without the braces, "user/repo.git" keeps the .git suffix
+	-- and "…/plugin/" (trailing slash) falls back to the raw URL as id.
+	local name = strip_src_suffix(src)
 	name = last_segment(name) or name
 	if name:sub(-5) == ".nvim" then
 		name = name:sub(1, -6)
@@ -70,70 +79,6 @@ local function derive_name(src)
 		name = name:sub(1, -5)
 	end
 	return name
-end
-
--- lazy.nvim's Util.normname: used to match a plugin name against the
--- top-level Lua modules it ships. Kept equivalent to lazy/core/util.lua so
--- main-module resolution picks the same module.
-local function norm_module_name(name)
-	return name:lower():gsub("^n?vim%-", ""):gsub("%.n?vim$", ""):gsub("[%.%-]lua", ""):gsub("[^a-z]+", "")
-end
-
---- Resolve a plugin's `main` module the way lazy.nvim does when `opts` or
---- `config = true` is used without an explicit `main`:
----   * `mini.<name>` plugins use their own name (except `mini.nvim`),
----   * otherwise scan the top-level entries under `<plugin>/lua`, prefer a
----     module whose normalized name matches the plugin name, and fall back
----     to the single module when the plugin ships exactly one.
---- Runs at load time (the plugin is installed by then), never at compile.
----@param plugin_dir string?
----@param name string
----@return string?
-local function get_main(plugin_dir, name)
-	if name ~= "mini.nvim" and name:match("^mini%.") then
-		return name
-	end
-	if not plugin_dir then
-		return nil
-	end
-	local uv = vim.uv or vim.loop
-	local lua_dir = plugin_dir .. "/lua"
-	local handle = uv.fs_scandir(lua_dir)
-	if not handle then
-		return nil
-	end
-	local normname = norm_module_name(name)
-	local mods = {}
-	local seen = {}
-	while true do
-		local entry_name, t = uv.fs_scandir_next(handle)
-		if not entry_name then
-			break
-		end
-		local topname
-		local ext = entry_name:sub(-4)
-		if ext == ".lua" or ext == ".dll" then
-			topname = entry_name:sub(1, -5)
-		elseif entry_name:sub(-3) == ".so" then
-			topname = entry_name:sub(1, -4)
-		elseif t == "link" or t == "directory" then
-			topname = entry_name
-		elseif t == nil then
-			-- luv occasionally omits the type; stat it like lazy.nvim does.
-			local st = uv.fs_stat(lua_dir .. "/" .. entry_name)
-			if st and (st.type == "link" or st.type == "directory") then
-				topname = entry_name
-			end
-		end
-		if topname and not seen[topname] then
-			seen[topname] = true
-			if norm_module_name(topname) == normname then
-				return topname
-			end
-			table.insert(mods, topname)
-		end
-	end
-	return #mods == 1 and mods[1] or nil
 end
 
 -- vim.pack's own directory-name derivation (runtime/lua/vim/pack.lua):
@@ -146,24 +91,25 @@ local function pkg_name(src, spec_name)
 	if spec_name then
 		return spec_name
 	end
-	local name = src
-	if name:sub(-1) == "/" then
-		name = name:sub(1, -2)
-	end
-	if name:sub(-4) == ".git" then
-		name = name:sub(1, -5)
-	end
+	local name = strip_src_suffix(src)
 	return last_segment(name) or name
+end
+
+--- Expand a leading "~" via the API (one call per dev/dir spec; compile is
+--- one-shot). Byte test, not `:match("^~")`: patterns are NYI in LuaJIT and
+--- run interpreted (~50 ns vs sub-ns per call on this hot path).
+---@param path string
+---@return string
+local function expand_home(path)
+	if path:byte(1) == 126 then -- "~"
+		return vim.fn.expand(path)
+	end
+	return path
 end
 
 local function resolve_src(src, dir, url)
 	if dir then
-		-- Byte test, not `:match("^~")`: patterns are NYI in LuaJIT and
-		-- run interpreted (~50 ns vs sub-ns per call on this hot path).
-		if dir:byte(1) == 126 then -- "~"
-			return vim.fn.expand(dir)
-		end
-		return dir
+		return expand_home(dir)
 	end
 
 	if url then
@@ -279,236 +225,6 @@ local function normalize_events(v)
 	return {}
 end
 
--- lazy.nvim's `version` is a semver range, not a git ref. vim.version.range
--- is lenient enough to misparse refs ("abc123" → 123.0.0), drop everything
--- after the first comparator ("1.2 || 1.3", ">=1.2.0 <2.0.0"), and ignore
--- trailing junk. Validate the whole string before handing it to vim.pack so
--- an unrepresentable range fails at compile time instead of silently
--- narrowing. Refs belong in branch/tag/commit.
-local function is_digit(b)
-	return b ~= nil and b >= 48 and b <= 57
-end
-
-local function is_wildcard(b)
-	return b == 42 or b == 120 or b == 88 -- * x X
-end
-
-local function is_ident_byte(b)
-	return b ~= nil
-		and ((b >= 48 and b <= 57) or (b >= 65 and b <= 90) or (b >= 97 and b <= 122) or b == 45)
-end
-
--- Scan one version token after an optional comparator. Accepts the shapes
--- lazy.nvim/vim.version.range support: partial versions, x/X/* wildcards,
--- prerelease, and build metadata. Returns false on any trailing bytes.
-local function is_version_token(s, i)
-	local n = #s
-	local b = s:byte(i)
-	if b == 118 or b == 86 then -- v / V
-		i = i + 1
-	end
-	if not is_digit(s:byte(i)) then
-		return false
-	end
-
-	local numeric = 0
-	local wildcard = false
-	while i <= n do
-		b = s:byte(i)
-		if is_digit(b) then
-			if wildcard then
-				return false -- no numeric component after a wildcard
-			end
-			repeat
-				i = i + 1
-			until not is_digit(s:byte(i))
-			numeric = numeric + 1
-		elseif is_wildcard(b) then
-			wildcard = true
-			i = i + 1
-		else
-			break
-		end
-		if s:byte(i) == 46 then -- "."
-			i = i + 1
-			if i > n then
-				return false
-			end
-		else
-			break
-		end
-	end
-	if numeric == 0 or numeric > 3 then
-		return false
-	end
-
-	-- Prerelease/build after a wildcard would be stripped by vim.version.range
-	-- along with the wildcard, so reject it rather than guess.
-	if wildcard and (s:byte(i) == 45 or s:byte(i) == 43) then
-		return false
-	end
-
-	local function scan_identifiers(j, stop_at_plus)
-		local start = j
-		while j <= n do
-			local bb = s:byte(j)
-			if is_ident_byte(bb) then
-				j = j + 1
-			elseif bb == 46 then -- "."
-				if j == start or s:byte(j - 1) == 46 then
-					return false
-				end
-				j = j + 1
-				if not is_ident_byte(s:byte(j)) then
-					return false
-				end
-			elseif bb == 43 and stop_at_plus then -- "+"
-				break
-			else
-				return false
-			end
-		end
-		if j == start then
-			return false
-		end
-		return j
-	end
-
-	if s:byte(i) == 45 then -- "-" prerelease
-		i = scan_identifiers(i + 1, true)
-		if i == false then
-			return false
-		end
-	end
-	if s:byte(i) == 43 then -- "+" build
-		i = scan_identifiers(i + 1, false)
-		if i == false then
-			return false
-		end
-	end
-	return i > n
-end
-
-local function is_range_operand(s, allow_comparator)
-	local i = 1
-	if allow_comparator then
-		local b = s:byte(i)
-		if b == 62 or b == 60 then -- > <
-			if s:byte(i + 1) == 61 then -- >= <=
-				i = i + 2
-			else
-				i = i + 1
-			end
-		elseif b == 94 or b == 126 or b == 61 then -- ^ ~ =
-			i = i + 1
-		end
-	end
-	return is_version_token(s, i)
-end
-
-local function looks_like_semver_range(v)
-	local n = #v
-	if n == 0 then
-		return true -- lazy.nvim and vim.version.range treat "" as "*"
-	end
-	if n == 1 and v:byte(1) == 42 then -- "*"
-		return true
-	end
-
-	-- The only whitespace accepted is a single hyphen-range separator. This
-	-- rejects compound ranges (" >=1.2.0 <2.0.0") instead of letting
-	-- vim.version.range keep only the first comparator.
-	local hyphen = v:find(" - ", 1, true)
-	if hyphen then
-		if v:find(" - ", hyphen + 3, true) then
-			return false
-		end
-		local a = v:sub(1, hyphen - 1)
-		local b = v:sub(hyphen + 3)
-		return a ~= "" and b ~= "" and is_range_operand(a, false) and is_range_operand(b, false)
-	end
-	for i = 1, n do
-		local b = v:byte(i)
-		if b == 32 or b == 9 or b == 10 or b == 13 then
-			return false
-		end
-	end
-	return is_range_operand(v, true)
-end
-
---- lazy.nvim's SemverRange:matches requires the candidate's prerelease to
---- equal the lower bound's prerelease (`version.prerelease ~=
---- self.from.prerelease` -> false). `vim.version.range` does not apply that
---- filter, so a `>1.2.3` range would otherwise include `1.2.4-alpha`.
---- Extract the lower bound's prerelease from the input spec (comparator and
---- hyphen form) and wrap only `has`: the range check itself stays Neovim's.
----@param spec string
----@param range vim.VersionRange
----@return vim.VersionRange
-local function with_lower_prerelease(spec, range)
-	local lower = spec
-	local hyphen = spec:find(" - ", 1, true)
-	if hyphen then
-		lower = spec:sub(1, hyphen - 1)
-	end
-	local version = lower:lower():match("^[%^=<>~]*(.*)$") or ""
-	version = version:gsub("%.[%*x]", "")
-	local ok, parsed = pcall(vim.version.parse, version)
-	local want = ok and parsed and parsed.prerelease or nil
-
-	local wrapper = { from = range.from, to = range.to }
-	wrapper.has = function(_, candidate)
-		local version_obj = candidate
-		if type(candidate) == "string" then
-			local parsed_ok, parsed_obj = pcall(vim.version.parse, (candidate:gsub("^v", "")))
-			if not parsed_ok or not parsed_obj then
-				return false
-			end
-			version_obj = parsed_obj
-		end
-		if (version_obj.prerelease or nil) ~= want then
-			return false
-		end
-		return range:has(version_obj)
-	end
-	return setmetatable(wrapper, {
-		__index = range,
-		__tostring = function()
-			return tostring(range)
-		end,
-	})
-end
-
----@param v string
----@param idx? integer
----@param spec_id? string
----@return vim.VersionRange
-local function to_semver_range(v, idx, spec_id)
-	local prefix = idx and ("spec [" .. idx .. "]" .. (spec_id and (" (" .. spec_id .. ")") or "") .. ": ") or ""
-	if not looks_like_semver_range(v) then
-		error(
-			prefix
-				.. ("version %q is not a supported semver range (single ranges only; multi-range/whitespace sets are rejected; git refs belong in branch/tag/commit)"):format(
-					v
-				),
-			0
-		)
-	end
-	local range_fn = vim.version and vim.version.range
-	if type(range_fn) ~= "function" then
-		error(prefix .. "vim.version.range is required to lower version ranges", 0)
-	end
-	local ok, range = pcall(range_fn, v)
-	if not ok or range == nil then
-		error(prefix .. ("version %q is not a valid semver range"):format(v), 0)
-	end
-	-- Non-Neovim test stub: keep the value opaque.
-	if type(range) ~= "table" or type(range.has) ~= "function" then
-		return range
-	end
-	return with_lower_prerelease(v, range)
-end
-
 --- Resolve lazy.nvim version spec to a vim.pack-compatible version value.
 --- lazy.nvim: version = semver range string | false; branch/tag/commit are refs.
 --- vim.pack:  version accepts a git ref string or a VersionRange.
@@ -529,7 +245,7 @@ local function resolve_version(spec, idx, range)
 		-- Field-based lowering: a version string is always a semver range,
 		-- never a git ref (refs use branch/tag/commit). Reuse the range
 		-- validated during compile instead of parsing the same string twice.
-		return range or to_semver_range(v, idx)
+		return range or require("laze.semver").to_semver_range(v, idx)
 	end
 	-- version = false (or omitted) means "do not pin a range"; branch still
 	-- applies, then vim.pack's default branch when neither is set.
@@ -575,6 +291,11 @@ local function add_to_event_route(route_map, events, plugin_id)
 	end
 end
 
+--- Variant identity for `ft`: an ft set as one comparable string ("" = global).
+local function ft_id(value)
+	return value and table.concat(value, "\0") or ""
+end
+
 --- Key routes are per (lhs, mode) variant: `routes.keys[lhs]` is an array
 --- with one entry per normalized mode (a `mode` array expands to one
 --- variant per mode, in declaration order). Each variant is an independent
@@ -609,9 +330,6 @@ local function add_to_key_route(route_map, keys, plugin_id)
 						table.insert(copy, value)
 					end
 					ft = copy
-				end
-				local function ft_id(value)
-					return value and table.concat(value, "\0") or ""
 				end
 				local variants = route_map[lhs]
 				-- `rhs = false` (or `vim.NIL`) removes this plugin's entry
@@ -657,13 +375,12 @@ local function add_to_key_route(route_map, keys, plugin_id)
 						variant = { mode = mode, ids = {}, rhs = ke.rhs, desc = ke.desc, silent = ke.silent, ft = ft }
 						table.insert(variants, variant)
 					elseif variant.rhs ~= ke.rhs or variant.desc ~= ke.desc or variant.silent ~= ke.silent then
-						vim.notify(
-							("laze: keys %q in mode %q is shared by multiple plugins with different rhs/opts — keeping the first"):format(
-								lhs,
-								mode
-							),
-							vim.log.levels.WARN
-						)
+							require("laze.diag").warn(
+								("keys %q in mode %q is shared by multiple plugins with different rhs/opts — keeping the first"):format(
+									lhs,
+									mode
+								)
+							)
 					end
 					-- A plugin may declare the same (lhs, mode) more than once;
 					-- its id still appears once (it is loaded at most once).
@@ -805,7 +522,7 @@ end
 --- to "no trigger" would turn the plugin eager — the worst failure mode.
 local function validate_triggers(spec, idx, spec_id)
 	local function bad(field, msg)
-		error(("spec [%d] (%s): %s %s"):format(idx, spec_id, field, msg), 0)
+		require("laze.diag").bad(idx, spec_id, field, msg)
 	end
 
 	for _, field in ipairs(TRIGGER_FIELDS) do
@@ -934,12 +651,6 @@ local function validate_triggers(spec, idx, spec_id)
 end
 
 ---@param spec LazeSpec
----@param idx integer
----@param warned table<string, boolean>
----@param notify fun(id: string, detail: string)
----@return vim.VersionRange|nil
---- A `dev`/`dev_path` source is a local checkout, just like `dir`.
----@param spec LazeSpec
 ---@return boolean
 local function has_dev_source(spec)
 	return spec.dev == true
@@ -955,18 +666,25 @@ end
 local function validate_spec(spec, idx, warned, notify)
 	local src = spec[1] or spec.src
 	if not src and not spec.dir and not spec.url then
-		error("spec [" .. idx .. "]: missing source — use [1], .src, .dir, or .url", 0)
+		require("laze.diag").spec_at(idx, "missing source — use [1], .src, .dir, or .url")
 	end
 	if src ~= nil and (type(src) ~= "string" or src == "") then
-		error("spec [" .. idx .. "]: [1]/src must be a non-empty string", 0)
+		require("laze.diag").spec_at(idx, "[1]/src must be a non-empty string")
 	end
 	for _, f in ipairs(SOURCE_FIELDS) do
 		if spec[f] ~= nil and (type(spec[f]) ~= "string" or spec[f] == "") then
-			error("spec [" .. idx .. "]: " .. f .. " must be a non-empty string", 0)
+			require("laze.diag").spec_at(idx, f .. " must be a non-empty string")
 		end
 	end
 
 	local spec_id = tostring(src or spec.dir or spec.url)
+
+	-- Every check below fails fatally (diag.spec raises). The closure keeps the
+	-- inline lazy require from lua/laze/diag.lua (parsed only when a message
+	-- actually fires) while leaving one short call per check.
+	local function err(msg)
+		require("laze.diag").spec(idx, spec_id, msg)
+	end
 
 	warn_unsupported(spec, idx, spec_id, warned, notify)
 
@@ -979,68 +697,62 @@ local function validate_spec(spec, idx, warned, notify)
 	end
 
 	if spec.dev == "" then
-		vim.notify("laze: spec [" .. idx .. "] (" .. spec_id .. ") has dev='' — ignored", vim.log.levels.WARN)
+		require("laze.diag").warn(("spec [%d] (%s) has dev='' — ignored"):format(idx, spec_id))
 	end
 
 	if spec.init ~= nil and type(spec.init) ~= "function" then
-		error("spec [" .. idx .. "] (" .. spec_id .. "): init must be a function", 0)
+		err("init must be a function")
 	end
 	if spec.config ~= nil and type(spec.config) ~= "function" and spec.config ~= true then
+		-- The two shapes are exclusive (err raises): the table form is
+		-- lazy.nvim's removed opts alias, so it gets a message naming the
+		-- replacements instead of the generic type error.
 		if type(spec.config) == "table" then
-			error(
-				"spec ["
-					.. idx
-					.. "] ("
-					.. spec_id
-					.. "): config = { ... } (lazy.nvim's deprecated opts alias) is not supported — use main = \"...\" with opts = {...}, or config = function() ... end",
-				0
-			)
+			err("config = { ... } (lazy.nvim's deprecated opts alias) is not supported — use main = \"...\" with opts = {...}, or config = function() ... end")
+		else
+			err("config must be a function or true")
 		end
-		error("spec [" .. idx .. "] (" .. spec_id .. "): config must be a function or true", 0)
 	end
 	-- opts is lazy.nvim's setup shorthand: a table (or a function returning
 	-- one) passed to require(main).setup(opts) at load. main is resolved
 	-- lazily like lazy.nvim (explicit, name match, or the single top-level
 	-- module) because the plugin is not installed at compile time.
 	if spec.opts ~= nil and type(spec.opts) ~= "table" and type(spec.opts) ~= "function" then
-		error("spec [" .. idx .. "] (" .. spec_id .. "): opts must be a table or function", 0)
+		err("opts must be a table or function")
 	end
 	if spec.main ~= nil and (type(spec.main) ~= "string" or spec.main == "") then
-		error("spec [" .. idx .. "] (" .. spec_id .. "): main must be a non-empty string", 0)
+		err("main must be a non-empty string")
 	end
 	-- lazy.nvim accepts boolean or function for both cond and enabled.
 	if spec.cond ~= nil and type(spec.cond) ~= "function" and type(spec.cond) ~= "boolean" then
-		error("spec [" .. idx .. "] (" .. spec_id .. "): cond must be a function or boolean", 0)
+		err("cond must be a function or boolean")
 	end
 	if spec.enabled ~= nil and type(spec.enabled) ~= "function" and type(spec.enabled) ~= "boolean" then
-		error("spec [" .. idx .. "] (" .. spec_id .. "): enabled must be a function or boolean", 0)
+		err("enabled must be a function or boolean")
 	end
 	if spec.lazy ~= nil and type(spec.lazy) ~= "boolean" then
-		error("spec [" .. idx .. "] (" .. spec_id .. "): lazy must be a boolean", 0)
+		err("lazy must be a boolean")
 	end
 	if spec.submodules ~= nil and type(spec.submodules) ~= "boolean" then
-		error("spec [" .. idx .. "] (" .. spec_id .. "): submodules must be a boolean", 0)
+		err("submodules must be a boolean")
 	end
-		if spec.after ~= nil then
+	if spec.after ~= nil then
 		if type(spec.after) ~= "table" then
-			error("spec [" .. idx .. "] (" .. spec_id .. "): after must be an array of plugin ids", 0)
+			err("after must be an array of plugin ids")
 		end
 		for i, dep_id in ipairs(spec.after) do
 			if type(dep_id) ~= "string" or dep_id == "" then
-				error("spec [" .. idx .. "] (" .. spec_id .. "): after[" .. i .. "] must be a non-empty plugin id string", 0)
+				err("after[" .. i .. "] must be a non-empty plugin id string")
 			end
 		end
 	end
 	if spec.dependencies ~= nil then
-		local is_str = type(spec.dependencies) == "string"
-		local is_arr = type(spec.dependencies) == "table"
-		if not is_str and not is_arr then
-			error("spec [" .. idx .. "] (" .. spec_id .. "): dependencies must be a string, name array, or spec array", 0)
-		end
-		if is_arr then
+		if type(spec.dependencies) ~= "string" and type(spec.dependencies) ~= "table" then
+			err("dependencies must be a string, name array, or spec array")
+		elseif type(spec.dependencies) == "table" then
 			for i, dep in ipairs(spec.dependencies) do
 				if type(dep) ~= "string" and type(dep) ~= "table" then
-					error("spec [" .. idx .. "] (" .. spec_id .. "): dependencies[" .. i .. "] must be a string or spec table", 0)
+					err("dependencies[" .. i .. "] must be a string or spec table")
 				end
 			end
 		end
@@ -1049,72 +761,53 @@ local function validate_spec(spec, idx, warned, notify)
 		if type(spec.build) == "table" then
 			for i, item in ipairs(spec.build) do
 				if type(item) ~= "string" and type(item) ~= "function" then
-					error(
-						"spec ["
-							.. idx
-							.. "] ("
-							.. spec_id
-							.. "): build["
-							.. i
-							.. "] must be a string or function",
-						0
-					)
+					err("build[" .. i .. "] must be a string or function")
 				end
 			end
 		else
-			error(
-				"spec ["
-					.. idx
-					.. "] ("
-					.. spec_id
-					.. "): build must be a string, function, false, or a list of strings/functions",
-				0
-			)
+			err("build must be a string, function, false, or a list of strings/functions")
 		end
 	end
-		if
-		spec.module ~= nil
-		and type(spec.module) ~= "string"
-		and type(spec.module) ~= "table"
-		and spec.module ~= false
-	then
-		error("spec [" .. idx .. "] (" .. spec_id .. "): module must be a string, array, or false", 0)
+	if spec.module ~= nil and type(spec.module) ~= "string" and type(spec.module) ~= "table" and spec.module ~= false then
+		err("module must be a string, array, or false")
 	end
 	if type(spec.module) == "table" then
 		if #spec.module == 0 then
-			error("spec [" .. idx .. "] (" .. spec_id .. "): module must not be an empty array — use false or omit it", 0)
+			err("module must not be an empty array — use false or omit it")
 		end
 		for i, mod in ipairs(spec.module) do
 			if type(mod) ~= "string" or mod == "" then
-				error("spec [" .. idx .. "] (" .. spec_id .. "): module[" .. i .. "] must be a non-empty string", 0)
+				err("module[" .. i .. "] must be a non-empty string")
 			end
 		end
 	end
 	if spec.priority ~= nil and type(spec.priority) ~= "number" then
-		error("spec [" .. idx .. "] (" .. spec_id .. "): priority must be a number", 0)
+		err("priority must be a number")
 	end
 	local version_range
 	if spec.version ~= nil and spec.version ~= false then
 		if type(spec.version) ~= "string" then
-			error("spec [" .. idx .. "] (" .. spec_id .. "): version must be a string (semver range) or false", 0)
+			err("version must be a string (semver range) or false")
 		end
 		-- lazy.nvim's precedence is commit > tag > version > branch, so a
 		-- range that cannot win is not evaluated. Keep the type check above,
 		-- but only parse when version is actually eligible. This also lets
 		-- plain-Lua snapshot generation handle ref-only fixtures without a
 		-- vim.version stub. Return the object so resolve_version can reuse it
-		-- instead of parsing the same string twice.
+		-- instead of parsing the same string twice. The semver module is
+		-- required lazily: most configs have no `version` spec and never
+		-- pay its parse cost at startup.
 		--
 		-- `dir` and an active dev source are local checkouts: lazy.nvim
 		-- ignores version/refs for them, so do not reject a range that will
 		-- never be lowered. This is a drop-in compatibility fix (KD-004).
 		if spec.commit == nil and spec.tag == nil and spec.dir == nil and not has_dev_source(spec) then
-			version_range = to_semver_range(spec.version, idx, spec_id)
+			version_range = require("laze.semver").to_semver_range(spec.version, idx, spec_id)
 		end
 	end
 	for _, f in ipairs(VERSION_REF_FIELDS) do
 		if spec[f] ~= nil and (type(spec[f]) ~= "string" or spec[f] == "") then
-			error("spec [" .. idx .. "] (" .. spec_id .. "): " .. f .. " must be a non-empty string", 0)
+			err(f .. " must be a non-empty string")
 		end
 	end
 
@@ -1152,15 +845,15 @@ local function flatten_spec(spec, out, label)
 		error("compile: " .. label .. " must be a spec table or string", 0)
 	end
 
-	local list = is_list(spec)
-	if #spec > 1 or list then
-		if not list then
-			error("compile: " .. label .. " must not be sparse", 0)
-		end
+	if is_list(spec) then
 		for i = 1, #spec do
 			flatten_spec(spec[i], out, label .. "[" .. i .. "]")
 		end
 		return
+	end
+	-- More entries than a dense 1..n layout but not a list: sparse.
+	if #spec > 1 then
+		error("compile: " .. label .. " must not be sparse", 0)
 	end
 
 	-- Numeric-only keys that are not a dense list are a sparse list (for
@@ -1370,85 +1063,85 @@ local function compile(specs, opts)
 		-- order, without touching the user's spec table (compile purity).
 		-- Dedup preserved: a dep named both ways is wired once.
 		local after = dep_after[spec] or {}
-			if spec.after then
-				local merged = {}
-				for _, n in ipairs(spec.after) do
+		if spec.after then
+			local merged = {}
+			for _, n in ipairs(spec.after) do
+				table.insert(merged, n)
+			end
+			for _, n in ipairs(after) do
+				local already = false
+				for _, existing in ipairs(merged) do
+					if existing == n then
+						already = true
+						break
+					end
+				end
+				if not already then
 					table.insert(merged, n)
 				end
-				for _, n in ipairs(after) do
-					local already = false
-					for _, existing in ipairs(merged) do
-						if existing == n then
-							already = true
-							break
-						end
-					end
-					if not already then
-						table.insert(merged, n)
-					end
+			end
+			after = merged
+		end
+
+		-- build = false means "no build" (lazy.nvim semantics). NOT
+		-- `spec.build == false and nil or spec.build` — that Lua gotcha
+		-- returns false again (nil can't flow through and/or).
+		local build = spec.build
+		if build == false or (type(build) == "table" and #build == 0) then
+			build = nil
+		end
+
+		-- opts without config and config = true both desugar to
+		-- require(main).setup(opts) at load. The main module is resolved
+		-- at load time (like lazy.nvim) because a remote plugin is not
+		-- installed yet during compile. The closure captures only pure
+		-- values, so re-compiles are deterministic.
+		local config = spec.config
+		if config == nil and spec.opts ~= nil then
+			config = true
+		end
+		if config == true then
+			local explicit_main = spec.main
+			local plugin_name = name
+			config = function(plugin, config_opts)
+				local main = explicit_main or require("laze.mainmod").get_main(plugin and plugin.dir, plugin_name)
+				if not main then
+					error(
+						("Lua module not found for config of %s. Please use a `config()` function instead"):format(
+							plugin_name
+						),
+						0
+					)
 				end
-				after = merged
-			end
-
-			-- build = false means "no build" (lazy.nvim semantics). NOT
-			-- `spec.build == false and nil or spec.build` — that Lua gotcha
-			-- returns false again (nil can't flow through and/or).
-			local build = spec.build
-			if build == false or (type(build) == "table" and #build == 0) then
-				build = nil
-			end
-
-			-- opts without config and config = true both desugar to
-			-- require(main).setup(opts) at load. The main module is resolved
-			-- at load time (like lazy.nvim) because a remote plugin is not
-			-- installed yet during compile. The closure captures only pure
-			-- values, so re-compiles are deterministic.
-			local config = spec.config
-			if config == nil and spec.opts ~= nil then
-				config = true
-			end
-			if config == true then
-				local explicit_main = spec.main
-				local plugin_name = name
-				config = function(plugin, config_opts)
-					local main = explicit_main or get_main(plugin and plugin.dir, plugin_name)
-					if not main then
-						error(
-							("Lua module not found for config of %s. Please use a `config()` function instead"):format(
-								plugin_name
-							),
-							0
-						)
-					end
-					local mod = require(main)
-					if type(mod.setup) ~= "function" then
-						error(("module %q has no setup function"):format(main), 0)
-					end
-					mod.setup(config_opts or {})
+				local mod = require(main)
+				if type(mod.setup) ~= "function" then
+					error(("module %q has no setup function"):format(main), 0)
 				end
+				mod.setup(config_opts or {})
 			end
+		end
 
-			local norm = {
-				src = src,
-				name = name,
-				event = normalize_events(spec.event),
-				ft = normalize_array(spec.ft),
-				cmd = normalize_array(spec.cmd),
-				keys = normalize_keys(spec.keys),
-				dev = spec.dev,
-				dir = dir,
-				url = url,
-				init = spec.init,
-				config = config,
-				cond = spec.cond,
-				enabled = enabled,
-				after = after,
-				build = build,
-				module = spec.module,
-				main = spec.main,
-				opts = spec.opts,
-				dev_path = spec.dev_path,
-			}
+		local norm = {
+			src = src,
+			name = name,
+			event = normalize_events(spec.event),
+			ft = normalize_array(spec.ft),
+			cmd = normalize_array(spec.cmd),
+			keys = normalize_keys(spec.keys),
+			dev = spec.dev,
+			dir = dir,
+			url = url,
+			init = spec.init,
+			config = config,
+			cond = spec.cond,
+			enabled = enabled,
+			after = after,
+			build = build,
+			module = spec.module,
+			main = spec.main,
+			opts = spec.opts,
+			dev_path = spec.dev_path,
+		}
 
 		local resolved_src = resolve_src(norm.src, norm.dir, norm.url)
 
@@ -1467,17 +1160,9 @@ local function compile(specs, opts)
 			-- dev = "path" is the per-plugin dev directory (lazy.nvim
 			-- semantics): ~ expands, absolute/relative stay verbatim —
 			-- consistent with dev_path and the README notes.
-			if norm.dev:byte(1) == 126 then -- "~"
-				dev_src = vim.fn.expand(norm.dev)
-			else
-				dev_src = norm.dev
-			end
+			dev_src = expand_home(norm.dev)
 		elseif norm.dev_path then
-			if norm.dev_path:byte(1) == 126 then -- "~"
-				dev_src = vim.fn.expand(norm.dev_path)
-			else
-				dev_src = norm.dev_path
-			end
+			dev_src = expand_home(norm.dev_path)
 		end
 		local final_src = dev_src or resolved_src
 
@@ -1513,11 +1198,10 @@ local function compile(specs, opts)
 
 		if is_local then
 			if norm.build ~= nil then
-				vim.notify(
-					"laze: plugin '"
+				require("laze.diag").warn(
+					"plugin '"
 						.. name
-						.. "' is a local dir; build is not run (vim.pack does not install or rebuild local dirs)",
-					vim.log.levels.WARN
+						.. "' is a local dir; build is not run (vim.pack does not install or rebuild local dirs)"
 				)
 			end
 		else
@@ -1563,13 +1247,7 @@ local function compile(specs, opts)
 		add_to_route(routes.cmds, norm.cmd, name)
 		add_to_key_route(routes.keys, norm.keys, name)
 		if norm.module then
-			local modules = type(norm.module) == "table" and norm.module or { norm.module }
-			for _, mod in ipairs(modules) do
-				if not routes.modules[mod] then
-					routes.modules[mod] = {}
-				end
-				table.insert(routes.modules[mod], name)
-			end
+			add_to_route(routes.modules, type(norm.module) == "table" and norm.module or { norm.module }, name)
 		end
 		registry[name].has_route = #norm.event > 0
 			or #norm.ft > 0
@@ -1581,9 +1259,8 @@ local function compile(specs, opts)
 	for id, entry in pairs(registry) do
 		for _, dep_id in ipairs(entry.after or {}) do
 			if not registry[dep_id] then
-				vim.notify(
-					"laze: plugin '" .. id .. "' has after dependency on '" .. dep_id .. "' which does not exist",
-					vim.log.levels.WARN
+				require("laze.diag").warn(
+					"plugin '" .. id .. "' has after dependency on '" .. dep_id .. "' which does not exist"
 				)
 			end
 		end

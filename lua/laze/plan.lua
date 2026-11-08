@@ -55,6 +55,19 @@ local function plugin_view(id, entry, data_dir)
 	}
 end
 
+--- Delete the exact map for `lhs` in `mode`, buffer-local when `buf` is set,
+--- ignoring errors (mirrors every keymap-delete site in this module).
+---@param mode string
+---@param lhs string
+---@param buf? integer
+local function del_map(mode, lhs, buf)
+	if buf then
+		pcall(vim.keymap.del, mode, lhs, { buffer = buf })
+	else
+		pcall(vim.keymap.del, mode, lhs)
+	end
+end
+
 --- Evaluate `enabled` and `cond` once (lazy.nvim resolves both while
 --- processing the spec and caches the verdict for the session). setup() calls
 --- this before vim.pack.add, so a false verdict also skips installation;
@@ -64,34 +77,44 @@ end
 ---@return table<string, boolean> enabled_ok
 ---@return table<string, boolean> cond_ok
 local function resolve_verdicts(registry, data_dir)
+	-- One boolean verdict field: a function hook runs once; throwing is
+	-- contained (warn, treat as false — never throw in plan). Only `cond`
+	-- gets the lazy.nvim plugin argument, so build plugin_view for it.
+	local function verdict(value, hook, id, entry)
+		if type(value) ~= "function" then
+			return value ~= false
+		end
+		local ok, res
+		if entry then
+			ok, res = pcall(value, plugin_view(id, entry, data_dir))
+		else
+			ok, res = pcall(value)
+		end
+		if not ok then
+			require("laze.diag").warn(("%s hook failed for %s: %s"):format(hook, id, tostring(res)))
+			return false
+		end
+		return res ~= false
+	end
+
 	local enabled_ok, cond_ok = {}, {}
 	for id, entry in pairs(registry) do
-		if type(entry.enabled) == "function" then
-			local ok, res = pcall(entry.enabled)
-			if not ok then
-				vim.notify(("laze: enabled hook failed for %s: %s"):format(id, tostring(res)), vim.log.levels.WARN)
-				enabled_ok[id] = false
-			else
-				enabled_ok[id] = res ~= false
-			end
-		else
-			enabled_ok[id] = entry.enabled ~= false
-		end
-		if type(entry.cond) == "function" then
-			-- lazy.nvim calls cond(plugin); a throwing cond is contained:
-			-- warn and treat it as false (never throw in plan).
-			local ok, res = pcall(entry.cond, plugin_view(id, entry, data_dir))
-			if not ok then
-				vim.notify(("laze: cond hook failed for %s: %s"):format(id, tostring(res)), vim.log.levels.WARN)
-				cond_ok[id] = false
-			else
-				cond_ok[id] = res ~= false
-			end
-		else
-			cond_ok[id] = entry.cond ~= false
-		end
+		enabled_ok[id] = verdict(entry.enabled, "enabled", id)
+		cond_ok[id] = verdict(entry.cond, "cond", id, entry)
 	end
 	return enabled_ok, cond_ok
+end
+
+--- Normalize an entry's `module` (string | array | false | nil) to an array
+--- of module names, or nil when the plugin requires no module triggers.
+---@param entry LazeEntry
+---@return string[]?
+local function modules_array(entry)
+	local m = entry.module
+	if type(m) == "string" then
+		return { m }
+	end
+	return type(m) == "table" and m or nil
 end
 
 ---@param compiled LazeCompiled
@@ -141,7 +164,13 @@ local function build_plan(compiled, opts)
 		vim.api.nvim_create_autocmd("SourcePre", {
 			group = group,
 			callback = function(ev)
-				if ev.match:find("[/\\]plugin[/\\]") then
+				-- Plain finds, not "[/\\]plugin[/\\]": patterns never enter
+				-- traces, plain find does (fresh-process A/B, best-of-3,
+				-- tests/benchmarks/jit_ab.lua WORKLOAD=probe): 286 → 37 ns
+				-- per SourcePre event with the JIT on, 304 → 65 ns with it
+				-- off. This fires for every file Neovim is about to source.
+				local m = ev.match
+				if m:find("/plugin/", 1, true) or m:find("\\plugin\\", 1, true) then
 					startup_plugin_phase_started = true
 					return true -- delete this autocmd
 				end
@@ -164,7 +193,9 @@ local function build_plan(compiled, opts)
 	-- Mirrors lazy.nvim ("Dependencies are always lazy-loaded unless
 	-- specified otherwise" — `lazy = false` is the explicit override).
 
-	-- Store original require before wrapping
+	-- Pin require at plan-build time: plugin code (or another manager) can
+	-- replace _G.require later, and the loader core plus the preload
+	-- closures must keep calling the builtin one.
 	local original_require = require
 
 	-- Source a plugin's own after/plugin/* scripts. :packadd sources
@@ -285,9 +316,7 @@ local function build_plan(compiled, opts)
 			-- A startup require() needs a configured plugin before it returns:
 			-- run its hooks now, but the plugin stays pending_startup so the
 			-- VimEnter finalizer still owns the plugin/ sourcing bookkeeping.
-			local modules = entry.module
-			if type(modules) == "string" then modules = { modules } end
-			local plugin_modules = type(modules) == "table" and modules or nil
+			local plugin_modules = modules_array(entry)
 			local ok, err = pcall(function()
 				if plugin_modules then
 					for _, mod in ipairs(plugin_modules) do original_require(mod) end
@@ -298,21 +327,20 @@ local function build_plan(compiled, opts)
 			end)
 			if not ok then
 				loaded[id] = "failed"
-				if not entry.silent then vim.notify("laze: failed to load " .. id .. ": " .. tostring(err), vim.log.levels.WARN) end
+				if not entry.silent then require("laze.diag").warn("failed to load " .. id .. ": " .. tostring(err)) end
 			else
 				pending.hooks_ran = true
 			end
 			return
 		end
-		local modules = entry.module
-		if type(modules) == "string" then modules = { modules } end
-		if type(modules) == "table" then
+		local plugin_modules = modules_array(entry)
+		if plugin_modules then
 			local ok_req, err_req = pcall(function()
-				for _, mod in ipairs(modules) do original_require(mod) end
+				for _, mod in ipairs(plugin_modules) do original_require(mod) end
 			end)
 			if not ok_req then
 				loaded[id] = "failed"
-				if not entry.silent then vim.notify("laze: failed to load " .. id .. ": " .. tostring(err_req), vim.log.levels.WARN) end
+				if not entry.silent then require("laze.diag").warn("failed to load " .. id .. ": " .. tostring(err_req)) end
 				if on_fail then on_fail(id, err_req) end
 				return
 			end
@@ -321,10 +349,9 @@ local function build_plan(compiled, opts)
 			local ok_cfg, err_cfg = pcall(function()
 				entry.config(plugin, resolve_opts(entry, plugin))
 			end)
-			if not ok_cfg then vim.notify("laze: config failed for " .. id .. ": " .. tostring(err_cfg), vim.log.levels.WARN) end
+			if not ok_cfg then require("laze.diag").warn("config failed for " .. id .. ": " .. tostring(err_cfg)) end
 		end
 		if pending then pending.hooks_ran = true end
-		if opts and opts.partial then return end
 		loaded[id] = true
 		if on_load and start then on_load(id, (vim.uv.hrtime() - start) / 1e6) end
 	end
@@ -469,7 +496,9 @@ local function build_plan(compiled, opts)
 	end
 
 	local function load_with_deps(id)
-		if loaded[id] == true or loaded[id] == "failed" or loaded[id] == "pending_startup" then
+		-- Any assigned loaded[] state (true / "failed" / "pending_startup")
+		-- means this id is already processed or deferred (see load_plugin).
+		if loaded[id] then
 			return
 		end
 
@@ -496,14 +525,11 @@ local function build_plan(compiled, opts)
 			if i <= #deps then
 				cursor[depth] = i + 1
 				local dep = deps[i]
-				if loaded[dep] ~= true and loaded[dep] ~= "failed" and loaded[dep] ~= "pending_startup" then
+				if not loaded[dep] then
 					local has_cycle = false
 					for j = 1, depth do
 						if stack[j] == dep then
-							vim.notify(
-								("laze: cycle in after deps (%s)"):format(dep),
-								vim.log.levels.WARN
-							)
+							require("laze.diag").warn(("cycle in after deps (%s)"):format(dep))
 							has_cycle = true
 							break
 						end
@@ -652,7 +678,7 @@ local function build_plan(compiled, opts)
 				local entry = registry[id]
 				local ok_init, err_init = pcall(entry.init, plugin_view(id, entry, data_dir))
 				if not ok_init then
-					vim.notify(("laze: init failed for %s: %s"):format(id, tostring(err_init)), vim.log.levels.WARN)
+					require("laze.diag").warn(("init failed for %s: %s"):format(id, tostring(err_init)))
 				end
 			end
 		end
@@ -667,22 +693,16 @@ local function build_plan(compiled, opts)
 			-- way before comparing (mirrors the lookup in tests/run.lua).
 			local want = vim.api.nvim_replace_termcodes(k.lhs, true, false, true)
 			local maps
-			if k.buf then
-				if not vim.api.nvim_buf_is_valid(k.buf) then
-					maps = {}
-				else
-					maps = vim.api.nvim_buf_get_keymap(k.buf, k.mode)
-				end
-			else
+			if not k.buf then
 				maps = vim.api.nvim_get_keymap(k.mode)
+			elseif vim.api.nvim_buf_is_valid(k.buf) then
+				maps = vim.api.nvim_buf_get_keymap(k.buf, k.mode)
+			else
+				maps = {}
 			end
 			for _, km in ipairs(maps) do
 				if km.lhs == want and km.desc == k.desc then
-					if k.buf then
-						pcall(vim.keymap.del, k.mode, k.lhs, { buffer = k.buf })
-					else
-						pcall(vim.keymap.del, k.mode, k.lhs)
-					end
+					del_map(k.mode, k.lhs, k.buf)
 					break
 				end
 			end
@@ -940,11 +960,7 @@ local function build_plan(compiled, opts)
 									-- map too (vim.keymap.del removes every map for the
 									-- lhs in the mode). An ft variant deletes only its
 									-- buffer-local map.
-									if buf then
-										pcall(vim.keymap.del, mode, lhs, { buffer = buf })
-									else
-										pcall(vim.keymap.del, mode, lhs)
-									end
+									del_map(mode, lhs, buf)
 								end
 								for _, id in ipairs(ids) do
 									load_with_deps(id)
@@ -1013,7 +1029,7 @@ local function build_plan(compiled, opts)
 			local ok, err = pcall(load_with_deps, entry.id)
 			eager_depth = eager_depth - 1
 			if not ok then
-				vim.notify(("laze: failed to load %s: %s"):format(entry.id, tostring(err)), vim.log.levels.WARN)
+				require("laze.diag").warn(("failed to load %s: %s"):format(entry.id, tostring(err)))
 			end
 		end
 

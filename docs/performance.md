@@ -13,7 +13,58 @@ All critical paths are one-shot (compile/setup) or deferred (load time).
 Nothing in the startup path scales with plugin count beyond O(N) table
 walks. Items below are grouped by status.
 
+## JIT on this engine (measured 2026-11, LuaJIT 2.1.1793383622)
+
+This engine is a rewrite of the one the older entries below were measured
+on. `jit.attach` trace/record/compile/abort callbacks never fire, and
+`jit.profile`/`jit.dump`/`jit.v`/`jit.util` do not exist (`pairs(jit)`
+yields arch attach flush off on opt os security status version
+version_num). Entries citing `jit.v` output are pre-rewrite measurements
+and are not reproducible here. The only surviving mechanism is
+fresh-process timing A/B — `tests/benchmarks/jit_ab.lua`; protocol rules
+and pitfalls: `.agents/skills/perf-tuning/SKILL.md`.
+
+- Cold vs warm flips the JIT verdict on one-shot paths: the first
+  `compile()` pass is FASTER with `jit.off()` (trace-build overhead:
+  0.21 vs 0.89 ms at n=40, 0.70 vs 1.33 at n=100, 2.13 vs 2.89 at n=400);
+  the JIT wins only warm (reload×10: 0.36 vs 0.42 ms/iter at n=100, 1.20
+  vs 1.66 at n=400). Startup never warms traces.
+- "Byte loops stay JIT-compiled" therefore justifies warm loops, not
+  startup. A compiled byte loop runs ~0.75 ns/byte, an interpreted one
+  ~19 ns/byte — 2.8x SLOWER than the ~7 µs/call interpreted patterns it
+  replaced, cold. The `last_segment` rewrite still stands on its own
+  measurements (patterns never enter traces at all), but re-measure with
+  `jit_ab.lua` before citing the folklore for new work.
+- `jit.off()` does not evict compiled traces, so same-session A/B
+  silently reports 1.0x; every JIT number here comes from fresh
+  processes, best-of-3.
+
 ## Resolved
+
+### compile.lua: code only run at load time or by `version` specs was parsed every startup — resolved (2026-11)
+
+Cold-setup breakdown (`tests/benchmarks/breakdown.lua`): requiring compile + plan +
+init costs ~0.85–0.95 ms of module parsing, on par with compile()'s actual work
+for 50 specs (~0.7 ms). Parsing scales with bytes (~5.2–6.3 ns/B measured), so
+code that most startups never execute is pure overhead. Two blocks moved out of
+compile.lua into modules required inline at their call sites: `laze.semver` (the
+semver scanner + range lowering, 6.3 KB, runs only when a spec carries `version`)
+and `laze.mainmod` (the `get_main` scan of `<plugin>/lua`, runs only in the
+desugared `config = true` closure at load time). `load()` oracle (median of 60
+in-process parses of compile.lua): 329.7 → 229.5 µs. Even a user who requires
+both modules parses less in total (271 µs vs 330 µs). Error messages and
+behavior unchanged (moved verbatim); the unit tests pass unedited.
+
+### plan.lua: SourcePre startup probe ran an interpreted pattern — resolved (2026-11)
+
+The `startup_plugin_phase_started` probe fires on every SourcePre event —
+one per file Neovim is about to source — and used
+`find("[/\\]plugin[/\\]")`. Patterns never enter traces; plain finds do.
+Fresh-process A/B over rotating paths (`jit_ab.lua WORKLOAD=probe`):
+286 → 37 ns per call with the JIT on, 304 → 65 ns with it off (two plain
+finds, `/plugin/` and `\plugin\`). The absolute saving is event-count ×
+~250 ns, but the cost was paid on every startup regardless of plugin
+count. Probe semantics unchanged (both separators, same segments).
 
 ### tests/benchmarks/compile_compare.lua: lazy.nvim profile UI inside the timed region — resolved (2026-10)
 
@@ -192,7 +243,8 @@ sourcing to the `VimEnter` finalizer. This is deferred I/O by design.
 Each used range is parsed once. This is new work relative to main, which only
 converted `"*"`: 100 versioned specs ~0.20–0.22 ms vs ~0.06 ms before; 100
 plain specs unchanged (~0.07 ms). The cost is inherent to faithful lowering,
-not a regression in an existing path.
+not a regression in an existing path. (Since 2026-11 the scanner lives in the
+lazily-required `laze.semver`; see Resolved.)
 
 ### Compile-time micro-items (negligible, one-shot)
 
@@ -254,7 +306,22 @@ function, not microbenchmarked in isolation):
 
 ## Open items
 
-None. New hot paths must land with a perf regression test in
+- Cold code inside `build_plan` is parsed every startup. Per-module lazy
+  require is exhausted (setup parses only compile + plan + init,
+  ~0.8–0.95 ms; diag/semver/mainmod are lazy), so the remaining lever is
+  the ~10.4 KB of trigger-fire-only bodies inside `build_plan`
+  (35.7 KB ≈ 186 µs of the ~280 µs `req.plan`): keymap trigger callbacks
+  (1.8 KB), cmds dispatcher + startup command proxy (2.0 KB), module
+  preload closure (1.3 KB), event/ft dispatch bodies + event replay
+  (3.9 KB). At ~5.2 ns/B the ceiling is ~55 µs per startup; realistically
+  25–55 µs depending on which triggers fire (VeryLazy always; keys/cmds
+  usually never during startup). Moving code between eagerly-required
+  files parses the same bytes — only first-fire deferral saves, and only
+  behind deep modules (scattered forwarders over a 10-field ctx is the
+  shallow anti-pattern). Pilot + design: issues #48/#49; do not
+  re-derive the numbers.
+
+New hot paths must land with a perf regression test in
 `tests/run.lua perf` (asserted thresholds) or a note here explaining
 why the threshold doesn't apply.
 
@@ -290,6 +357,16 @@ nvim -u NONE --headless -l tests/benchmarks/compile_only.lua
 
 # Fair comparison: laze.nvim vs lazy.nvim
 nvim -u NONE --headless -l tests/benchmarks/compile_compare.lua
+
+# Cold-setup breakdown (fixed require/parse cost vs per-spec work; N=50 default)
+N=50 nvim --clean -l tests/benchmarks/breakdown.lua
+
+# Parse cost oracle (median-of-60 in-process load(); gate for lazy-require work)
+nvim --clean -l tests/benchmarks/parse_cost.lua
+
+# JIT A/B oracle (fresh process per row; JIT=on|off, WORKLOAD=compile|probe)
+for m in on off; do JIT=$m N=100 nvim --clean -l tests/benchmarks/jit_ab.lua; done
+WORKLOAD=probe nvim --clean -l tests/benchmarks/jit_ab.lua
 ```
 
 Latest manual run (2026-10-29, Neovim 0.12.6, 4 real dir plugins):
