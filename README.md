@@ -97,8 +97,8 @@ repository root:
 
 ```sh
 nvim --cmd "set rtp+=." -l tests/run.lua        # integration (+ perf)
-luajit tests/test_compile.lua                   # unit
-luajit tests/test_subset.lua                    # spec-surface conformance
+nvim --clean -l tests/test_compile.lua          # unit (luajit also works)
+nvim --clean -l tests/test_subset.lua           # spec-surface conformance
 selene lua                                      # static lint, production (0.32.0)
 selene --config tests/selene.toml tests         # static lint, tests
 stylua .                                        # format (StyLua 2.6.0)

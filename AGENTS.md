@@ -14,8 +14,8 @@ laze is a thin wrapper around `vim.pack`: it compiles a documented subset of laz
 nvim --cmd "set rtp+=." -l tests/run.lua        # integration (+ spawned + perf)
 nvim --cmd "set rtp+=." -l tests/run.lua fast   # single session
 nvim --cmd "set rtp+=." -l tests/run.lua perf   # perf only
-luajit tests/test_compile.lua                   # unit, no nvim
-luajit tests/test_subset.lua                    # spec-surface conformance
+nvim --clean -l tests/test_compile.lua          # unit (luajit also works)
+nvim --clean -l tests/test_subset.lua           # spec-surface conformance
 selene lua                                      # static lint, production
 selene --config tests/selene.toml tests         # static lint, tests
 stylua .                                        # format (pinned StyLua)

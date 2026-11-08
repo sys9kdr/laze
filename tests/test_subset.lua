@@ -1,5 +1,5 @@
 --- test_subset.lua — verify laze's spec surface stays a lazy.nvim subset.
---- Run: luajit tests/test_subset.lua
+--- Run: nvim --clean -l tests/test_subset.lua   (luajit also works, no nvim)
 ---
 --- The escape-hatch principle (see AGENTS.md): a config written for laze
 --- should work in lazy.nvim with little or no changes. This test pins that
@@ -9,7 +9,8 @@
 
 package.path = string.format("./lua/?.lua;%s", package.path)
 
--- Minimal vim stub (same shape as tests/test_compile.lua).
+-- Minimal vim stub (same shape as tests/test_compile.lua): override fields
+-- on the existing vim table, never replace it, so `nvim -l` keeps working.
 -- The stub deliberately mirrors vim.version.range's real misparses for
 -- refs/multi-ranges so the shape guard in compile.lua is actually tested.
 local range_calls = {}
@@ -17,7 +18,7 @@ local misparsed_ranges = {
 	["abc123"] = "RANGE(abc123)", -- real vim.version.range → 123.0.0 - 124.0.0
 	["1.2 || 1.3"] = "RANGE(1.2 || 1.3)", -- real vim.version.range → first range only
 }
-vim = {}
+vim = vim or {}
 vim.log = { levels = { WARN = "WARN" } }
 vim.notify = function() end
 vim.version = {

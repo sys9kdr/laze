@@ -100,5 +100,5 @@ registry and note the removal without reassigning the ID.
 5. When the lazy.nvim side is covered by an upstream test, cite the vendored
    oracle in [`tests/vendor/lazy.nvim/README.md`](../tests/vendor/lazy.nvim/README.md)
    instead of relying on a hand-written observation.
-6. Run `luajit tests/test_subset.lua`. It fails if the registry and this file
-   drift apart.
+6. Run `nvim --clean -l tests/test_subset.lua`. It fails if the registry and
+   this file drift apart.
