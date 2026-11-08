@@ -41,6 +41,20 @@ and pitfalls: `.agents/skills/perf-tuning/SKILL.md`.
 
 ## Resolved
 
+### compile.lua: code only run at load time or by `version` specs was parsed every startup — resolved (2026-11)
+
+Cold-setup breakdown (`tests/benchmarks/breakdown.lua`): requiring compile + plan +
+init costs ~0.85–0.95 ms of module parsing, on par with compile()'s actual work
+for 50 specs (~0.7 ms). Parsing scales with bytes (~5.2–6.3 ns/B measured), so
+code that most startups never execute is pure overhead. Two blocks moved out of
+compile.lua into modules required inline at their call sites: `laze.semver` (the
+semver scanner + range lowering, 6.3 KB, runs only when a spec carries `version`)
+and `laze.mainmod` (the `get_main` scan of `<plugin>/lua`, runs only in the
+desugared `config = true` closure at load time). `load()` oracle (median of 60
+in-process parses of compile.lua): 329.7 → 229.5 µs. Even a user who requires
+both modules parses less in total (271 µs vs 330 µs). Error messages and
+behavior unchanged (moved verbatim); the unit tests pass unedited.
+
 ### plan.lua: SourcePre startup probe ran an interpreted pattern — resolved (2026-11)
 
 The `startup_plugin_phase_started` probe fires on every SourcePre event —
@@ -229,7 +243,8 @@ sourcing to the `VimEnter` finalizer. This is deferred I/O by design.
 Each used range is parsed once. This is new work relative to main, which only
 converted `"*"`: 100 versioned specs ~0.20–0.22 ms vs ~0.06 ms before; 100
 plain specs unchanged (~0.07 ms). The cost is inherent to faithful lowering,
-not a regression in an existing path.
+not a regression in an existing path. (Since 2026-11 the scanner lives in the
+lazily-required `laze.semver`; see Resolved.)
 
 ### Compile-time micro-items (negligible, one-shot)
 
@@ -327,6 +342,9 @@ nvim -u NONE --headless -l tests/benchmarks/compile_only.lua
 
 # Fair comparison: laze.nvim vs lazy.nvim
 nvim -u NONE --headless -l tests/benchmarks/compile_compare.lua
+
+# Cold-setup breakdown (fixed require/parse cost vs per-spec work; N=50 default)
+N=50 nvim --clean -l tests/benchmarks/breakdown.lua
 
 # JIT A/B oracle (fresh process per row; JIT=on|off, WORKLOAD=compile|probe)
 for m in on off; do JIT=$m N=100 nvim --clean -l tests/benchmarks/jit_ab.lua; done
