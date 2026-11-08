@@ -12,8 +12,9 @@ The core is compile → plan → setup. Everything beyond that is an opt-in
 module under `lua/laze/extras/` that the core never requires.
 
 Out of scope (do not add): a dependency solver, a plugin-manager UI,
-install/update commands in the core, the `opts` abstraction, the import
-system, `require()` hook interception, and a runtime lifecycle framework.
+install/update commands in the core, lazy.nvim's fragment/`opts` merge
+pipeline, the import system, `require()` hook interception, and a runtime
+lifecycle framework.
 
 ## Subset discipline
 
@@ -33,7 +34,12 @@ system, `require()` hook interception, and a runtime lifecycle framework.
   runtime message, from `lua/laze/known_differences.lua`.
 
 When a laze behavior and lazy.nvim disagree, measure lazy.nvim first and make
-the test the oracle; do not trust an issue's assumed behavior.
+the test the oracle; do not trust an issue's assumed behavior. Source reading
+alone is not enough: run lazy.nvim and inspect the state laze actually
+consumes (`Config.plugins[name].lazy`, raw spec fields, resolved handlers).
+The probe recipe and its gotchas live in
+[`.opencode/skills/lazy-oracle/SKILL.md`](.opencode/skills/lazy-oracle/SKILL.md).
+Record the measured result in a test comment next to the upstream file path.
 
 ## Structure
 
@@ -50,6 +56,7 @@ tests/test_compile.lua        standalone unit tests (luajit)
 tests/test_subset.lua         spec-surface conformance (luajit)
 tests/fixtures/, tests/snapshots/  input specs and generated expected IR
 tests/benchmarks/, tests/profile/  manual benchmarks
+.opencode/skills/             project skills (lazy.nvim measurement recipe)
 ```
 
 Types (LuaCATS) are defined in code: `lua/laze/init.lua` (`LazeSpec`,
@@ -88,7 +95,16 @@ referenced doc) instead.
 - Known-difference messages are deduped per compile and can be silenced with
   `{ known_differences = false }`.
 - Fixtures use the `FN` sentinel for functions. Regenerate snapshots with
-  `nvim --cmd "set rtp+=." -l tests/update_snapshots.lua`.
+  `nvim --cmd "set rtp+=." -l tests/update_snapshots.lua`. Adding a fixture
+  means registering it in both `tests/test_compile.lua` (the fixtures list)
+  and `tests/update_snapshots.lua` *before* regenerating, otherwise the unit
+  test cannot load the new snapshot.
+- Promoting a lazy.nvim field from unsupported to supported touches:
+  [README § Spec shape](README.md#spec-shape) and its notes,
+  [docs/migration.md](docs/migration.md), [docs/not-have.md](docs/not-have.md)
+  (section and out-of-scope list), `tests/test_subset.lua` semantic notes,
+  [docs/known-differences.md](docs/known-differences.md) (retire IDs), and
+  this file's out-of-scope list. Run the whole suite afterwards.
 
 ## Commands
 
@@ -108,6 +124,16 @@ parse the LuaJIT `goto`/labels used by the tests.
 
 Vendored lazy.nvim tests are an optional behavioral oracle, not CI:
 `LAZY_DIR=/tmp/lazy.nvim tests/vendor/lazy.nvim/run.sh`.
+
+## GitHub
+
+`main` is protected by the `protect-default` ruleset (deletion,
+non-fast-forward, pull request): direct pushes are rejected with `GH013`.
+Push a branch and open a PR with `gh pr create`; merge with `gh pr merge`.
+The SSH remote lacks write access in this environment, so push over HTTPS:
+`git -c credential.helper='!gh auth git-credential' push <https-url>`.
+`git push --dry-run` does not exercise server-side rules; verify protection
+with a throwaway commit and reset.
 
 ## Commit style
 
