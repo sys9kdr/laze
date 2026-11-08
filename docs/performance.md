@@ -306,7 +306,22 @@ function, not microbenchmarked in isolation):
 
 ## Open items
 
-None. New hot paths must land with a perf regression test in
+- Cold code inside `build_plan` is parsed every startup. Per-module lazy
+  require is exhausted (setup parses only compile + plan + init,
+  ~0.8–0.95 ms; diag/semver/mainmod are lazy), so the remaining lever is
+  the ~10.4 KB of trigger-fire-only bodies inside `build_plan`
+  (35.7 KB ≈ 186 µs of the ~280 µs `req.plan`): keymap trigger callbacks
+  (1.8 KB), cmds dispatcher + startup command proxy (2.0 KB), module
+  preload closure (1.3 KB), event/ft dispatch bodies + event replay
+  (3.9 KB). At ~5.2 ns/B the ceiling is ~55 µs per startup; realistically
+  25–55 µs depending on which triggers fire (VeryLazy always; keys/cmds
+  usually never during startup). Moving code between eagerly-required
+  files parses the same bytes — only first-fire deferral saves, and only
+  behind deep modules (scattered forwarders over a 10-field ctx is the
+  shallow anti-pattern). Pilot + design: issues #48/#49; do not
+  re-derive the numbers.
+
+New hot paths must land with a perf regression test in
 `tests/run.lua perf` (asserted thresholds) or a note here explaining
 why the threshold doesn't apply.
 
