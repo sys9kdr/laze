@@ -2,45 +2,61 @@ local TRIGGER_FIELDS = { "event", "ft", "cmd", "keys" }
 local ARRAY_TRIGGER_FIELDS = { "ft", "cmd" }
 local SOURCE_FIELDS = { "dir", "url", "name" }
 local VERSION_REF_FIELDS = { "branch", "tag", "commit" }
+-- lazy.nvim accepts boolean or function for both cond and enabled;
+-- lazy and submodules are boolean-only.
+local FUNCTION_OR_BOOLEAN_FIELDS = { "cond", "enabled" }
+local BOOLEAN_FIELDS = { "lazy", "submodules" }
+
+--- Shallow copy of an array's ipairs part. Compile must not mutate or
+--- share input tables (purity), so inbound arrays are copied here.
+local function copy_array(v)
+	local result = {}
+	for _, item in ipairs(v) do
+		table.insert(result, item)
+	end
+	return result
+end
+
+--- Whether `value` occurs in a small array (all call sites are per-spec
+--- lists, so the linear scan is fine).
+local function contains(list, value)
+	for i = 1, #list do
+		if list[i] == value then
+			return true
+		end
+	end
+	return false
+end
 
 local function normalize_array(v)
 	if v == nil then
 		return {}
-	end
-	if type(v) == "string" then
+	elseif type(v) == "string" then
 		return { v }
-	end
-	if type(v) == "table" then
-		local result = {}
-		for _, item in ipairs(v) do
-			table.insert(result, item)
-		end
-		return result
+	elseif type(v) == "table" then
+		return copy_array(v)
 	end
 	return {}
 end
-
--- Byte codes for last_segment's backward scan ("/" and ":"). Byte loops
--- stay JIT-compiled; string.match/gsub are NYI and run interpreted
--- (~7 us/call, which dominated per-spec compile cost).
-local SLASH_BYTE, COLON_BYTE = 47, 58
 
 ---Byte-scan equivalent of `s:match("([^/:]+)$")`: the final run of
 ---non-"/"/":" bytes anchored at the end of `s`. nil where the pattern
 ---would fail (empty input or trailing separator). Verified equivalent to
 ---the pattern form over 300k adversarial inputs (tests/test_compile.lua
----pins the edge cases).
+---pins the edge cases). Byte loop rather than `:match`: patterns are NYI
+---in LuaJIT and run interpreted (~7 us/call, which dominated per-spec
+---compile cost).
 ---@param s string
 ---@return string?
 local function last_segment(s)
 	local n = #s
-	if n == 0 or s:byte(n) == SLASH_BYTE or s:byte(n) == COLON_BYTE then
+	if n == 0 or s:byte(n) == 47 or s:byte(n) == 58 then -- "/" or ":"
 		return nil
 	end
 	local i = n
 	while i > 1 do
 		local b = s:byte(i - 1)
-		if b == SLASH_BYTE or b == COLON_BYTE then
+		if b == 47 or b == 58 then -- "/" or ":"
 			break
 		end
 		i = i - 1
@@ -120,11 +136,9 @@ local function resolve_src(src, dir, url)
 		local b1 = src:byte(1)
 		if b1 == 126 then -- "~"
 			return vim.fn.expand(src)
-		end
-		if b1 == 47 or b1 == 46 then -- "/" or "."
+		elseif b1 == 47 or b1 == 46 then -- "/" or "."
 			return src
-		end
-		if src:sub(1, 8) == "https://" or src:sub(1, 7) == "http://" or src:sub(1, 4) == "git@" then
+		elseif src:sub(1, 8) == "https://" or src:sub(1, 7) == "http://" or src:sub(1, 4) == "git@" then
 			return src
 		end
 		return "https://github.com/" .. src
@@ -136,11 +150,9 @@ end
 local function normalize_keys(v)
 	if v == nil then
 		return {}
-	end
-	if type(v) == "string" then
+	elseif type(v) == "string" then
 		return { { lhs = v, mode = "n" } }
-	end
-	if type(v) == "table" then
+	elseif type(v) == "table" then
 		local result = {}
 		for _, item in ipairs(v) do
 			if type(item) == "string" then
@@ -325,11 +337,7 @@ local function add_to_key_route(route_map, keys, plugin_id)
 					ft = { ft }
 				elseif type(ft) == "table" then
 					-- copy: compile must not mutate or share the input table
-					local copy = {}
-					for _, value in ipairs(ft) do
-						table.insert(copy, value)
-					end
-					ft = copy
+					ft = copy_array(ft)
 				end
 				local variants = route_map[lhs]
 				-- `rhs = false` (or `vim.NIL`) removes this plugin's entry
@@ -384,14 +392,7 @@ local function add_to_key_route(route_map, keys, plugin_id)
 					end
 					-- A plugin may declare the same (lhs, mode) more than once;
 					-- its id still appears once (it is loaded at most once).
-					local duplicate = false
-					for k = 1, #variant.ids do
-						if variant.ids[k] == plugin_id then
-							duplicate = true
-							break
-						end
-					end
-					if not duplicate then
+					if not contains(variant.ids, plugin_id) then
 						table.insert(variant.ids, plugin_id)
 					end
 				end
@@ -526,13 +527,12 @@ local function validate_triggers(spec, idx, spec_id)
 	end
 
 	for _, field in ipairs(TRIGGER_FIELDS) do
-		if type(spec[field]) == "function" then
+		local value = spec[field]
+		if type(value) == "function" then
 			bad(field, "must be a string or array — function triggers are not supported by laze")
-		end
-		if spec[field] ~= nil and type(spec[field]) ~= "string" and type(spec[field]) ~= "table" then
+		elseif value ~= nil and type(value) ~= "string" and type(value) ~= "table" then
 			bad(field, "must be a string or array")
-		end
-		if spec[field] == "" then
+		elseif value == "" then
 			-- An empty trigger would match everything (FileType "") or
 			-- raise at plan time (autocmd with event "").
 			bad(field, "must not be empty")
@@ -579,12 +579,12 @@ local function validate_triggers(spec, idx, spec_id)
 	end
 
 	for _, field in ipairs(ARRAY_TRIGGER_FIELDS) do
-		if type(spec[field]) == "table" then
-			for i, item in ipairs(spec[field]) do
+		local value = spec[field]
+		if type(value) == "table" then
+			for i, item in ipairs(value) do
 				if type(item) ~= "string" then
 					bad(field .. "[" .. i .. "]", "must be a string")
-				end
-				if item == "" then
+				elseif item == "" then
 					bad(field .. "[" .. i .. "]", "must not be empty")
 				end
 			end
@@ -672,7 +672,8 @@ local function validate_spec(spec, idx, warned, notify)
 		require("laze.diag").spec_at(idx, "[1]/src must be a non-empty string")
 	end
 	for _, f in ipairs(SOURCE_FIELDS) do
-		if spec[f] ~= nil and (type(spec[f]) ~= "string" or spec[f] == "") then
+		local value = spec[f]
+		if value ~= nil and (type(value) ~= "string" or value == "") then
 			require("laze.diag").spec_at(idx, f .. " must be a non-empty string")
 		end
 	end
@@ -723,18 +724,17 @@ local function validate_spec(spec, idx, warned, notify)
 	if spec.main ~= nil and (type(spec.main) ~= "string" or spec.main == "") then
 		err("main must be a non-empty string")
 	end
-	-- lazy.nvim accepts boolean or function for both cond and enabled.
-	if spec.cond ~= nil and type(spec.cond) ~= "function" and type(spec.cond) ~= "boolean" then
-		err("cond must be a function or boolean")
+	for _, field in ipairs(FUNCTION_OR_BOOLEAN_FIELDS) do
+		local value = spec[field]
+		if value ~= nil and type(value) ~= "function" and type(value) ~= "boolean" then
+			err(field .. " must be a function or boolean")
+		end
 	end
-	if spec.enabled ~= nil and type(spec.enabled) ~= "function" and type(spec.enabled) ~= "boolean" then
-		err("enabled must be a function or boolean")
-	end
-	if spec.lazy ~= nil and type(spec.lazy) ~= "boolean" then
-		err("lazy must be a boolean")
-	end
-	if spec.submodules ~= nil and type(spec.submodules) ~= "boolean" then
-		err("submodules must be a boolean")
+	for _, field in ipairs(BOOLEAN_FIELDS) do
+		local value = spec[field]
+		if value ~= nil and type(value) ~= "boolean" then
+			err(field .. " must be a boolean")
+		end
 	end
 	if spec.after ~= nil then
 		if type(spec.after) ~= "table" then
@@ -746,20 +746,22 @@ local function validate_spec(spec, idx, warned, notify)
 			end
 		end
 	end
-	if spec.dependencies ~= nil then
-		if type(spec.dependencies) ~= "string" and type(spec.dependencies) ~= "table" then
+	local dependencies = spec.dependencies
+	if dependencies ~= nil then
+		if type(dependencies) ~= "string" and type(dependencies) ~= "table" then
 			err("dependencies must be a string, name array, or spec array")
-		elseif type(spec.dependencies) == "table" then
-			for i, dep in ipairs(spec.dependencies) do
+		elseif type(dependencies) == "table" then
+			for i, dep in ipairs(dependencies) do
 				if type(dep) ~= "string" and type(dep) ~= "table" then
 					err("dependencies[" .. i .. "] must be a string or spec table")
 				end
 			end
 		end
 	end
-	if spec.build ~= nil and type(spec.build) ~= "string" and type(spec.build) ~= "function" and spec.build ~= false then
-		if type(spec.build) == "table" then
-			for i, item in ipairs(spec.build) do
+	local build = spec.build
+	if build ~= nil and type(build) ~= "string" and type(build) ~= "function" and build ~= false then
+		if type(build) == "table" then
+			for i, item in ipairs(build) do
 				if type(item) ~= "string" and type(item) ~= "function" then
 					err("build[" .. i .. "] must be a string or function")
 				end
@@ -768,14 +770,15 @@ local function validate_spec(spec, idx, warned, notify)
 			err("build must be a string, function, false, or a list of strings/functions")
 		end
 	end
-	if spec.module ~= nil and type(spec.module) ~= "string" and type(spec.module) ~= "table" and spec.module ~= false then
+	local module = spec.module
+	if module ~= nil and type(module) ~= "string" and type(module) ~= "table" and module ~= false then
 		err("module must be a string, array, or false")
 	end
-	if type(spec.module) == "table" then
-		if #spec.module == 0 then
+	if type(module) == "table" then
+		if #module == 0 then
 			err("module must not be an empty array — use false or omit it")
 		end
-		for i, mod in ipairs(spec.module) do
+		for i, mod in ipairs(module) do
 			if type(mod) ~= "string" or mod == "" then
 				err("module[" .. i .. "] must be a non-empty string")
 			end
@@ -785,8 +788,9 @@ local function validate_spec(spec, idx, warned, notify)
 		err("priority must be a number")
 	end
 	local version_range
-	if spec.version ~= nil and spec.version ~= false then
-		if type(spec.version) ~= "string" then
+	local version = spec.version
+	if version ~= nil and version ~= false then
+		if type(version) ~= "string" then
 			err("version must be a string (semver range) or false")
 		end
 		-- lazy.nvim's precedence is commit > tag > version > branch, so a
@@ -802,11 +806,12 @@ local function validate_spec(spec, idx, warned, notify)
 		-- ignores version/refs for them, so do not reject a range that will
 		-- never be lowered. This is a drop-in compatibility fix (KD-004).
 		if spec.commit == nil and spec.tag == nil and spec.dir == nil and not has_dev_source(spec) then
-			version_range = require("laze.semver").to_semver_range(spec.version, idx, spec_id)
+			version_range = require("laze.semver").to_semver_range(version, idx, spec_id)
 		end
 	end
 	for _, f in ipairs(VERSION_REF_FIELDS) do
-		if spec[f] ~= nil and (type(spec[f]) ~= "string" or spec[f] == "") then
+		local value = spec[f]
+		if value ~= nil and (type(value) ~= "string" or value == "") then
 			err(f .. " must be a non-empty string")
 		end
 	end
@@ -980,14 +985,7 @@ local function compile(specs, opts)
 			local target = existing_top or existing_expanded or dep_name
 			-- The same dep listed twice in one array (including two aliases
 			-- that resolve to the same plugin) is wired once.
-			local already_named = false
-			for _, n in ipairs(dep_names) do
-				if n == target then
-					already_named = true
-					break
-				end
-			end
-			if not already_named then
+			if not contains(dep_names, target) then
 				table.insert(dep_names, target)
 				if not existing_top and not existing_expanded then
 					-- Mark before recursing so a dependency cycle references
@@ -1064,19 +1062,9 @@ local function compile(specs, opts)
 		-- Dedup preserved: a dep named both ways is wired once.
 		local after = dep_after[spec] or {}
 		if spec.after then
-			local merged = {}
-			for _, n in ipairs(spec.after) do
-				table.insert(merged, n)
-			end
+			local merged = copy_array(spec.after)
 			for _, n in ipairs(after) do
-				local already = false
-				for _, existing in ipairs(merged) do
-					if existing == n then
-						already = true
-						break
-					end
-				end
-				if not already then
+				if not contains(merged, n) then
 					table.insert(merged, n)
 				end
 			end
