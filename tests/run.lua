@@ -5,7 +5,6 @@
 --- Regenerate with: nvim --cmd "set rtp+=." -l tests/update_snapshots.lua
 --- `fast` skips the spawned-session blocks (startup phases, build,
 --- pkg-name parity) so the common loop stays in one nvim instance.
--- luacheck: globals vim
 local laze = require("laze")
 local FN = require("tests.fixtures._sentinel").FN
 
@@ -118,15 +117,12 @@ local compile_fixtures = {
 	"dev_version",
 }
 
-for _, name in ipairs(compile_fixtures) do
-	if not is_filtered(name) then
-		goto continue_compile
-	end
+local function check_compile_fixture(name)
 	local compiled = compile_fixture(name)
 	if not compiled then
 		print(("  ✗ %s: %s"):format(name, compiled))
 		failed = failed + 1
-		goto continue_compile
+		return
 	end
 
 	local ok, expected = pcall(require, "tests.snapshots." .. name)
@@ -134,7 +130,7 @@ for _, name in ipairs(compile_fixtures) do
 		print(("  ✗ %s: could not load snapshot — %s"):format(name, expected))
 		print('    Regenerate: nvim --cmd "set rtp+=." -l tests/update_snapshots.lua')
 		failed = failed + 1
-		goto continue_compile
+		return
 	end
 
 	local ok4, err = pcall(deep_compare, compiled, expected)
@@ -145,8 +141,12 @@ for _, name in ipairs(compile_fixtures) do
 		print(("  ✗ %s\n%s"):format(name, err))
 		failed = failed + 1
 	end
+end
 
-	::continue_compile::
+for _, name in ipairs(compile_fixtures) do
+	if is_filtered(name) then
+		check_compile_fixture(name)
+	end
 end
 
 --- Version lowering against the real vim.version.range (the LuaJIT suites
@@ -307,18 +307,16 @@ end
 
 -- build_plan produces callable function for each fixture
 for _, name in ipairs(compile_fixtures) do
-	if not is_filtered(name) then
-		goto continue_plan
-	end
-	local compiled = compile_fixture(name)
-	if compiled then
-		local plan = test_plan_callable(compiled, name)
-		if plan then
-			print(("  ✓ %s: plan is callable"):format(name))
-			passed = passed + 1
+	if is_filtered(name) then
+		local compiled = compile_fixture(name)
+		if compiled then
+			local plan = test_plan_callable(compiled, name)
+			if plan then
+				print(("  ✓ %s: plan is callable"):format(name))
+				passed = passed + 1
+			end
 		end
 	end
-	::continue_plan::
 end
 
 -- plan() executes without error
