@@ -30,7 +30,9 @@
 
 jit.off() -- first statement: the mode must be set before anything else compiles
 local mode = vim.env.JIT or "on"
-if mode ~= "off" then jit.on() end
+if mode ~= "off" then
+	jit.on()
+end
 
 local workload = vim.env.WORKLOAD or "compile"
 
@@ -57,11 +59,20 @@ if workload == "compile" then
 	compile.compile(specs)
 	local t1 = vim.uv.hrtime()
 	-- reload pass, like reload_all()
-	for _ = 1, 10 do compile.compile(specs) end
+	for _ = 1, 10 do
+		compile.compile(specs)
+	end
 	local t2 = vim.uv.hrtime()
 
-	print(("jit=%s n=%d first=%.2fms reload10=%.2fms status=%s"):format(
-		mode, n, (t1 - t0) / 1e6, (t2 - t1) / 1e6, tostring(jit.status())))
+	print(
+		("jit=%s n=%d first=%.2fms reload10=%.2fms status=%s"):format(
+			mode,
+			n,
+			(t1 - t0) / 1e6,
+			(t2 - t1) / 1e6,
+			tostring(jit.status())
+		)
+	)
 else
 	-- SourcePre probe shapes: pattern find vs plain finds, over ROTATING
 	-- inputs (a constant input gets hoisted — see header). This is the
@@ -77,7 +88,9 @@ else
 	local t0 = vim.uv.hrtime()
 	local hits = 0
 	for i = 1, N do
-		if INPUTS[(i % 10) + 1]:find("[/\\]plugin[/\\]") then hits = hits + 1 end
+		if INPUTS[(i % 10) + 1]:find("[/\\]plugin[/\\]") then
+			hits = hits + 1
+		end
 	end
 	local pattern = (vim.uv.hrtime() - t0) / N
 
@@ -85,10 +98,19 @@ else
 	hits = 0
 	for i = 1, N do
 		local s = INPUTS[(i % 10) + 1]
-		if s:find("/plugin/", 1, true) or s:find("\\plugin\\", 1, true) then hits = hits + 1 end
+		if s:find("/plugin/", 1, true) or s:find("\\plugin\\", 1, true) then
+			hits = hits + 1
+		end
 	end
 	local plain = (vim.uv.hrtime() - t0) / N
 
-	print(("jit=%s pattern=%.1fns plain=%.1fns ratio=%.2fx status=%s"):format(
-		mode, pattern, plain, pattern / plain, tostring(jit.status())))
+	print(
+		("jit=%s pattern=%.1fns plain=%.1fns ratio=%.2fx status=%s"):format(
+			mode,
+			pattern,
+			plain,
+			pattern / plain,
+			tostring(jit.status())
+		)
+	)
 end

@@ -18,6 +18,8 @@ luajit tests/test_compile.lua                   # unit, no nvim
 luajit tests/test_subset.lua                    # spec-surface conformance
 selene lua                                      # static lint, production
 selene --config tests/selene.toml tests         # static lint, tests
+stylua .                                        # format (pinned StyLua)
+stylua --check .                                # formatting check (CI)
 ```
 
 ## Commit style

@@ -78,10 +78,12 @@ local function run_child(impl)
 end
 
 local function run_once(impl)
-	local res = vim.system(
-		{ vim.v.progpath, "-u", "NONE", "--headless", "-l", script },
-		{ env = { LAZE_BENCH_IMPL = impl }, text = true, timeout = 30000 }
-	):wait()
+	local res = vim
+		.system(
+			{ vim.v.progpath, "-u", "NONE", "--headless", "-l", script },
+			{ env = { LAZE_BENCH_IMPL = impl }, text = true, timeout = 30000 }
+		)
+		:wait()
 	-- `print()` in `nvim -l` script mode goes to stderr, not stdout.
 	local output = (res.stdout or "") .. (res.stderr or "")
 	if res.code ~= 0 then

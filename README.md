@@ -92,7 +92,8 @@ Rejected at compile time:
 
 ## Development
 
-Run the packaged test suites and the pinned linter from the repository root:
+Run the packaged test suites and the pinned linter/formatter from the
+repository root:
 
 ```sh
 nvim --cmd "set rtp+=." -l tests/run.lua        # integration (+ perf)
@@ -100,13 +101,16 @@ luajit tests/test_compile.lua                   # unit
 luajit tests/test_subset.lua                    # spec-surface conformance
 selene lua                                      # static lint, production (0.32.0)
 selene --config tests/selene.toml tests         # static lint, tests
+stylua .                                        # format (StyLua 2.6.0)
+stylua --check .                                # formatting check (CI)
 ```
 
-Install the pinned Selene 0.32.0 from its
-[GitHub Release archive](https://github.com/Kampfkarren/selene/releases/tag/0.32.0)
-(Linux, macOS, and Windows binaries; unpack the zip to get the CLI; no Rust
-toolchain is required). Pin the same version. `tests/vendor/` and
-`tests/snapshots/` are excluded from linting.
+Install the pinned Selene 0.32.0 and StyLua 2.6.0 from their GitHub Release
+archives ([Selene](https://github.com/Kampfkarren/selene/releases/tag/0.32.0),
+[StyLua](https://github.com/JohnnyMorganz/StyLua/releases/tag/v2.6.0)); both
+ship prebuilt binaries, no Rust toolchain is required. `tests/vendor/` and
+`tests/snapshots/` are excluded from linting (selene configs) and from
+formatting (`.styluaignore`).
 
 ## Further reading
 

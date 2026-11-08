@@ -206,7 +206,9 @@ function M.setup(specs, opts)
 				local ok, build_ok, err = pcall(run_build, build, plugin, data.path)
 				if not ok or not build_ok then
 					-- pcall failure: the message is in build_ok; build failure: in err.
-					require("laze.diag").warn(("build failed for %s: %s"):format(data.spec.name, tostring(ok and err or build_ok)))
+					require("laze.diag").warn(
+						("build failed for %s: %s"):format(data.spec.name, tostring(ok and err or build_ok))
+					)
 				end
 			end,
 		})

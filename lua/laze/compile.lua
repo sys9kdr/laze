@@ -383,12 +383,12 @@ local function add_to_key_route(route_map, keys, plugin_id)
 						variant = { mode = mode, ids = {}, rhs = ke.rhs, desc = ke.desc, silent = ke.silent, ft = ft }
 						table.insert(variants, variant)
 					elseif variant.rhs ~= ke.rhs or variant.desc ~= ke.desc or variant.silent ~= ke.silent then
-							require("laze.diag").warn(
-								("keys %q in mode %q is shared by multiple plugins with different rhs/opts — keeping the first"):format(
-									lhs,
-									mode
-								)
+						require("laze.diag").warn(
+							("keys %q in mode %q is shared by multiple plugins with different rhs/opts — keeping the first"):format(
+								lhs,
+								mode
 							)
+						)
 					end
 					-- A plugin may declare the same (lhs, mode) more than once;
 					-- its id still appears once (it is loaded at most once).
@@ -607,13 +607,7 @@ local function validate_triggers(spec, idx, spec_id)
 					rhs = item[2]
 				end
 				local is_nil = rhs ~= nil and vim.NIL ~= nil and rhs == vim.NIL
-				if
-					rhs ~= nil
-					and not is_nil
-					and rhs ~= false
-					and type(rhs) ~= "string"
-					and type(rhs) ~= "function"
-				then
+				if rhs ~= nil and not is_nil and rhs ~= false and type(rhs) ~= "string" and type(rhs) ~= "function" then
 					bad("keys[" .. i .. "].rhs", "must be a string, function, false, or vim.NIL")
 				end
 				if item.ft ~= nil then
@@ -709,7 +703,9 @@ local function validate_spec(spec, idx, warned, notify)
 		-- lazy.nvim's removed opts alias, so it gets a message naming the
 		-- replacements instead of the generic type error.
 		if type(spec.config) == "table" then
-			err("config = { ... } (lazy.nvim's deprecated opts alias) is not supported — use main = \"...\" with opts = {...}, or config = function() ... end")
+			err(
+				'config = { ... } (lazy.nvim\'s deprecated opts alias) is not supported — use main = "..." with opts = {...}, or config = function() ... end'
+			)
 		else
 			err("config must be a function or true")
 		end
@@ -980,8 +976,7 @@ local function compile(specs, opts)
 			-- source (a renamed spec must not be re-registered under its
 			-- repo-derived name), then an already-expanded dependency.
 			local existing_top = (spec_names[dep_name] and dep_name) or (dep_src and spec_srcs[dep_src])
-			local existing_expanded = (dep_src and expanded_srcs[dep_src])
-				or (expanded_names[dep_name] and dep_name)
+			local existing_expanded = (dep_src and expanded_srcs[dep_src]) or (expanded_names[dep_name] and dep_name)
 			local target = existing_top or existing_expanded or dep_name
 			-- The same dep listed twice in one array (including two aliases
 			-- that resolve to the same plugin) is wired once.
@@ -1095,9 +1090,7 @@ local function compile(specs, opts)
 				local main = explicit_main or require("laze.mainmod").get_main(plugin and plugin.dir, plugin_name)
 				if not main then
 					error(
-						("Lua module not found for config of %s. Please use a `config()` function instead"):format(
-							plugin_name
-						),
+						("Lua module not found for config of %s. Please use a `config()` function instead"):format(plugin_name),
 						0
 					)
 				end
@@ -1187,9 +1180,7 @@ local function compile(specs, opts)
 		if is_local then
 			if norm.build ~= nil then
 				require("laze.diag").warn(
-					"plugin '"
-						.. name
-						.. "' is a local dir; build is not run (vim.pack does not install or rebuild local dirs)"
+					"plugin '" .. name .. "' is a local dir; build is not run (vim.pack does not install or rebuild local dirs)"
 				)
 			end
 		else
@@ -1270,8 +1261,7 @@ local function compile(specs, opts)
 		--   false -> eager even when triggers/dependency status say lazy
 		--   true  -> never eager, even without triggers
 		--   nil   -> laze's default: eager only without triggers and not a dep
-		entry.eager = entry.lazy == false
-			or (entry.lazy ~= true and not entry.has_route and not entry.is_dep)
+		entry.eager = entry.lazy == false or (entry.lazy ~= true and not entry.has_route and not entry.is_dep)
 	end
 
 	return {
