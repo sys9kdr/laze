@@ -16,7 +16,8 @@ nvim --cmd "set rtp+=." -l tests/run.lua fast   # single session
 nvim --cmd "set rtp+=." -l tests/run.lua perf   # perf only
 luajit tests/test_compile.lua                   # unit, no nvim
 luajit tests/test_subset.lua                    # spec-surface conformance
-luacheck lua tests                              # static lint
+selene lua                                      # static lint, production
+selene --config tests/selene.toml tests         # static lint, tests
 ```
 
 ## Commit style

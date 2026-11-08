@@ -9,7 +9,6 @@
 --- profile UI and inflated lazy.nvim's number.
 ---
 --- Env: LAZE_DIR, LAZY_DIR, LAZE_PLUGINS, LAZE_BENCH_RUNS (default 5).
--- luacheck: globals vim
 
 local script = vim.fn.fnamemodify(debug.getinfo(1, "S").source:sub(2), ":p")
 local LAZE_DIR = vim.env.LAZE_DIR or vim.fn.fnamemodify(script, ":h:h:h")

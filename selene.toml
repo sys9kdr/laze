@@ -1,0 +1,14 @@
+# Selene (pinned 0.32.0) lints the LuaJIT-flavored Lua this repo runs under.
+# std = lua51 + the globals shim in neovim.yml. Selene's release binaries
+# cannot parse goto/labels (Kampfkarren/selene#224), so the tree uses neither.
+#
+# This is the strict production config. Selene reads exactly one config per
+# invocation, so tests run with the relaxed tests/selene.toml:
+#   selene lua && selene --config tests/selene.toml tests
+std = "lua51+neovim"
+exclude = ["tests/vendor/**", "tests/snapshots/**"]
+
+[lints]
+# Compact one-line if/function scaffolding is deliberate style (and the shape
+# StyLua keeps when collapse_simple_statement stays "Never").
+multiple_statements = "allow"

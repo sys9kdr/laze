@@ -5,7 +5,6 @@
 --- Or (standalone): luajit tests/update_snapshots.lua (if run from repo root).
 --- Plain Lua can regenerate ref-only fixtures; a fixture with a version-only
 --- semver range needs Neovim's vim.version.range.
--- luacheck: globals vim
 package.path = string.format("./lua/?.lua;%s", package.path)
 
 local compile = require("laze.compile").compile
@@ -134,7 +133,7 @@ end
 
 local function serialize_compiled(compiled)
 	local lines = {}
-	table.insert(lines, 'local FN = require("tests.fixtures._sentinel").FN -- luacheck: ignore FN')
+	table.insert(lines, 'local FN = require("tests.fixtures._sentinel").FN')
 	table.insert(lines, "")
 	table.insert(lines, "return " .. serialize(compiled, 0))
 	table.insert(lines, "")

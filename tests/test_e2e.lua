@@ -1,4 +1,3 @@
--- luacheck: globals vim
 -- Manual e2e harness: exercises every trigger type against real plugins.
 -- Prereq: clone plugins first (tests/profile/setup.sh).
 -- Run: nvim --cmd "set rtp+=." -l tests/test_e2e.lua
