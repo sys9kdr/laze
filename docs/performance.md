@@ -361,6 +361,9 @@ nvim -u NONE --headless -l tests/benchmarks/compile_compare.lua
 # Cold-setup breakdown (fixed require/parse cost vs per-spec work; N=50 default)
 N=50 nvim --clean -l tests/benchmarks/breakdown.lua
 
+# Parse cost oracle (median-of-60 in-process load(); gate for lazy-require work)
+nvim --clean -l tests/benchmarks/parse_cost.lua
+
 # JIT A/B oracle (fresh process per row; JIT=on|off, WORKLOAD=compile|probe)
 for m in on off; do JIT=$m N=100 nvim --clean -l tests/benchmarks/jit_ab.lua; done
 WORKLOAD=probe nvim --clean -l tests/benchmarks/jit_ab.lua
