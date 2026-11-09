@@ -41,6 +41,19 @@ and pitfalls: `.agents/skills/perf-tuning/SKILL.md`.
 
 ## Resolved
 
+### plan.lua: startup command proxy body parsed every startup — resolved (2026-11)
+
+The CmdUndefined startup bridge (the proxy installed when a command misfires
+before VimEnter) runs only once a startup command actually misses. Moved
+verbatim from `build_plan` to `laze.cmdproxy`, required inline at the
+CmdUndefined call site. `load()` oracle (median of 60 in-process parses,
+three runs): plan.lua 40711 B / 188.2–198.1 µs → 37942 B / 169.8–177.1 µs,
+i.e. **-2.77 KB / ~16 µs per startup**. Best-of-3 breakdown `req.plan`
+291 → 263 µs; the parse oracle is the stable number because fresh-process
+deltas sit near the ±100 µs noise floor. The new module (3.1 KB) parses only
+if the bridge fires. All 184 integration tests, including the spawned
+proxy-replay tests, pass unedited.
+
 ### compile.lua: code only run at load time or by `version` specs was parsed every startup — resolved (2026-11)
 
 Cold-setup breakdown (`tests/benchmarks/breakdown.lua`): requiring compile + plan +
@@ -308,18 +321,15 @@ function, not microbenchmarked in isolation):
 
 - Cold code inside `build_plan` is parsed every startup. Per-module lazy
   require is exhausted (setup parses only compile + plan + init,
-  ~0.8–0.95 ms; diag/semver/mainmod are lazy), so the remaining lever is
-  the ~10.4 KB of trigger-fire-only bodies inside `build_plan`
-  (35.7 KB ≈ 186 µs of the ~280 µs `req.plan`): keymap trigger callbacks
-  (1.8 KB), cmds dispatcher + startup command proxy (2.0 KB), module
-  preload closure (1.3 KB), event/ft dispatch bodies + event replay
-  (3.9 KB). At ~5.2 ns/B the ceiling is ~55 µs per startup; realistically
-  25–55 µs depending on which triggers fire (VeryLazy always; keys/cmds
-  usually never during startup). Moving code between eagerly-required
+  ~0.8–0.95 ms; diag/semver/mainmod/cmdproxy are lazy), and the cmdproxy
+  pilot landed (-2.77 KB, issue #48). The remaining ~7.6 KB of
+  trigger-fire-only bodies (35.7 KB before the pilot): keymap trigger
+  callbacks (1.8 KB), cmds dispatcher body (0.6 KB), module preload closure
+  (1.3 KB), event/ft dispatch bodies + event replay (3.9 KB). At ~5.2 ns/B
+  the ceiling is ~40 µs per startup. Moving code between eagerly-required
   files parses the same bytes — only first-fire deferral saves, and only
   behind deep modules (scattered forwarders over a 10-field ctx is the
-  shallow anti-pattern). Pilot + design: issues #48/#49; do not
-  re-derive the numbers.
+  shallow anti-pattern). Design: issue #49; do not re-derive the numbers.
 
 New hot paths must land with a perf regression test in
 `tests/run.lua perf` (asserted thresholds) or a note here explaining
