@@ -6,7 +6,9 @@ code or a measured doc — not a roadmap. Sources: `lua/laze/compile.lua`
 `tests/test_subset.lua` (semantic notes), `docs/design.md` (Philosophy),
 `docs/migration.md`, `docs/performance.md` (Rejected sections),
 `docs/startup-lazy-activation.md` (proxy limitation). The canonical index of
-known differences is [known-differences.md](known-differences.md).
+known differences is [known-differences.md](known-differences.md). The positive
+framing — who laze is for and which setups it does not target — is in
+[scope.md](scope.md).
 
 ## Deliberate no (philosophy)
 
