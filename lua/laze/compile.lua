@@ -665,6 +665,17 @@ local function matches_dev_pattern(patterns, url)
 	return false
 end
 
+--- Directory probe for `dev.fallback`. Plain-Lua unit runs may have no
+--- `vim.fn`; there, keep the dev source (the pre-fallback behavior).
+---@param path string
+---@return boolean
+local function is_directory(path)
+	if type(vim.fn.isdirectory) ~= "function" then
+		return true
+	end
+	return vim.fn.isdirectory(path) == 1
+end
+
 ---@param spec LazeSpec
 ---@param idx integer
 ---@param warned table<string, boolean>
@@ -914,7 +925,11 @@ local function compile(specs, opts)
 	if dev_opts and dev_opts.path ~= nil and type(dev_opts.path) ~= "string" then
 		error("compile: opts.dev.path must be a string", 0)
 	end
+	if dev_opts and dev_opts.fallback ~= nil and type(dev_opts.fallback) ~= "boolean" then
+		error("compile: opts.dev.fallback must be a boolean", 0)
+	end
 	local dev_root = (dev_opts and dev_opts.path) or (opts and opts.dev_root) or "~/projects"
+	local dev_fallback = dev_opts and dev_opts.fallback == true
 	-- lazy.nvim's `dev.patterns` are plain substring matches against the
 	-- plugin URL (not Lua patterns), applied only when the spec does not set
 	-- `dev` itself. Copy so later mutation of opts cannot change a compile.
@@ -1170,7 +1185,9 @@ local function compile(specs, opts)
 		-- `dev_src` also records that the source is a local checkout: an
 		-- active dev path changes version handling below.
 		local dev_src
+		local dev_from_root = false
 		if norm.dev == true then
+			dev_from_root = true
 			dev_src = vim.fn.expand(dev_root .. "/" .. name)
 		elseif type(norm.dev) == "string" and norm.dev ~= "" then
 			-- dev = "path" is the per-plugin dev directory (lazy.nvim
@@ -1183,7 +1200,15 @@ local function compile(specs, opts)
 			-- Global dev patterns (lazy.nvim `dev.patterns`): the spec did
 			-- not opt in or out, so a URL substring match makes it dev with
 			-- the same source as `dev = true` (`<dev_root>/<name>`).
+			dev_from_root = true
 			dev_src = vim.fn.expand(dev_root .. "/" .. name)
+		end
+		-- lazy.nvim `dev.fallback`: when the clone under the dev root is
+		-- missing, fall back to the remote source (vim.pack then installs
+		-- it normally). Only root-derived dev sources participate; explicit
+		-- `dev = "<path>"` / `dev_path` stay verbatim.
+		if dev_src and dev_from_root and dev_fallback and not is_directory(dev_src) then
+			dev_src = nil
 		end
 		local final_src = dev_src or resolved_src
 

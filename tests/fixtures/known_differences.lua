@@ -81,8 +81,8 @@ return {
 		class = "extension",
 		notify = "never",
 		lazy = "Documents `dev` as boolean; a string is truthy and uses config.dev.path.",
-		laze = "A string dev is used as the per-plugin dev directory. Global dev.path/dev.patterns are accepted via the setup/compile opts.",
-		rationale = "laze makes the spec-level source explicit and keeps dev_root as an alias; global patterns still apply only when a spec leaves dev unset.",
+		laze = "A string dev is used as the per-plugin dev directory. Global dev.path/dev.patterns/dev.fallback are accepted via the setup/compile opts.",
+		rationale = "laze makes the spec-level source explicit and keeps dev_root as an alias; global patterns/fallback still apply only when a spec leaves dev unset.",
 		test = "tests/test_compile.lua: dev = '/abs' string redirects src (was inert)",
 	},
 	{

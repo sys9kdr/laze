@@ -195,6 +195,7 @@ laze.setup(specs, {
   dev = {
     path = "~/projects",          -- default ~/projects; `dev_root` is an alias
     patterns = { "my-org/" },     -- plain substrings matched against the plugin URL
+    fallback = true,              -- use the remote source if the clone is missing
   },
 })
 ```
@@ -203,6 +204,11 @@ laze.setup(specs, {
 `find(pattern, 1, true)`), and only apply to specs that leave `dev` unset.
 A match behaves like `dev = true` (`<dev.path>/<name>`); `dev = false`,
 `dev = "<path>"`, and `dev_path` still win per spec.
+
+`fallback = true` mirrors lazy.nvim's `dev.fallback`: when the clone under
+`dev.path` does not exist, the remote source is used and `vim.pack` installs
+it normally. The default is `false` (use the dev path regardless). Explicit
+`dev = "<path>"` and `dev_path` are never probed.
 
 A dev path is a local checkout, so laze never lowers
 `version`/`branch`/`tag`/`commit` for it (lazy.nvim treats dev plugins as local

@@ -737,6 +737,71 @@ do
 	expect(not ok_tbl and err_tbl:find("opts.dev must be a table", 1, true) ~= nil, "non-table dev opts rejected")
 end
 
+do
+	-- `dev.fallback` (lazy.nvim): a missing clone under the dev root falls
+	-- back to the remote source. Explicit per-spec paths are not probed.
+	local real_isdir = vim.fn.isdirectory
+	vim.fn.isdirectory = function(path)
+		return (path == "/dev/present" or path == "/dev/pat-present") and 1 or 0
+	end
+	local function dev_compile(specs, opts)
+		local ok, c = pcall(compile, specs, opts)
+		expect(ok, "dev.fallback spec compiles: " .. tostring(c))
+		return ok and c or nil
+	end
+
+	local missing = dev_compile(
+		{ { "user/missing.nvim", name = "missing", dev = true, version = ">=1.0.0" } },
+		{ dev = { path = "/dev", fallback = true } }
+	)
+	expect(
+		missing and missing.pack[1].src == "https://github.com/user/missing.nvim",
+		"fallback: missing dev clone uses the remote"
+	)
+	expect(missing and missing.pack[1].version == "RANGE:>=1.0.0", "fallback: remote clone keeps the version")
+
+	local present = dev_compile(
+		{ { "user/present.nvim", name = "present", dev = true, version = ">=1.0.0" } },
+		{ dev = { path = "/dev", fallback = true } }
+	)
+	expect(present and present.pack[1].src == "/dev/present", "fallback: an existing dev clone is used")
+	expect(present and present.pack[1].version == nil, "fallback: an existing dev clone drops version")
+
+	local by_pattern = dev_compile(
+		{ { "user/pat.nvim", name = "pat-present" } },
+		{ dev = { path = "/dev", patterns = { "user/" }, fallback = true } }
+	)
+	expect(by_pattern and by_pattern.pack[1].src == "/dev/pat-present", "fallback: an existing patterned clone is used")
+
+	local no_fallback = dev_compile(
+		{ { "user/missing.nvim", name = "missing", dev = true } },
+		{ dev = { path = "/dev" } }
+	)
+	expect(
+		no_fallback and no_fallback.pack[1].src == "/dev/missing",
+		"fallback defaults to off (dev root wins even if missing)"
+	)
+
+	local explicit = dev_compile(
+		{ { "user/exp.nvim", name = "exp", dev_path = "/abs/exp" } },
+		{ dev = { path = "/dev", fallback = true } }
+	)
+	expect(explicit and explicit.pack[1].src == "/abs/exp", "fallback does not probe explicit dev_path")
+	local explicit_string = dev_compile(
+		{ { "user/exp2.nvim", name = "exp2", dev = "/abs/exp2" } },
+		{ dev = { path = "/dev", fallback = true } }
+	)
+	expect(explicit_string and explicit_string.pack[1].src == "/abs/exp2", "fallback does not probe explicit dev strings")
+
+	local ok_bad, err_bad = pcall(compile, { { "user/x.nvim", name = "x" } }, { dev = { fallback = "yes" } })
+	expect(
+		not ok_bad and err_bad:find("dev.fallback must be a boolean", 1, true) ~= nil,
+		"non-boolean dev.fallback rejected"
+	)
+
+	vim.fn.isdirectory = real_isdir
+end
+
 print("\n=== compile detail tests ===\n")
 
 do
