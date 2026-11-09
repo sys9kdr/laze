@@ -4,6 +4,13 @@ A tiny package manager with lazy.nvim-style specs, built on Neovim's native `vim
 
 Laze adds a subset of lazy.nvim's spec syntax and lazy-loading on top of `vim.pack`. Package management (e.g. installation) is handled by `vim.pack`.
 
+## Who it's for
+
+You write or copy lazy.nvim-style specs by hand and want them on `vim.pack`
+with lazy-loading, no manager UI, and a cheap way back to lazy.nvim. It is
+not for configs that rely on lazy.nvim's composition features (`import`,
+`specs`, `opts` merging). See [who laze is for](docs/scope.md).
+
 ## Compatibility
 
 Laze is **not fully compatible with lazy.nvim**.
@@ -114,6 +121,7 @@ formatting (`.styluaignore`).
 
 ## Further reading
 
+* [Who laze is for (and who it is not for)](docs/scope.md)
 * [Spec field details: triggers, keys, dependencies, name/src, refs](docs/spec.md)
 * [Design: output model, activation invariant, philosophy](docs/design.md)
 * [Extras: maintenance commands](docs/extras.md)
