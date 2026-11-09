@@ -652,6 +652,19 @@ local function has_dev_source(spec)
 		or (type(spec.dev_path) == "string" and spec.dev_path ~= "")
 end
 
+--- lazy.nvim `dev.patterns`: plain substring match against the plugin URL.
+---@param patterns string[]
+---@param url string
+---@return boolean
+local function matches_dev_pattern(patterns, url)
+	for i = 1, #patterns do
+		if url:find(patterns[i], 1, true) then
+			return true
+		end
+	end
+	return false
+end
+
 ---@param spec LazeSpec
 ---@param idx integer
 ---@param warned table<string, boolean>
@@ -881,7 +894,7 @@ local function flatten_spec(spec, out, label)
 end
 
 ---@param specs LazeSpec[]|string|LazeSpec
----@param opts? { dev_root?: string }
+---@param opts? { dev_root?: string, dev?: { path?: string, patterns?: string[] } }
 ---@return LazeCompiled
 local function compile(specs, opts)
 	if specs == nil then
@@ -894,7 +907,29 @@ local function compile(specs, opts)
 	end
 	specs = flattened
 
-	local dev_root = (opts and opts.dev_root) or "~/projects"
+	local dev_opts = opts and opts.dev
+	if dev_opts ~= nil and type(dev_opts) ~= "table" then
+		error("compile: opts.dev must be a table", 0)
+	end
+	if dev_opts and dev_opts.path ~= nil and type(dev_opts.path) ~= "string" then
+		error("compile: opts.dev.path must be a string", 0)
+	end
+	local dev_root = (dev_opts and dev_opts.path) or (opts and opts.dev_root) or "~/projects"
+	-- lazy.nvim's `dev.patterns` are plain substring matches against the
+	-- plugin URL (not Lua patterns), applied only when the spec does not set
+	-- `dev` itself. Copy so later mutation of opts cannot change a compile.
+	local dev_patterns = {}
+	if dev_opts and dev_opts.patterns ~= nil then
+		if type(dev_opts.patterns) ~= "table" then
+			error("compile: opts.dev.patterns must be an array of strings", 0)
+		end
+		for i, pattern in ipairs(dev_opts.patterns) do
+			if type(pattern) ~= "string" or pattern == "" then
+				error(("compile: opts.dev.patterns[%d] must be a non-empty string"):format(i), 0)
+			end
+			dev_patterns[i] = pattern
+		end
+	end
 
 	-- Pass 1: index top-level names and resolved sources so dependency
 	-- expansion can reference specs already defined by the user instead of
@@ -1144,6 +1179,11 @@ local function compile(specs, opts)
 			dev_src = expand_home(norm.dev)
 		elseif norm.dev_path then
 			dev_src = expand_home(norm.dev_path)
+		elseif norm.dev == nil and norm.dir == nil and matches_dev_pattern(dev_patterns, resolved_src) then
+			-- Global dev patterns (lazy.nvim `dev.patterns`): the spec did
+			-- not opt in or out, so a URL substring match makes it dev with
+			-- the same source as `dev = true` (`<dev_root>/<name>`).
+			dev_src = vim.fn.expand(dev_root .. "/" .. name)
 		end
 		local final_src = dev_src or resolved_src
 

@@ -187,6 +187,23 @@ expands; absolute and relative paths pass through verbatim. `dev_path` is a
 fallback source with the same effect when `dev` is unset — see
 [Custom commands](commands.md) for sync / dev-mode / hot-reload recipes.
 
+Global dev settings use lazy.nvim's shape as the second argument to
+`setup()`/`compile()`:
+
+```lua
+laze.setup(specs, {
+  dev = {
+    path = "~/projects",          -- default ~/projects; `dev_root` is an alias
+    patterns = { "my-org/" },     -- plain substrings matched against the plugin URL
+  },
+})
+```
+
+`patterns` are **plain substrings**, not Lua patterns (lazy.nvim uses
+`find(pattern, 1, true)`), and only apply to specs that leave `dev` unset.
+A match behaves like `dev = true` (`<dev.path>/<name>`); `dev = false`,
+`dev = "<path>"`, and `dev_path` still win per spec.
+
 A dev path is a local checkout, so laze never lowers
 `version`/`branch`/`tag`/`commit` for it (lazy.nvim treats dev plugins as local
 `dir`s). A semver `version` is still validated at compile time; it just cannot
