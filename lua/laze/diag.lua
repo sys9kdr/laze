@@ -1,6 +1,5 @@
---- Error and notify formatting, kept out of the hot modules: call sites use
---- an inline require, so this parses only when a message fires. The message
---- bytes are the contract (tests substring-match them).
+--- Error and notify formatting, kept out of the hot modules: call sites use an inline require, so this parses only when
+--- a message fires. The message bytes are the contract (tests substring-match them).
 local M = {}
 
 --- Warn with the standard "laze: " prefix.

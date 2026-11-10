@@ -59,8 +59,7 @@ plan()
 
 print("E2E: setup complete")
 
--- Script mode (-l) skips filetype detection for new buffers: set it
--- explicitly so the ft=markdown trigger fires.
+-- Script mode (-l) skips filetype detection for new buffers: set it explicitly so the ft=markdown trigger fires.
 vim.cmd("edit /tmp/test.md")
 vim.bo.filetype = "markdown"
 vim.wait(100)

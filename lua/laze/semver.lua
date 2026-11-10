@@ -1,8 +1,7 @@
--- lazy.nvim's `version` is a semver range, not a git ref. vim.version.range
--- is lenient enough to misparse refs ("abc123" -> 123.0.0), keep only the
--- first comparator of a compound range, and ignore trailing junk, so the
--- whole string is validated here: an unrepresentable range fails at compile
--- time instead of silently narrowing. Refs belong in branch/tag/commit.
+-- lazy.nvim's `version` is a semver range, not a git ref. vim.version.range is lenient enough to misparse refs
+-- ("abc123" -> 123.0.0), keep only the first comparator of a compound range, and ignore trailing junk, so the whole
+-- string is validated here: an unrepresentable range fails at compile time instead of silently narrowing. Refs belong
+-- in branch/tag/commit.
 local function is_digit(b)
 	return b ~= nil and b >= 48 and b <= 57
 end
@@ -58,8 +57,7 @@ local function is_version_token(s, i)
 		return false
 	end
 
-	-- vim.version.range would strip a prerelease/build along with the
-	-- wildcard, so reject instead of guessing.
+	-- vim.version.range would strip a prerelease/build along with the wildcard, so reject instead of guessing.
 	if wildcard and (s:byte(i) == 45 or s:byte(i) == 43) then
 		return false
 	end
@@ -151,10 +149,8 @@ local function looks_like_semver_range(v)
 	return is_range_operand(v, true)
 end
 
---- lazy.nvim's SemverRange:matches requires the candidate's prerelease to
---- equal the lower bound's; vim.version.range does not, so `>1.2.3` would
---- otherwise include `1.2.4-alpha`. Wrap only `has`; the range check stays
---- Neovim's.
+--- lazy.nvim's SemverRange:matches requires the candidate's prerelease to equal the lower bound's; vim.version.range
+--- does not, so `>1.2.3` would otherwise include `1.2.4-alpha`. Wrap only `has`; the range check stays Neovim's.
 ---@param spec string
 ---@param range vim.VersionRange
 ---@return vim.VersionRange

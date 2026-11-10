@@ -1,13 +1,10 @@
---- Startup command bridge: a command typed before its plugin defined it.
---- Required on first CmdUndefined hit during startup, never at plan build
---- (cold code; see docs/performance.md).
+--- Startup command bridge: a command typed before its plugin defined it. Required on first CmdUndefined hit during
+--- startup, never at plan build (cold code; see docs/performance.md).
 ---
---- During startup load_plugin uses `:packadd!`, which adds rtp but does not
---- source plugin/ (Neovim's own startup phases do, exactly once); a full
---- `:packadd` would source plugin/ twice. So the retried command may still be
---- undefined. This proxy records the invocation and replays it at VimEnter,
---- after the startup plugin phase, by which point the plugin's `:command!`
---- has usually replaced the proxy. Post-startup routes stay stateless.
+--- During startup load_plugin uses `:packadd!`, which adds rtp but does not source plugin/ (Neovim's own startup phases
+--- do, exactly once); a full `:packadd` would source plugin/ twice. So the retried command may still be undefined. This
+--- proxy records the invocation and replays it at VimEnter, after the startup plugin phase, by which point the plugin's
+--- `:command!` has usually replaced the proxy. Post-startup routes stay stateless.
 local M = {}
 
 local PROXY_DESC = "laze: defer command until VimEnter"
@@ -41,10 +38,9 @@ function M.defer(calls, cmd)
 		callback = function()
 			local queued = calls[cmd]
 			calls[cmd] = nil
-			-- A plugin's `:command!` normally replaced this proxy already. If
-			-- not (missing package, or a command the plugin never defines),
-			-- remove it before replaying or the replay re-queues itself
-			-- forever and masks the real "not an editor command" error.
+			-- A plugin's `:command!` normally replaced this proxy already. If not (missing package, or a command the plugin
+			-- never defines), remove it before replaying or the replay re-queues itself forever and masks the real "not an
+			-- editor command" error.
 			local current = vim.api.nvim_get_commands({ builtin = false })[cmd]
 			if current and current.desc == PROXY_DESC then
 				pcall(vim.api.nvim_del_user_command, cmd)

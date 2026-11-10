@@ -1,7 +1,6 @@
---- README e2e driver. Manual/network only: fetches each plugin's README at the
---- pinned SHA, extracts the first lazy.nvim spec table verbatim (wrapping a
---- bare `{ ... }` with `return`), then spawns one isolated headless Neovim per
---- plugin to install, fire the matrix trigger, and run one smoke assertion.
+--- README e2e driver. Manual/network only: fetches each plugin's README at the pinned SHA, extracts the first lazy.nvim
+--- spec table verbatim (wrapping a bare `{ ... }` with `return`), then spawns one isolated headless Neovim per plugin
+--- to install, fire the matrix trigger, and run one smoke assertion.
 ---
 --- Run: nvim --cmd "set rtp+=." -l tests/run.lua e2e_readme [--clean] [--failed] [name ...]
 --- Output: one row per plugin plus tests/e2e/report/<timestamp>.json.

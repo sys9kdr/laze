@@ -161,16 +161,14 @@ function M.setup(specs, opts)
 		return run_build_item(build, plugin, cwd)
 	end
 
-	-- vim.pack has no build concept: run the spec's `build` on PackChanged.
-	-- This augroup MUST be registered before vim.pack.add: PackChanged fires
-	-- synchronously inside add() for a fresh install, so a late subscription
-	-- would skip every first build.
+	-- vim.pack has no build concept: run the spec's `build` on PackChanged. This augroup MUST be registered before
+	-- vim.pack.add: PackChanged fires synchronously inside add() for a fresh install, so a late subscription would skip
+	-- every first build.
 	local builds = {}
 	for _, entry in pairs(compiled.registry) do
 		if entry.build and entry.pkg then
-			-- PackChanged delivers data.spec.name (the pack name), which differs
-			-- from the registry id for dotted repos ("which-key" vs
-			-- "which-key.nvim").
+			-- PackChanged delivers data.spec.name (the pack name), which differs from the registry id for dotted repos
+			-- ("which-key" vs "which-key.nvim").
 			builds[entry.pkg] = entry.build
 		end
 	end
@@ -186,10 +184,8 @@ function M.setup(specs, opts)
 				if not build then
 					return
 				end
-				-- A fresh install is not on the runtimepath yet, so activate it
-				-- before the build (:TSInstallSelf and similar need it).
-				-- `packadd!` during startup avoids double-sourcing by the
-				-- startup plugin phases.
+				-- A fresh install is not on the runtimepath yet, so activate it before the build (:TSInstallSelf and similar
+				-- need it). `packadd!` during startup avoids double-sourcing by the startup plugin phases.
 				if data.kind == "install" and not data.active then
 					if vim.v.vim_did_enter == 0 then
 						pcall(vim.cmd, "packadd! " .. vim.fn.fnameescape(data.spec.name))
@@ -209,12 +205,10 @@ function M.setup(specs, opts)
 		})
 	end
 
-	-- Eager plugins get the runtimepath entry at setup (`load = false`, i.e.
-	-- `:packadd!`) so the startup plugin phases source their files; their
-	-- init/config still run via the plan. Lazy plugins get a no-op `load` so
-	-- they stay off the runtimepath until a trigger fires — a plain add()
-	-- would `:packadd` everything and defeat lazy loading. Pack specs carry
-	-- the directory name (`pkg`), which can differ from the registry id.
+	-- Eager plugins get the runtimepath entry at setup (`load = false`, i.e. `:packadd!`) so the startup plugin phases
+	-- source their files; their init/config still run via the plan. Lazy plugins get a no-op `load` so they stay off the
+	-- runtimepath until a trigger fires — a plain add() would `:packadd` everything and defeat lazy loading. Pack specs
+	-- carry the directory name (`pkg`), which can differ from the registry id.
 	local pkg_to_id = {}
 	for id, entry in pairs(compiled.registry) do
 		if entry.pkg then

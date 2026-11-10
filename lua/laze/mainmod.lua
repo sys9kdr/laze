@@ -1,6 +1,5 @@
--- Main-module resolution for the desugared `config = true` closure. Separate
--- file so its parse cost is paid only when a plugin actually loads.
--- lazy.nvim's Util.normname, kept equivalent so both pick the same module.
+-- Main-module resolution for the desugared `config = true` closure. Separate file so its parse cost is paid only when a
+-- plugin actually loads. lazy.nvim's Util.normname, kept equivalent so both pick the same module.
 local function norm_module_name(name)
 	return name:lower():gsub("^n?vim%-", ""):gsub("%.n?vim$", ""):gsub("[%.%-]lua", ""):gsub("[^a-z]+", "")
 end

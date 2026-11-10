@@ -30,8 +30,7 @@ function M.update()
 	vim.pack.update()
 end
 
---- List managed plugins missing from the last setup (dry-run).
---- With `bang`, delete them via vim.pack.del instead.
+--- List managed plugins missing from the last setup (dry-run). With `bang`, delete them via vim.pack.del instead.
 ---@param bang? boolean
 ---@return string[]? stale names, or nil when no setup has run yet
 function M.clean(bang)

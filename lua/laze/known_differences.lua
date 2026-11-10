@@ -1,7 +1,6 @@
---- Compile-time notifications for known differences (issue #12). Only
---- `notify = "compile"` entries from docs/known-differences.md are surfaced;
---- "never" entries stay docs-only. The message names the stable ID and the
---- docs path.
+--- Compile-time notifications for known differences (issue #12). Only `notify = "compile"` entries from
+--- docs/known-differences.md are surfaced; "never" entries stay docs-only. The message names the stable ID and the docs
+--- path.
 ---
 --- The caller dedupes per compile (one vim.notify costs ~180 us headless);
 --- the group is opt-out with `known_differences = false`.

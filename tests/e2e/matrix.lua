@@ -1,6 +1,5 @@
---- Fixed e2e matrix: real plugin READMEs, pinned by commit SHA.
---- Shapes covered: eager/opts-only, dependencies, build, version, branch,
---- priority, event/VeryLazy, keys, cmd, and plain config tables.
+--- Fixed e2e matrix: real plugin READMEs, pinned by commit SHA. Shapes covered: eager/opts-only, dependencies, build,
+--- version, branch, priority, event/VeryLazy, keys, cmd, and plain config tables.
 return {
 	{
 		name = "oil",

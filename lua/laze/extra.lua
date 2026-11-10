@@ -1,6 +1,5 @@
---- Opt-in maintenance entry point. The core never requires this module.
---- `laze.extra` is the public name; `lua/laze/extras/` holds the
---- implementation so consumers can load only part of it.
+--- Opt-in maintenance entry point. The core never requires this module. `laze.extra` is the public name;
+--- `lua/laze/extras/` holds the implementation so consumers can load only part of it.
 
 local maintenance = require("laze.extras.maintenance")
 
