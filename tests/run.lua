@@ -5,6 +5,13 @@
 --- Regenerate with: nvim --cmd "set rtp+=." -l tests/update_snapshots.lua
 --- `fast` skips the spawned-session blocks (startup phases, build,
 --- pkg-name parity) so the common loop stays in one nvim instance.
+
+-- README e2e is a manual, network-only mode with its own driver.
+if arg[1] == "e2e_readme" then
+	dofile("tests/e2e/run.lua")
+	return
+end
+
 local laze = require("laze")
 local FN = require("tests.fixtures._sentinel").FN
 
