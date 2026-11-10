@@ -3,8 +3,8 @@
 -- Module-level so a rebuilt plan clears the previous plan's preload entries instead of stacking stale trigger closures.
 local installed_preloads = {}
 
--- { { mode, lhs, desc } }. Module-level for the same reason; deletion is
--- desc-guarded so a plugin map that took over the lhs survives a rebuild.
+-- { { mode, lhs, desc, buf? } }. Module-level for the same reason; deletion is desc-guarded so a plugin map that took
+-- over the lhs survives a rebuild.
 local installed_keys = {}
 
 --- Map `pkg -> opt dir` for pack dirs already on 'runtimepath'. Mirrors the discovery glob below, so a hit means the
@@ -800,7 +800,8 @@ local function build_plan(compiled, opts)
 			end
 		end
 
-		-- Eager plugins load in spec order, except that an explicit `priority` sorts first (higher first, default 50).
+		-- Eager plugins load by `priority` (higher first, default 50), ties by id; spec order is not preserved (the
+		-- registry is a `pairs` walk).
 		local eager = {}
 		for _, entry in pairs(registry) do
 			if enabled_ok[entry.id] and entry.eager then

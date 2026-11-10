@@ -1215,7 +1215,7 @@ local function compile(specs, opts)
 	}
 end
 
--- Exported for the standalone unit tests and extras.
+-- Exported for the standalone unit tests and benchmarks.
 return {
 	compile = compile,
 	derive_name = derive_name,
