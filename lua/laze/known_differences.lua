@@ -1,19 +1,14 @@
---- Compile-time notifications for known differences (issue #12).
+--- Compile-time notifications for known differences (issue #12). Only `notify = "compile"` entries from
+--- docs/known-differences.md are surfaced; "never" entries stay docs-only. The message names the stable ID and the docs
+--- path.
 ---
---- Only entries with `notify = "compile"` in docs/known-differences.md are
---- surfaced here; `notify = "never"` entries stay docs-only. The message
---- names the stable ID and the docs path so a user can look up the exact
---- conversion.
----
---- Messages are deduped per compile by the caller (a single vim.notify
---- costs ~180 us headless, so N occurrences must not pay N×), and the whole
---- group is opt-out with `compile(specs, { known_differences = false })`.
+--- The caller dedupes per compile (one vim.notify costs ~180 us headless);
+--- the group is opt-out with `known_differences = false`.
 local M = {}
 
 M.docs = "docs/known-differences.md"
 
---- Short descriptions for each `notify = "compile"` entry. Longer context
---- belongs in the docs; the runtime message stays one line.
+--- One line each; longer context belongs in the docs.
 M.entries = {
 	["KD-016"] = "unsupported key options are dropped",
 	["KD-020"] = "field has no laze equivalent",

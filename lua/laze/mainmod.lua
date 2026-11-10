@@ -1,20 +1,15 @@
--- Main-module resolution for the desugared `config = true` closure. Lives
--- apart from compile.lua so its parse cost is only paid when a plugin
--- actually loads (startup only parses compile.lua via the require graph).
--- lazy.nvim's Util.normname: used to match a plugin name against the
--- top-level Lua modules it ships. Kept equivalent to lazy/core/util.lua so
--- main-module resolution picks the same module.
+-- Main-module resolution for the desugared `config = true` closure. Separate file so its parse cost is paid only when a
+-- plugin actually loads. lazy.nvim's Util.normname, kept equivalent so both pick the same module.
 local function norm_module_name(name)
 	return name:lower():gsub("^n?vim%-", ""):gsub("%.n?vim$", ""):gsub("[%.%-]lua", ""):gsub("[^a-z]+", "")
 end
 
---- Resolve a plugin's `main` module the way lazy.nvim does when `opts` or
---- `config = true` is used without an explicit `main`:
+--- Resolve a plugin's `main` module like lazy.nvim does when `opts` or
+--- `config = true` is used without an explicit main:
 ---   * `mini.<name>` plugins use their own name (except `mini.nvim`),
----   * otherwise scan the top-level entries under `<plugin>/lua`, prefer a
----     module whose normalized name matches the plugin name, and fall back
----     to the single module when the plugin ships exactly one.
---- Runs at load time (the plugin is installed by then), never at compile.
+---   * otherwise scan `<plugin>/lua`, prefer a normalized name match, and
+---     fall back to the single module.
+--- Runs at load time, when the plugin is installed.
 ---@param plugin_dir string?
 ---@param name string
 ---@return string?

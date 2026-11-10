@@ -2,13 +2,11 @@ local TRIGGER_FIELDS = { "event", "ft", "cmd", "keys" }
 local ARRAY_TRIGGER_FIELDS = { "ft", "cmd" }
 local SOURCE_FIELDS = { "dir", "url", "name" }
 local VERSION_REF_FIELDS = { "branch", "tag", "commit" }
--- lazy.nvim accepts boolean or function for both cond and enabled;
--- lazy and submodules are boolean-only.
+-- lazy.nvim accepts boolean or function for both cond and enabled; lazy and submodules are boolean-only.
 local FUNCTION_OR_BOOLEAN_FIELDS = { "cond", "enabled" }
 local BOOLEAN_FIELDS = { "lazy", "submodules" }
 
---- Shallow copy of an array's ipairs part. Compile must not mutate or
---- share input tables (purity), so inbound arrays are copied here.
+--- Shallow copy of the ipairs part: compile must neither mutate nor share input tables.
 local function copy_array(v)
 	local result = {}
 	for _, item in ipairs(v) do
@@ -17,8 +15,7 @@ local function copy_array(v)
 	return result
 end
 
---- Whether `value` occurs in a small array (all call sites are per-spec
---- lists, so the linear scan is fine).
+--- Whether `value` occurs in a small array (all call sites are per-spec lists, so the linear scan is fine).
 local function contains(list, value)
 	for i = 1, #list do
 		if list[i] == value then
@@ -39,13 +36,8 @@ local function normalize_array(v)
 	return {}
 end
 
----Byte-scan equivalent of `s:match("([^/:]+)$")`: the final run of
----non-"/"/":" bytes anchored at the end of `s`. nil where the pattern
----would fail (empty input or trailing separator). Verified equivalent to
----the pattern form over 300k adversarial inputs (tests/test_compile.lua
----pins the edge cases). Byte loop rather than `:match`: patterns are NYI
----in LuaJIT and run interpreted (~7 us/call, which dominated per-spec
----compile cost).
+--- Final run of non-"/"/":" bytes (equivalent to `s:match("([^/:]+)$")`, pinned by tests over adversarial inputs). Byte
+--- loop because LuaJIT patterns run interpreted (~7 us/call, which dominated per-spec compile).
 ---@param s string
 ---@return string?
 local function last_segment(s)
@@ -67,8 +59,7 @@ end
 ---@param src string
 ---@return string
 local function strip_src_suffix(src)
-	-- Strip a trailing "/", then a trailing ".git": lazy.nvim and vim.pack
-	-- both do exactly this before taking the last path segment.
+	-- lazy.nvim and vim.pack both strip a trailing "/" then a trailing ".git" before taking the last path segment.
 	local name = src
 	if name:sub(-1) == "/" then
 		name = name:sub(1, -2)
@@ -82,10 +73,8 @@ end
 ---@param src string
 ---@return string
 local function derive_name(src)
-	-- lazy.nvim-compatible (lazy/core/plugin.lua Spec.get_name): strip a
-	-- trailing `.git`, then one trailing slash, then take the last path
-	-- segment. Without the braces, "user/repo.git" keeps the .git suffix
-	-- and "…/plugin/" (trailing slash) falls back to the raw URL as id.
+	-- lazy.nvim's Spec.get_name: strip .git, one trailing slash, then take the last segment; then drop a .nvim/.lua
+	-- suffix. The suffix handling is why "user/repo.git" does not keep ".git" as the id.
 	local name = strip_src_suffix(src)
 	name = last_segment(name) or name
 	if name:sub(-5) == ".nvim" then
@@ -97,12 +86,9 @@ local function derive_name(src)
 	return name
 end
 
--- vim.pack's own directory-name derivation (runtime/lua/vim/pack.lua):
--- the last path segment with a trailing `.git` stripped. The installed
--- directory is `pack/<pkg>/opt/<name>`, so this must match vim.pack
--- exactly — otherwise existing installs get re-cloned under a new name.
--- A trailing slash is tolerated (vim.pack yields an empty name for it
--- and would error; here it resolves like lazy.nvim does).
+-- vim.pack's own directory-name derivation: last segment, `.git` stripped. The install dir is `pack/<pkg>/opt/<name>`,
+-- so this must match vim.pack or existing installs get re-cloned under a new name. A trailing slash resolves like
+-- lazy.nvim here (vim.pack would yield an empty name).
 local function pkg_name(src, spec_name)
 	if spec_name then
 		return spec_name
@@ -111,9 +97,8 @@ local function pkg_name(src, spec_name)
 	return last_segment(name) or name
 end
 
---- Expand a leading "~" via the API (one call per dev/dir spec; compile is
---- one-shot). Byte test, not `:match("^~")`: patterns are NYI in LuaJIT and
---- run interpreted (~50 ns vs sub-ns per call on this hot path).
+--- Expand a leading "~". Byte test, not `:match("^~")`: LuaJIT patterns run
+--- interpreted (~50 ns vs sub-ns on this hot path).
 ---@param path string
 ---@return string
 local function expand_home(path)
@@ -158,17 +143,15 @@ local function normalize_keys(v)
 			if type(item) == "string" then
 				table.insert(result, { lhs = item, mode = "n" })
 			elseif type(item) == "table" then
-				-- rhs: string (feedkeys), function (opaque callback), or
-				-- `false` (lazy.nvim: disable the mapping, never load).
-				-- NOT `item.rhs or item[2]`: a false rhs would be swallowed
-				-- and the key would silently become a load trigger.
+				-- rhs: string (feedkeys), function, or false (lazy.nvim:
+				-- disable the mapping, never load). Must not be
+				-- `item.rhs or item[2]`: that swallows a false rhs and turns
+				-- the key into a load trigger.
 				local rhs = item.rhs
 				if rhs == nil then
 					rhs = item[2]
 				end
-				-- lazy.nvim's handler treats `vim.NIL` (a JSON null, or an
-				-- empty keymap value) exactly like `false`: the entry is
-				-- removed from the resolved handler map.
+				-- vim.NIL (JSON null / empty value) behaves like false.
 				if rhs ~= nil and vim.NIL ~= nil and rhs == vim.NIL then
 					rhs = false
 				end
@@ -176,11 +159,9 @@ local function normalize_keys(v)
 					lhs = item.lhs or item[1],
 					mode = item.mode or "n",
 					rhs = rhs,
-					-- lazy.nvim key options (passed to vim.keymap.set)
 					desc = item.desc,
 					silent = item.silent,
-					-- ft scopes the trigger to a buffer-local mapping on
-					-- matching FileType (lazy.nvim LazyKeysSpec.ft).
+					-- ft scopes the trigger to a buffer-local FileType map.
 					ft = item.ft,
 				})
 			end
@@ -190,23 +171,19 @@ local function normalize_keys(v)
 	return {}
 end
 
---- Neovim stores some event names under a canonical alias
---- (`:autocmd BufRead` shows as `BufReadPost`). The grouped dispatcher
---- looks routes up by `ev.event`, so keys must use the stored form —
---- normalize here, once, instead of at every fire. Verified empirically
---- (create + read back rows): BufRead→BufReadPost, BufCreate→BufAdd,
---- BufWrite→BufWritePre. Matches lazy.nvim behavior (it passes names
---- straight to nvim_create_autocmd, which applies the same mapping).
+--- Neovim stores some event names under a canonical alias (BufRead shows as BufReadPost). The dispatcher looks routes
+--- up by ev.event, so normalize once here. Verified by creating rows and reading them back; matches lazy.nvim passing
+--- names straight to nvim_create_autocmd.
 local EVENT_ALIASES = {
 	BufRead = "BufReadPost",
 	BufCreate = "BufAdd",
 	BufWrite = "BufWritePre",
 }
 
---- Normalize lazy.nvim event values
---- (string | string[] | {event,pattern} | {event,pattern}[]).
+--- Respect lazy.nvim's `{ event = ..., pattern = ... }` table as a one-item list: ipairs over a map-shaped table yields
+--- nothing, which would silently make a lazy spec eager.
 ---@param v any
----@return {event: string, pattern?: string}[] -- event name and optional pattern
+---@return {event: string, pattern?: string}[]
 local function normalize_events(v)
 	if v == nil then
 		return {}
@@ -216,16 +193,11 @@ local function normalize_events(v)
 	end
 	if type(v) == "table" then
 		local result = {}
-		-- lazy.nvim's LazyEventSpec is a string, a list, or a single
-		-- { event = ..., pattern = ... } table. Treat the latter as a
-		-- one-item list: ipairs over a map-shaped table yields nothing, so
-		-- dropping it would silently turn a lazy spec eager.
 		local items = v.event ~= nil and { v } or v
 		for _, item in ipairs(items) do
 			if type(item) == "string" then
 				table.insert(result, { event = EVENT_ALIASES[item] or item })
 			elseif type(item) == "table" then
-				-- lazy.nvim form: { event = {"BufReadPre", "BufReadPost"}, pattern = "*.lua" }
 				local events = type(item.event) == "table" and item.event or { item.event }
 				for _, ev in ipairs(events) do
 					table.insert(result, { event = EVENT_ALIASES[ev] or ev, pattern = item.pattern })
@@ -237,9 +209,7 @@ local function normalize_events(v)
 	return {}
 end
 
---- Resolve lazy.nvim version spec to a vim.pack-compatible version value.
---- lazy.nvim: version = semver range string | false; branch/tag/commit are refs.
---- vim.pack:  version accepts a git ref string or a VersionRange.
+--- Lower a lazy.nvim version spec to a vim.pack value: `version` becomes a semver range, refs become strings.
 ---@param spec LazeSpec
 ---@param idx? integer
 ---@param range? vim.VersionRange Already validated by validate_spec
@@ -254,13 +224,10 @@ local function resolve_version(spec, idx, range)
 	end
 	local v = spec.version
 	if v ~= nil and v ~= false then
-		-- Field-based lowering: a version string is always a semver range,
-		-- never a git ref (refs use branch/tag/commit). Reuse the range
-		-- validated during compile instead of parsing the same string twice.
+		-- Reuse the range validated during compile instead of parsing twice.
 		return range or require("laze.semver").to_semver_range(v, idx)
 	end
-	-- version = false (or omitted) means "do not pin a range"; branch still
-	-- applies, then vim.pack's default branch when neither is set.
+	-- false/omitted version: branch still applies, else vim.pack's default.
 	return spec.branch
 end
 
@@ -274,12 +241,8 @@ local function add_to_route(route_map, keys, plugin_id)
 	end
 end
 
---- Event routes carry optional autocmd patterns (lazy.nvim `{event, pattern}` form).
---- Each event name maps to a list of pattern variants: the same event with
---- DIFFERENT patterns routes independently (plan.lua creates one autocmd per
---- variant), while the same (event, pattern) pair shares one variant. Keying
---- by name alone would make a patternless spec inherit another spec's pattern
---- (and never load), or make a patterned spec fire unconditionally.
+--- One variant per (event, pattern): a patternless spec must not inherit
+--- another spec's pattern, and a patterned spec must not fire unconditionally.
 local function add_to_event_route(route_map, events, plugin_id)
 	for i = 1, #events do
 		local ev = events[i]
@@ -308,13 +271,9 @@ local function ft_id(value)
 	return value and table.concat(value, "\0") or ""
 end
 
---- Key routes are per (lhs, mode) variant: `routes.keys[lhs]` is an array
---- with one entry per normalized mode (a `mode` array expands to one
---- variant per mode, in declaration order). Each variant is an independent
---- trigger map, so an n-mode press can never fire a v-only declaration and
---- vice versa. Variants sharing lhs+mode must agree on rhs/desc/silent:
---- the trigger map is shared, so warn and keep the first instead of
---- silently dropping the second spec's values.
+--- One variant per (lhs, mode); a `mode` array expands in declaration order. Each variant is an independent trigger
+--- map, so an n-mode press cannot fire a v-only declaration. Variants sharing lhs+mode share one map, so mismatched
+--- rhs/desc/silent warns and keeps the first.
 local function add_to_key_route(route_map, keys, plugin_id)
 	for i = 1, #keys do
 		local ke = keys[i]
@@ -323,30 +282,23 @@ local function add_to_key_route(route_map, keys, plugin_id)
 		local seen_modes = {}
 		for j = 1, #modes do
 			local mode = modes[j]
-			-- `mode = { "n", "n" }`: one variant, not two maps for one lhs.
-			-- An empty mode array creates no variants at all (lazy.nvim
-			-- resolves no key handler and keeps the plugin lazy); don't
-			-- leave an empty `routes.keys[lhs]` entry behind.
+			-- Dedup repeated modes. An empty mode array creates no variants (lazy.nvim resolves no handler and keeps the
+			-- plugin lazy), so do not leave an empty route behind.
 			if not seen_modes[mode] then
 				seen_modes[mode] = true
-				-- `ft` is part of lazy.nvim's handler id (one id per
-				-- lhs+mode+ft set), so a buffer-local declaration and a
-				-- global one for the same lhs/mode are distinct variants.
+				-- `ft` is part of lazy.nvim's handler id, so a buffer-local
+				-- and a global declaration for the same lhs/mode are distinct.
 				local ft = ke.ft
 				if type(ft) == "string" then
 					ft = { ft }
 				elseif type(ft) == "table" then
-					-- copy: compile must not mutate or share the input table
 					ft = copy_array(ft)
 				end
 				local variants = route_map[lhs]
-				-- `rhs = false` (or `vim.NIL`) removes this plugin's entry
-				-- from lazy.nvim's resolved handler map
-				-- (lazy/core/handler/keys.lua: `values[keys.id] = nil`).
-				-- Process entries in declaration order so a later `false`
-				-- cancels an earlier real binding, while a later real
-				-- binding re-adds it. A variant shared with other plugins
-				-- only loses this plugin's id.
+				-- `rhs = false` / vim.NIL removes this plugin's id from
+				-- lazy.nvim's resolved handler map. Declaration order matters:
+				-- a later false cancels an earlier binding, a later binding
+				-- re-adds. A shared variant only loses this plugin's id.
 				if ke.rhs == false then
 					if variants then
 						local want = ft_id(ft)
@@ -440,10 +392,8 @@ local CONSUMED_KEYS = {
 	import = true,
 }
 
---- lazy.nvim fields that laze accepts but that have no vim.pack equivalent.
---- They are consumed (not passed through) and produce one warning per
---- field per compile so users know the config will not behave identically
---- on both managers (a notify costs ~180 us — no per-spec repeat).
+--- Accepted but without a vim.pack equivalent: consumed, never passed
+--- through, warned once per field per compile (a notify costs ~180 us).
 local UNSUPPORTED_FIELDS = {
 	submodules = "vim.pack always fetches submodules; `submodules = false` cannot be honored",
 	optional = "deps are always required; remove 'optional'",
@@ -490,9 +440,7 @@ end
 
 local function warn_unsupported(spec, idx, spec_id, warned, notify)
 	for field, reason in pairs(UNSUPPORTED_FIELDS) do
-		-- `submodules = true` (and the default) already matches vim.pack,
-		-- which runs `git submodule update --init --recursive`. Only the
-		-- opt-out is a real difference.
+		-- `submodules = true` (and the default) already matches vim.pack; only the opt-out is a real difference.
 		local differs = field ~= "submodules" or spec.submodules == false
 		if spec[field] ~= nil and differs and not warned[field] then
 			warned[field] = true
@@ -517,10 +465,8 @@ local function is_string_array(v)
 	return true
 end
 
---- Trigger fields accept a subset of the lazy.nvim value shapes. Function-
---- shaped triggers (valid in lazy.nvim, evaluated at startup there) are
---- rejected: laze has no runtime evaluation, and silently normalizing them
---- to "no trigger" would turn the plugin eager — the worst failure mode.
+--- Function-shaped triggers are valid in lazy.nvim but rejected here: laze has no runtime evaluation, and normalizing
+--- them to "no trigger" would silently make the plugin eager.
 local function validate_triggers(spec, idx, spec_id)
 	local function bad(field, msg)
 		require("laze.diag").bad(idx, spec_id, field, msg)
@@ -533,8 +479,7 @@ local function validate_triggers(spec, idx, spec_id)
 		elseif value ~= nil and type(value) ~= "string" and type(value) ~= "table" then
 			bad(field, "must be a string or array")
 		elseif value == "" then
-			-- An empty trigger would match everything (FileType "") or
-			-- raise at plan time (autocmd with event "").
+			-- Would match everything (FileType "") or raise at plan time.
 			bad(field, "must not be empty")
 		end
 	end
@@ -560,8 +505,7 @@ local function validate_triggers(spec, idx, spec_id)
 			end
 		end
 
-		-- Single { event = ..., pattern = ... } table (lazy.nvim LazyEventSpec)
-		-- as well as the array form.
+		-- Single `{ event = ..., pattern = ... }` table or the array form.
 		if spec.event.event ~= nil then
 			check_event_spec(spec.event, "event")
 		else
@@ -598,10 +542,8 @@ local function validate_triggers(spec, idx, spec_id)
 				if type(lhs) ~= "string" or lhs == "" then
 					bad("keys[" .. i .. "]", "must have a non-empty lhs (string)")
 				end
-				-- lazy.nvim's LazyKeysSpec.rhs is string|fun|false (plus
-				-- vim.NIL from a JSON null). Anything else used to fail at
-				-- keypress time inside nvim_replace_termcodes; reject it at
-				-- compile time instead.
+				-- rhs is string|fun|false (plus vim.NIL from JSON null). Anything else would fail later inside
+				-- nvim_replace_termcodes; reject it now.
 				local rhs = item.rhs
 				if rhs == nil then
 					rhs = item[2]
@@ -611,8 +553,7 @@ local function validate_triggers(spec, idx, spec_id)
 					bad("keys[" .. i .. "].rhs", "must be a string, function, false, or vim.NIL")
 				end
 				if item.ft ~= nil then
-					-- lazy.nvim: string|string[], used as the FileType
-					-- autocmd pattern for a buffer-local trigger map.
+					-- FileType autocmd pattern for the buffer-local map.
 					if type(item.ft) == "string" then
 						if item.ft == "" then
 							bad("keys[" .. i .. "].ft", "must not be empty")
@@ -627,11 +568,8 @@ local function validate_triggers(spec, idx, spec_id)
 						end
 					end
 				end
-				-- lazy.nvim does not validate the contents of mode:
-				-- mode = "" is passed to vim.keymap.set (which creates a
-				-- multi-mode mapping), and mode = {} resolves to no key
-				-- handler while the plugin stays lazy. Match that behavior
-				-- instead of rejecting empty values.
+				-- lazy.nvim does not validate mode contents: "" makes a multi-mode mapping and {} yields no handler while the
+				-- plugin stays lazy. Match it instead of rejecting.
 				if item.mode ~= nil and type(item.mode) ~= "string" and not is_string_array(item.mode) then
 					bad("keys[" .. i .. "]", "mode must be a string or string[]")
 				end
@@ -665,8 +603,7 @@ local function matches_dev_pattern(patterns, url)
 	return false
 end
 
---- Directory probe for `dev.fallback`. Plain-Lua unit runs may have no
---- `vim.fn`; there, keep the dev source (the pre-fallback behavior).
+--- Plain-Lua unit runs may have no `vim.fn`; there, keep the dev source.
 ---@param path string
 ---@return boolean
 local function is_directory(path)
@@ -698,9 +635,7 @@ local function validate_spec(spec, idx, warned, notify)
 
 	local spec_id = tostring(src or spec.dir or spec.url)
 
-	-- Every check below fails fatally (diag.spec raises). The closure keeps the
-	-- inline lazy require from lua/laze/diag.lua (parsed only when a message
-	-- actually fires) while leaving one short call per check.
+	-- One short call per check; `require("laze.diag")` stays inline so it is parsed only when a message actually fires.
 	local function err(msg)
 		require("laze.diag").spec(idx, spec_id, msg)
 	end
@@ -723,9 +658,8 @@ local function validate_spec(spec, idx, warned, notify)
 		err("init must be a function")
 	end
 	if spec.config ~= nil and type(spec.config) ~= "function" and spec.config ~= true then
-		-- The two shapes are exclusive (err raises): the table form is
-		-- lazy.nvim's removed opts alias, so it gets a message naming the
-		-- replacements instead of the generic type error.
+		-- The table form is lazy.nvim's removed opts alias, so name the
+		-- replacements instead of giving the generic type error.
 		if type(spec.config) == "table" then
 			err(
 				'config = { ... } (lazy.nvim\'s deprecated opts alias) is not supported — use main = "..." with opts = {...}, or config = function() ... end'
@@ -734,10 +668,8 @@ local function validate_spec(spec, idx, warned, notify)
 			err("config must be a function or true")
 		end
 	end
-	-- opts is lazy.nvim's setup shorthand: a table (or a function returning
-	-- one) passed to require(main).setup(opts) at load. main is resolved
-	-- lazily like lazy.nvim (explicit, name match, or the single top-level
-	-- module) because the plugin is not installed at compile time.
+	-- `opts` desugars to require(main).setup(opts) at load; main is resolved
+	-- then because the plugin is not installed at compile time.
 	if spec.opts ~= nil and type(spec.opts) ~= "table" and type(spec.opts) ~= "function" then
 		err("opts must be a table or function")
 	end
@@ -813,18 +745,9 @@ local function validate_spec(spec, idx, warned, notify)
 		if type(version) ~= "string" then
 			err("version must be a string (semver range) or false")
 		end
-		-- lazy.nvim's precedence is commit > tag > version > branch, so a
-		-- range that cannot win is not evaluated. Keep the type check above,
-		-- but only parse when version is actually eligible. This also lets
-		-- plain-Lua snapshot generation handle ref-only fixtures without a
-		-- vim.version stub. Return the object so resolve_version can reuse it
-		-- instead of parsing the same string twice. The semver module is
-		-- required lazily: most configs have no `version` spec and never
-		-- pay its parse cost at startup.
-		--
-		-- `dir` and an active dev source are local checkouts: lazy.nvim
-		-- ignores version/refs for them, so do not reject a range that will
-		-- never be lowered. This is a drop-in compatibility fix (KD-004).
+		-- lazy.nvim precedence is commit > tag > version > branch, so only parse a range that can win. The returned object
+		-- is reused by resolve_version. semver is required lazily: most configs never use it. Local checkouts (`dir`, an
+		-- active dev source) ignore version/refs (KD-004), so their ranges are validated but never lowered.
 		if spec.commit == nil and spec.tag == nil and spec.dir == nil and not has_dev_source(spec) then
 			version_range = require("laze.semver").to_semver_range(version, idx, spec_id)
 		end
@@ -840,9 +763,8 @@ local function validate_spec(spec, idx, warned, notify)
 	return version_range
 end
 
--- lazy.nvim's Util.is_list: a table whose keys are exactly 1..n. Empty
--- tables are lists too. This is what makes `{ { "foo/bar" } }` a nested
--- spec list rather than a spec with a table source.
+-- lazy.nvim's Util.is_list: keys exactly 1..n; empty tables count. This is what makes `{ { "foo/bar" } }` a nested spec
+-- list rather than a spec with a table source.
 local function is_list(t)
 	local i = 0
 	for _ in pairs(t) do
@@ -854,10 +776,8 @@ local function is_list(t)
 	return true
 end
 
---- Flatten lazy.nvim-shaped spec lists: a bare source string is shorthand
---- for `{ src }`, and a list may contain nested lists. Spec tables are kept
---- by reference (compile never mutates them). Mirrors Spec:normalize in
---- lazy.nvim so a config that works there does not crash here.
+--- Flatten lazy.nvim-shaped spec lists: a bare source string is `{ src }`, and lists may nest. Spec tables are kept by
+--- reference. Mirrors lazy.nvim's Spec:normalize so a working config does not crash here.
 ---@param spec any
 ---@param out LazeSpec[]
 ---@param label string
@@ -881,9 +801,8 @@ local function flatten_spec(spec, out, label)
 		error("compile: " .. label .. " must not be sparse", 0)
 	end
 
-	-- Numeric-only keys that are not a dense list are a sparse list (for
-	-- example { [1] = "foo", [3] = "bar" }). ipairs would silently drop the
-	-- trailing element, so reject it instead.
+	-- Sparse numeric lists (e.g. { [1] = "foo", [3] = "bar" }) would silently
+	-- drop trailing entries under ipairs; reject them.
 	local numeric, string = false, false
 	for k in pairs(spec) do
 		if type(k) == "number" then
@@ -930,9 +849,8 @@ local function compile(specs, opts)
 	end
 	local dev_root = (dev_opts and dev_opts.path) or (opts and opts.dev_root) or "~/projects"
 	local dev_fallback = dev_opts and dev_opts.fallback == true
-	-- lazy.nvim's `dev.patterns` are plain substring matches against the
-	-- plugin URL (not Lua patterns), applied only when the spec does not set
-	-- `dev` itself. Copy so later mutation of opts cannot change a compile.
+	-- Plain substrings against the plugin URL (not Lua patterns), applied only when the spec does not set `dev`. Copy so
+	-- later opts mutation cannot change a compile.
 	local dev_patterns = {}
 	if dev_opts and dev_opts.patterns ~= nil then
 		if type(dev_opts.patterns) ~= "table" then
@@ -946,11 +864,9 @@ local function compile(specs, opts)
 		end
 	end
 
-	-- Pass 1: index top-level names and resolved sources so dependency
-	-- expansion can reference specs already defined by the user instead of
-	-- re-registering them. lazy.nvim matches fragments by name and by URL;
-	-- the source index is what keeps `{ "foo/baz", name = "bar" }` from
-	-- being duplicated as `baz` when another spec depends on `"foo/baz"`.
+	-- Index top-level names and resolved sources first, so dependency expansion can reference user-defined specs instead
+	-- of re-registering them. This is what keeps `{ "foo/baz", name = "bar" }` from being duplicated as `baz` when
+	-- another spec depends on `"foo/baz"`.
 	local spec_names = {}
 	local spec_srcs = {}
 	for _, spec in ipairs(specs) do
@@ -970,37 +886,29 @@ local function compile(specs, opts)
 	local expanded = {}
 	local expanded_names = {}
 	local expanded_srcs = {}
-	-- Known-difference messages are deduped per compile (issue #12). The
+	-- Known-difference messages are deduped per compile (issue #12); the
 	-- closure is shared by dependency expansion and spec validation.
 	local kd_notified = {}
 	local function notify_kd(id, detail, key)
-		-- Lazy-load: this path is rarely hit, so avoid paying the require cost at startup.
+		-- Rare path: keep the require off startup.
 		require("laze.known_differences").notify(id, detail, kd_notified, opts, key)
 	end
-	-- Dependency-derived `after` names live in a side table, NOT on the
-	-- user's spec tables: compile is a pure transform and must not mutate
-	-- its input (the same spec table passed to lazy.nvim afterwards would
-	-- carry a laze-only `after` field).
+	-- Dependency-derived `after` names live here, not on the user's spec tables: compile must stay a pure transform (the
+	-- same table may be passed to lazy.nvim afterwards).
 	local dep_after = {}
 
-	--- Expand one spec's dependencies recursively. Inline dependency specs
-	--- are registered once and their own dependencies are expanded first,
-	--- so `after` always points at a registered id. Top-level names are
-	--- referenced, not re-registered (lazy.nvim's "fragments" merge is
-	--- outside laze's subset).
+	--- Expand one spec's dependencies recursively, deepest first, so `after` always points at a registered id. Top-level
+	--- names are referenced, not re-registered (lazy.nvim's fragment merge is out of scope).
 	---@param spec table
 	---@param label string
 	local function expand_dependencies(spec, label)
-		-- lazy.nvim does not register dependencies of a plugin that is
-		-- disabled at compile time (`enabled = false` / `cond = false`).
-		-- Function-valued cond/enabled cannot be decided here, so keep the
-		-- expansion for those and let the plan skip the parent.
+		-- lazy.nvim skips deps of a plugin disabled at compile time. Function-valued cond/enabled cannot be decided here,
+		-- so expand and let the plan skip the parent.
 		if spec.dependencies == nil or spec.enabled == false or spec.cond == false then
 			return
 		end
-		-- Guard shapes here, before any derive/expand: validate_spec runs
-		-- later (over `expanded`) and a malformed value would crash with a
-		-- raw "attempt to index" error in this pass otherwise.
+		-- Guard shapes before derive/expand: validate_spec runs later and a
+		-- malformed value would crash with a raw index error here.
 		if type(spec.dependencies) ~= "string" and type(spec.dependencies) ~= "table" then
 			error(label .. ": dependencies must be a string, name array, or spec array", 0)
 		end
@@ -1011,8 +919,7 @@ local function compile(specs, opts)
 				error(label .. ": dependencies[" .. i .. "] must be a string or spec table", 0)
 			end
 			local dep_spec = type(dep) == "string" and { dep } or dep
-			-- Same derivation as the compile loop below: dir/url-only
-			-- inline deps must resolve to the same id the registry uses.
+			-- Same derivation as the compile loop, so dir/url-only inline deps resolve to the id the registry will use.
 			local dep_base = dep_spec[1] or dep_spec.src or dep_spec.dir or dep_spec.url
 			local dep_name = dep_spec.name or derive_name(dep_base or "")
 			local dep_src
@@ -1022,19 +929,16 @@ local function compile(specs, opts)
 					dep_src = resolved
 				end
 			end
-			-- Prefer an existing top-level spec by name, then by resolved
-			-- source (a renamed spec must not be re-registered under its
-			-- repo-derived name), then an already-expanded dependency.
+			-- Prefer a top-level spec by name, then by resolved source (a renamed spec must not be re-registered under its
+			-- repo name), then an already-expanded dep.
 			local existing_top = (spec_names[dep_name] and dep_name) or (dep_src and spec_srcs[dep_src])
 			local existing_expanded = (dep_src and expanded_srcs[dep_src]) or (expanded_names[dep_name] and dep_name)
 			local target = existing_top or existing_expanded or dep_name
-			-- The same dep listed twice in one array (including two aliases
-			-- that resolve to the same plugin) is wired once.
+			-- Same dep listed twice (including aliases for one plugin) wires once.
 			if not contains(dep_names, target) then
 				table.insert(dep_names, target)
 				if not existing_top and not existing_expanded then
-					-- Mark before recursing so a dependency cycle references
-					-- the in-flight spec instead of recursing forever.
+					-- Mark before recursing so a cycle references the in-flight spec instead of recursing forever.
 					expanded_names[dep_name] = true
 					if dep_src then
 						expanded_srcs[dep_src] = dep_name
@@ -1062,10 +966,8 @@ local function compile(specs, opts)
 		modules = {},
 	}
 
-	-- Unsupported-field warnings are deduped per field per compile: a
-	-- single vim.notify costs ~180 us headless, so N specs sharing one
-	-- unsupported field would otherwise pay N× per startup for the same
-	-- message. The first offending spec is named in the message.
+	-- Deduped per field per compile: one vim.notify costs ~180 us headless, so N specs sharing a field must not pay N
+	-- times. The first offending spec is named in the message.
 	local warned = {}
 
 	for idx, spec in ipairs(expanded) do
@@ -1076,14 +978,12 @@ local function compile(specs, opts)
 		local url = spec.url
 		local base_src = src or dir or url
 		local name = spec.name or derive_name(base_src)
-		-- Directory name under pack/<pkg>/opt/ — matches vim.pack's own
-		-- derivation unless the user pinned an explicit `name`.
+		-- Directory name under pack/<pkg>/opt/: vim.pack's derivation unless the user pinned `name`.
 		local pkg = pkg_name(base_src or name, spec.name)
 
 		if registry[name] then
-			-- Two specs producing the same id would silently drop the first
-			-- spec's init/config/after while keeping its pack entry and
-			-- trigger ids — refuse instead.
+			-- Same id twice would drop the first spec's init/config/after but
+			-- keep its pack entry and trigger ids; refuse instead.
 			error(
 				"spec ["
 					.. idx
@@ -1102,9 +1002,8 @@ local function compile(specs, opts)
 			enabled = true
 		end
 
-		-- Merge explicit `after` with dependency-derived names, in that
-		-- order, without touching the user's spec table (compile purity).
-		-- Dedup preserved: a dep named both ways is wired once.
+		-- Merge explicit `after` with dependency-derived names in that order, without touching the user's spec table. Dedup
+		-- keeps a dep named both ways wired once.
 		local after = dep_after[spec] or {}
 		if spec.after then
 			local merged = copy_array(spec.after)
@@ -1116,19 +1015,16 @@ local function compile(specs, opts)
 			after = merged
 		end
 
-		-- build = false means "no build" (lazy.nvim semantics). NOT
-		-- `spec.build == false and nil or spec.build` — that Lua gotcha
-		-- returns false again (nil can't flow through and/or).
+		-- build = false means "no build". Must not be `spec.build == false and nil or spec.build`: nil cannot flow through
+		-- and/or, so that returns false again.
 		local build = spec.build
 		if build == false or (type(build) == "table" and #build == 0) then
 			build = nil
 		end
 
-		-- opts without config and config = true both desugar to
-		-- require(main).setup(opts) at load. The main module is resolved
-		-- at load time (like lazy.nvim) because a remote plugin is not
-		-- installed yet during compile. The closure captures only pure
-		-- values, so re-compiles are deterministic.
+		-- opts without config, and config = true, desugar to require(main).setup(opts) at load. main is resolved at load
+		-- time because the plugin is not installed during compile. The closure captures only pure values, so recompiles are
+		-- deterministic.
 		local config = spec.config
 		if config == nil and spec.opts ~= nil then
 			config = true
@@ -1176,45 +1072,35 @@ local function compile(specs, opts)
 
 		local resolved_src = resolve_src(norm.src, norm.dir, norm.url)
 
-		-- Module name(s) that trigger lazy load on require(). Explicit only —
-		-- never derived from the source, since repo names don't reliably match
-		-- module names (cmp-buffer ships cmp_buffer).
+		-- Module name(s) that trigger on require(). Explicit only: repo names
+		-- do not reliably match module names (cmp-buffer ships cmp_buffer).
 		local modname = norm.module
 
-		-- Resolve dev paths at compile time (once), not at plan/build time.
-		-- `dev_src` also records that the source is a local checkout: an
-		-- active dev path changes version handling below.
+		-- Resolved once here. A non-nil dev_src also marks a local checkout, which changes version handling below.
 		local dev_src
 		local dev_from_root = false
 		if norm.dev == true then
 			dev_from_root = true
 			dev_src = vim.fn.expand(dev_root .. "/" .. name)
 		elseif type(norm.dev) == "string" and norm.dev ~= "" then
-			-- dev = "path" is the per-plugin dev directory (lazy.nvim
-			-- semantics): ~ expands, absolute/relative stay verbatim —
-			-- consistent with dev_path and the README notes.
+			-- Per-plugin dev directory: ~ expands, absolute/relative stay verbatim.
 			dev_src = expand_home(norm.dev)
 		elseif norm.dev_path then
 			dev_src = expand_home(norm.dev_path)
 		elseif norm.dev == nil and norm.dir == nil and matches_dev_pattern(dev_patterns, resolved_src) then
-			-- Global dev patterns (lazy.nvim `dev.patterns`): the spec did
-			-- not opt in or out, so a URL substring match makes it dev with
-			-- the same source as `dev = true` (`<dev_root>/<name>`).
+			-- A URL substring match acts like `dev = true` (`<dev_root>/<name>`) when the spec neither opts in nor out.
 			dev_from_root = true
 			dev_src = vim.fn.expand(dev_root .. "/" .. name)
 		end
-		-- lazy.nvim `dev.fallback`: when the clone under the dev root is
-		-- missing, fall back to the remote source (vim.pack then installs
-		-- it normally). Only root-derived dev sources participate; explicit
-		-- `dev = "<path>"` / `dev_path` stay verbatim.
+		-- `dev.fallback`: a missing root-derived clone falls back to the remote
+		-- source. Explicit `dev = "<path>"` / `dev_path` are never probed.
 		if dev_src and dev_from_root and dev_fallback and not is_directory(dev_src) then
 			dev_src = nil
 		end
 		local final_src = dev_src or resolved_src
 
-		-- `dir` plugins are local: vim.pack never installs or manages them
-		-- (it would try to git-clone the path). They are loaded by the plan
-		-- via :packadd / rtp prepend, mirroring lazy.nvim `dir` semantics.
+		-- `dir` plugins are local: vim.pack must not install them (it would
+		-- git-clone the path). The plan loads them by exact rtp path.
 		local is_local = norm.dir ~= nil
 
 		registry[name] = {
@@ -1236,9 +1122,7 @@ local function compile(specs, opts)
 			dev_path = norm.dev_path,
 			lazy = spec.lazy,
 			has_route = false, -- set below
-			-- not is_local and pkg or nil — NOT "is_local and nil or pkg"
-			-- (that Lua gotcha always evaluates to pkg: nil can't flow
-			-- through `and/or`). Local dir plugins have no pack entry.
+			-- Not `is_local and nil or pkg`: nil cannot flow through and/or. Local dir plugins have no pack entry.
 			pkg = (not is_local) and pkg or nil,
 		}
 
@@ -1251,19 +1135,13 @@ local function compile(specs, opts)
 		else
 			local pack_entry = {
 				src = final_src,
-				-- The installed directory is `pack/<pkg>/opt/<name>`, so the
-				-- name must match vim.pack's own derivation (pkg_name) for
-				-- existing installs to keep working. The registry id may
-				-- differ (dotted repos: id "which-key" vs dir "which-key.nvim")
-				-- and must never be used for :packadd.
+				-- Must match vim.pack's own dir derivation (pkg_name) so existing installs keep working; the registry id may
+				-- differ (id "which-key" vs dir "which-key.nvim") and must never be used for `:packadd`.
 				name = pkg,
 			}
-			-- An active dev path is a local, unmanaged checkout: lazy.nvim
-			-- turns `dev` into `dir` and never applies version/branch/tag/
-			-- commit to it. Lowering one here would make vim.pack clone the
-			-- dev path and check out that ref instead of loading the working
-			-- tree — the exact bug this guard prevents. Same policy as `dir`
-			-- (validate the range, never lower it; validate_spec already ran).
+			-- An active dev path is a local checkout: lowering version/branch/tag/commit would make vim.pack clone the dev
+			-- path and check out that ref instead of loading the working tree. Same policy as `dir` (validate the range,
+			-- never lower it).
 			local resolved_version
 			if dev_src == nil then
 				resolved_version = resolve_version(spec, idx, version_range)
@@ -1274,17 +1152,13 @@ local function compile(specs, opts)
 			if spec.data ~= nil then
 				pack_entry.data = spec.data
 			end
-			-- Use the normalized value (issue #50): `build = false` and the
-			-- empty list `build = {}` both mean "no build" (measured against
-			-- lazy.nvim 306a055: the build task iterates the builder list, so
-			-- `false` and `{}` run nothing), while `nil` leaves build-file
-			-- discovery open. Passing the raw field through leaked the empty
-			-- table into the pack spec, where it is off-type for
-			-- vim.pack.Spec and disagrees with the registry entry.
+			-- Use the normalized value (issue #50): `false` and `{}` both mean "no build" (lazy.nvim 306a055 iterates the
+			-- builder list, so both run nothing), while nil leaves build-file discovery open. The raw `{}` leaked into the
+			-- pack spec, where it is off-type for vim.pack.Spec and disagreed with the registry entry.
 			if norm.build ~= nil then
 				pack_entry.build = norm.build
 			end
-			-- remaining unknown fields still pass through for forward compat
+			-- Unknown fields pass through for forward compat.
 			for key, value in pairs(spec) do
 				if type(key) == "string" and not CONSUMED_KEYS[key] then
 					pack_entry[key] = value
@@ -1317,10 +1191,8 @@ local function compile(specs, opts)
 		end
 	end
 
-	-- Entries referenced as `after` deps are never eager: they load via
-	-- their parents (eager parents pull them at startup, lazy parents at
-	-- trigger time). Shared by init.lua (pack split) and plan.lua (eager
-	-- list) so both agree on what "eager" means.
+	-- `after` deps are never eager: they load via their parents (eager parents at startup, lazy parents at trigger time).
+	-- Shared by init.lua and plan.lua so both agree on "eager".
 	local is_dep = {}
 	for _, entry in pairs(registry) do
 		for _, dep_id in ipairs(entry.after or {}) do
@@ -1329,10 +1201,10 @@ local function compile(specs, opts)
 	end
 	for id, entry in pairs(registry) do
 		entry.is_dep = is_dep[id] == true
-		-- lazy.nvim's `lazy` flag is an explicit override:
-		--   false -> eager even when triggers/dependency status say lazy
-		--   true  -> never eager, even without triggers
-		--   nil   -> laze's default: eager only without triggers and not a dep
+		-- lazy.nvim's `lazy` override:
+		--   false -> eager even with triggers / dep status
+		--   true  -> never eager
+		--   nil   -> eager only without triggers and not a dep
 		entry.eager = entry.lazy == false or (entry.lazy ~= true and not entry.has_route and not entry.is_dep)
 	end
 
@@ -1343,8 +1215,7 @@ local function compile(specs, opts)
 	}
 end
 
--- Pure helpers are exported for the standalone unit tests
--- (tests/test_compile.lua, tests/test_subset.lua) and extras.
+-- Exported for the standalone unit tests and extras.
 return {
 	compile = compile,
 	derive_name = derive_name,

@@ -1,25 +1,15 @@
--- Known low-impact / accepted items live in docs/performance.md (single source).
+-- Accepted perf items: docs/performance.md.
 
--- Module triggers registered via package.preload across build_plan calls.
--- Module-level so a repeated build_plan (hot reload) can clear entries
--- left by its predecessor instead of accumulating stale trigger closures.
+-- Module-level so a rebuilt plan clears the previous plan's preload entries instead of stacking stale trigger closures.
 local installed_preloads = {}
 
--- Key trigger maps installed by the last plan, as { { mode, lhs, desc } }.
--- Module-level for the same reason: a rebuilt plan deletes its
--- predecessor's maps, otherwise removed specs keep firing stale closures.
--- Deletion is desc-guarded (see below): a plugin map that took over the
--- lhs after load usually carries its own desc and must survive.
+-- { { mode, lhs, desc } }. Module-level for the same reason; deletion is
+-- desc-guarded so a plugin map that took over the lhs survives a rebuild.
 local installed_keys = {}
 
---- Map every pack-plugin directory currently on 'runtimepath' to its pkg
---- name (`{ [pkg]: dir }`). Mirrors the discovery glob below
---- (`stdpath("data")/site/pack/*/opt/<pkg>`, lexicographically first match),
---- so a hit here means the glob would have found the same install and the
---- follow-up `:packadd` would be a no-op — skipping both saves an API
---- roundtrip per already-active plugin (the common eager case: setup()
---- activates them right before the plan runs). One pass builds the whole
---- map; lookups are O(1) instead of a fresh list + full rescan per plugin.
+--- Map `pkg -> opt dir` for pack dirs already on 'runtimepath'. Mirrors the discovery glob below, so a hit means the
+--- glob and the follow-up `:packadd` would both be no-ops. One pass per plan instead of an API roundtrip per activation
+--- (eager setup() activates most plugins before the plan runs).
 ---@param data_dir string
 ---@return table<string, string>
 local function build_rtp_index(data_dir)
@@ -38,10 +28,8 @@ local function build_rtp_index(data_dir)
 	return index
 end
 
---- The plugin table passed to `init` and to a `cond` function (lazy.nvim
---- passes its LazyPlugin). Only the fields meaningful before installation are
---- populated: `dir` is the local dir for `dir` specs, else vim.pack's own
---- target path.
+--- The plugin table handed to `init` and `cond` (lazy.nvim passes its
+--- LazyPlugin). Only pre-install fields are meaningful.
 ---@param id string
 ---@param entry LazeEntry
 ---@param data_dir string
@@ -55,8 +43,6 @@ local function plugin_view(id, entry, data_dir)
 	}
 end
 
---- Delete the exact map for `lhs` in `mode`, buffer-local when `buf` is set,
---- ignoring errors (mirrors every keymap-delete site in this module).
 ---@param mode string
 ---@param lhs string
 ---@param buf? integer
@@ -68,18 +54,14 @@ local function del_map(mode, lhs, buf)
 	end
 end
 
---- Evaluate `enabled` and `cond` once (lazy.nvim resolves both while
---- processing the spec and caches the verdict for the session). setup() calls
---- this before vim.pack.add, so a false verdict also skips installation;
---- build_plan falls back to it when the caller has not resolved them yet.
+--- Resolve `enabled`/`cond` once per session, like lazy.nvim. setup() resolves
+--- them before vim.pack.add so a false verdict also skips installation.
 ---@param registry table<string, LazeEntry>
 ---@param data_dir string
 ---@return table<string, boolean> enabled_ok
 ---@return table<string, boolean> cond_ok
 local function resolve_verdicts(registry, data_dir)
-	-- One boolean verdict field: a function hook runs once; throwing is
-	-- contained (warn, treat as false — never throw in plan). Only `cond`
-	-- gets the lazy.nvim plugin argument, so build plugin_view for it.
+	-- A throwing hook is contained as a warning and treated as false. Only `cond` receives the plugin argument.
 	local function verdict(value, hook, id, entry)
 		if type(value) ~= "function" then
 			return value ~= false
@@ -105,8 +87,7 @@ local function resolve_verdicts(registry, data_dir)
 	return enabled_ok, cond_ok
 end
 
---- Normalize an entry's `module` (string | array | false | nil) to an array
---- of module names, or nil when the plugin requires no module triggers.
+--- `module` (string | array | false | nil) as an array, or nil when there are no module triggers.
 ---@param entry LazeEntry
 ---@return string[]?
 local function modules_array(entry)
@@ -126,48 +107,31 @@ local function build_plan(compiled, opts)
 	local on_fail = opts.on_fail
 	local registry = compiled.registry
 	local routes = compiled.routes
-	-- Resolved once per plan; load_plugin would otherwise pay an API
-	-- roundtrip per activation for a value that cannot change.
+	-- Resolved once: it cannot change during a plan.
 	local data_dir = vim.fn.stdpath("data")
-	-- Startup fast-path cache: pkg -> opt dir already on 'runtimepath'.
-	-- Built lazily on first lookup and invalidated whenever this plan itself
-	-- mutates 'runtimepath' (the dir-plugin prepend and the fallback
-	-- :packadd! below — the only mutation sites in this module). A MISS is
-	-- always safe (glob + :packadd fallback); a stale HIT would require
-	-- external code removing a site/pack/*/opt/* dir from 'runtimepath'
-	-- mid-startup, which has no actor today. Closure-local ON PURPOSE:
-	-- reload_all() rebuilds the plan, so a fresh cache comes with it.
-	-- See docs/rtp-index.md for the full analysis.
+	-- Lazy pkg -> opt dir cache. Invalidated by this plan's only 'runtimepath' mutations (the dir prepend and the
+	-- `:packadd!` fallback). A miss is always safe; closure-local because reload_all() rebuilds it. See
+	-- docs/rtp-index.md.
 	local rtp_index = nil
 	local loaded = {}
 	local startup_pending = {}
 	local startup_pending_order = {}
 	local startup_finalizer_installed = false
 	local startup_cmd_calls = {}
-	-- Depth inside a plugin.load() call that started during startup. While
-	-- non-zero, a dependency reached from that call loads with its dependent
-	-- instead of being deferred to VimEnter: lazy.nvim's loader recurses into
-	-- deps inside load(), so a non-lazy dep always loads — config sourced —
-	-- before the eager plugin that triggered the load (measured, lazy.nvim
-	-- @ 306a055). Nested plugin.load() calls only stack this while startup
-	-- is already in flight, so post-startup loads never see it.
+	-- Inside a startup plugin.load(), a dependency loads with its dependent instead of deferring to VimEnter: lazy.nvim
+	-- recurses into deps within load(), so a non-lazy dep is configured before the eager plugin (measured at 306a055).
 	local eager_depth = 0
 
-	-- Neovim's startup plugin/ phase sources every directory on 'runtimepath'
-	-- when it begins. Packs activated before that point are sourced by Neovim
-	-- itself; packs activated during/after it must be sourced by the VimEnter
-	-- finalizer. Track the transition so the finalizer never double-sources.
+	-- Neovim sources every 'runtimepath' plugin/ dir when its startup phase begins. Packs activated before that are
+	-- sourced by Neovim; later ones by the VimEnter finalizer. This tracks the handover.
 	local startup_plugin_phase_started = false
 	if vim.v.vim_did_enter == 0 then
 		local group = vim.api.nvim_create_augroup("laze_startup_phase", { clear = true })
 		vim.api.nvim_create_autocmd("SourcePre", {
 			group = group,
 			callback = function(ev)
-				-- Plain finds, not "[/\\]plugin[/\\]": patterns never enter
-				-- traces, plain find does (fresh-process A/B, best-of-3,
-				-- tests/benchmarks/jit_ab.lua WORKLOAD=probe): 286 → 37 ns
-				-- per SourcePre event with the JIT on, 304 → 65 ns with it
-				-- off. This fires for every file Neovim is about to source.
+				-- Plain finds keep this out of trace aborts: 286 -> 37 ns per
+				-- event (tests/benchmarks/jit_ab.lua WORKLOAD=probe).
 				local m = ev.match
 				if m:find("/plugin/", 1, true) or m:find("\\plugin\\", 1, true) then
 					startup_plugin_phase_started = true
@@ -177,9 +141,8 @@ local function build_plan(compiled, opts)
 		})
 	end
 
-	-- Verdicts for `enabled`/`cond` are resolved once (setup() resolves them
-	-- before vim.pack.add and passes them in so a disabled plugin is never
-	-- installed; direct build_plan callers get the same evaluation here).
+	-- setup() resolves these before vim.pack.add so a disabled plugin is never
+	-- installed; direct build_plan callers get the same evaluation here.
 	local enabled_ok, cond_ok = opts.enabled_ok, opts.cond_ok
 	if not (enabled_ok and cond_ok) then
 		local e, c = resolve_verdicts(registry, data_dir)
@@ -187,21 +150,11 @@ local function build_plan(compiled, opts)
 		cond_ok = cond_ok or c
 	end
 
-	-- compile's `eager` flag already accounts for dependency status:
-	-- eager parents pull deps in at startup, lazy parents at trigger time.
-	-- Mirrors lazy.nvim ("Dependencies are always lazy-loaded unless
-	-- specified otherwise" — `lazy = false` is the explicit override).
-
-	-- Pin require at plan-build time: plugin code (or another manager) can
-	-- replace _G.require later, and the loader core plus the preload
-	-- closures must keep calling the builtin one.
+	-- Pin it: plugin code or another manager may replace _G.require later.
 	local original_require = require
 
-	-- Source a plugin's own after/plugin/* scripts. :packadd sources
-	-- plugin/ and ftdetect/ but NOT after/plugin (startup-only), so plugins
-	-- loaded after startup need this. Files are sourced in sorted order
-	-- (matching the startup after/plugin phase); each is guarded by the
-	-- plugin's own `loaded` state upstream.
+	-- `:packadd` sources plugin/ and ftdetect/ but not after/plugin (startup only), so post-startup loads need this.
+	-- Sorted to match the startup after/plugin phase.
 	local function source_after_plugin(dir)
 		local files = vim.fn.glob(dir .. "/after/plugin/**/*.{lua,vim}", false, true)
 		table.sort(files)
@@ -210,18 +163,14 @@ local function build_plan(compiled, opts)
 		end
 	end
 
-	-- Source glob matches under dir; each failure is contained (a broken
-	-- file must not take down unrelated plugins).
 	local function source_glob(dir, pattern)
 		for _, file in ipairs(vim.fn.glob(dir .. pattern, false, true)) do
 			pcall(vim.cmd.source, file)
 		end
 	end
 
-	-- Re-fire an event after a trigger load, so autocmds the plugin registers
-	-- while loading see the event/buffer that caused the load (e.g. an ft
-	-- plugin's FileType handler would otherwise miss the buffer). Re-entrancy
-	-- is guarded so the trigger dispatcher itself doesn't recurse.
+	-- Re-fire the triggering event after a load so autocmds the plugin registers while loading see it (an ft plugin's
+	-- FileType handler would otherwise miss the buffer). Guarded against dispatcher re-entry.
 	local refiring = {}
 	local function refire_event(event, exec_opts)
 		if refiring[event] then
@@ -233,12 +182,9 @@ local function build_plan(compiled, opts)
 		refiring[event] = nil
 	end
 
-	-- Augroups that already handle `event`, snapshotted before a trigger
-	-- load. lazy.nvim excludes them from the replay so a pre-existing
-	-- handler (user config, another plugin) doesn't see the same event a
-	-- second time; FileType is exempt there because its replay exists to
-	-- hand the current buffer to freshly loaded ft handlers, wherever they
-	-- are registered.
+	-- Groups that already handle `event`, captured before the load. lazy.nvim excludes them from the replay so a
+	-- pre-existing handler does not see the event twice. FileType is exempt: its replay exists to hand the current buffer
+	-- to freshly loaded ft handlers.
 	local function snapshot_event_groups(event)
 		local groups = {}
 		if event == "FileType" then
@@ -252,10 +198,8 @@ local function build_plan(compiled, opts)
 		return groups
 	end
 
-	-- Replay a non-FileType event for what the just-loaded plugin added,
-	-- one exec per augroup: `exclude` keeps pre-existing groups out, and
-	-- ungrouped autocmds are skipped because they are indistinguishable
-	-- from pre-existing ones (lazy.nvim skips them the same way).
+	-- Replay for what the load added, one exec per augroup. Ungrouped autocmds are skipped: they cannot be told apart
+	-- from pre-existing ones (lazy.nvim does the same).
 	local function replay_event_groups(event, ev, exclude)
 		local done = {}
 		for _, autocmd in ipairs(vim.api.nvim_get_autocmds({ event = event })) do
@@ -267,10 +211,8 @@ local function build_plan(compiled, opts)
 		end
 	end
 
-	--- Resolve lazy.nvim-style opts at load time. A function receives the
-	--- plugin object and a mutable base table; returning a table replaces
-	--- it, returning nil keeps the (possibly mutated) base, and a non-table
-	--- return is wrapped as lazy.nvim does.
+	--- lazy.nvim opts resolution at load time: a function gets the plugin and a mutable base; a table return replaces it,
+	--- a non-table return is wrapped, nil keeps the base.
 	---@param entry LazeEntry
 	---@param plugin table
 	---@return table
@@ -289,13 +231,10 @@ local function build_plan(compiled, opts)
 		return type(entry_opts) == "table" and entry_opts or {}
 	end
 
-	-- With `opts.partial` the hooks run but the plugin stays "pending_startup":
-	-- used when a startup `require()` needs a configured plugin right away.
-	-- The hooks run at most once; the VimEnter finalizer then only marks the
-	-- plugin loaded.
+	-- `partial` runs the hooks but keeps the plugin pending_startup, for a startup require() that needs a configured
+	-- plugin now. Hooks run once; the VimEnter finalizer then only marks it loaded.
 	local function run_hooks(id, entry, start, plugin_dir, hook_opts)
-		-- Shared failed-load treatment: mark the id and warn unless the
-		-- spec opted out with `silent`. Both failure sites below use it.
+		-- Both failure sites share this: mark failed, warn unless `silent`.
 		local function mark_failed(err)
 			loaded[id] = "failed"
 			if not entry.silent then
@@ -381,9 +320,8 @@ local function build_plan(compiled, opts)
 		for _, id in ipairs(startup_pending_order) do
 			local pending = startup_pending[id]
 			if pending and loaded[id] == "pending_startup" then
-				-- `:packadd!` deliberately skipped these files. Packs added
-				-- before Neovim's startup plugin/ phase are sourced by that
-				-- phase; only late additions need manual sourcing here.
+				-- `:packadd!` left these unsourced. Packs present before Neovim's startup plugin/ phase are sourced by it; only
+				-- late additions need manual sourcing.
 				if pending.dir and pending.source_later then
 					source_glob(pending.dir, "/plugin/**/*.{lua,vim}")
 					source_glob(pending.dir, "/ftdetect/*.vim")
@@ -399,11 +337,8 @@ local function build_plan(compiled, opts)
 				end
 			end
 		end
-		-- Startup-requested ft plugins registered their autocmds during
-		-- finalization; re-fire FileType so they see the current buffer.
-		-- Only when a plugin for the current filetype was actually
-		-- finalized: otherwise its handlers already saw this buffer's
-		-- FileType, and a re-fire would run them a second time.
+		-- Finalized ft plugins registered their autocmds during finalization; re-fire FileType so they see the current
+		-- buffer. Only when one was actually finalized: otherwise its handlers already saw this event.
 		if finalized_ft then
 			refire_event("FileType", { buffer = vim.api.nvim_get_current_buf() })
 		end
@@ -428,44 +363,28 @@ local function build_plan(compiled, opts)
 		local start = on_load and vim.uv.hrtime() or nil
 		loaded[id] = true
 
-		-- Runtime activation: make the plugin's plugin/, ftdetect/ and
-		-- after/plugin/ scripts reachable.
-		--
-		-- During startup (vim_did_enter == 0) the startup plugin/ and
-		-- after/plugin phases source files on their own, so activation only
-		-- adds the directory to the runtimepath (:packadd!) — a full
-		-- :packadd would source the plugin files a second time. After
-		-- startup, :packadd sources plugin/ and ftdetect/, and the missing
-		-- after/plugin/ part is sourced manually (startup-only feature).
+		-- Activation: make plugin/, ftdetect/ and after/plugin/ reachable. During startup, Neovim's own phases source them,
+		-- so only add the dir to 'runtimepath' (`:packadd!`); a full `:packadd` would source plugin/ a second time. After
+		-- startup `:packadd` sources plugin/ and ftdetect/; after/plugin/ is sourced manually.
 		local during_startup = vim.v.vim_did_enter == 0
 		local plugin_dir
 		if entry.dir then
-			-- Local dir plugins are not installed by vim.pack and are added
-			-- to the runtimepath by EXACT path. Never :packadd: it resolves
-			-- by bare directory name across 'packpath' (`pack/*/opt/<name>`),
-			-- so a stale install sharing only the basename wins and the
-			-- user's dir is silently skipped (module-not-found with no hint).
+			-- Add local dirs by exact path. Never `:packadd`: it resolves by basename across 'packpath', so a stale install
+			-- sharing the name wins and the user's dir is silently skipped (issue: module not found with no hint).
 			vim.opt.rtp:prepend(entry.dir)
 			rtp_index = nil -- rtp mutated: rebuild the fast-path index on next use
 			if not during_startup then
-				-- Nothing sources these after startup (:packadd would have):
-				-- do it here or commands, maps and filetype detection never
-				-- exist. during_startup relies on Neovim's plugin/ phase.
+				-- Nothing else sources these post-startup, so commands, maps and filetype detection would never exist.
 				source_glob(entry.dir, "/plugin/**/*.{lua,vim}")
 				source_glob(entry.dir, "/ftdetect/*.vim")
 			end
 			plugin_dir = entry.dir
 		else
-			-- Pack plugins live in pack/<pkg>/opt/<pkg>: :packadd uses the
-			-- directory name (entry.pkg), which may differ from the registry
-			-- id for dotted repos ("which-key" vs "which-key.nvim").
-			-- Startup-only fast path: eager plugins were just activated by
-			-- setup()'s `vim.pack.add(..., { load = false })` (:packadd!,
-			-- no sourcing) — if the dir is already on 'runtimepath', the
-			-- discovery glob and the redundant :packadd! are skippable; the
-			-- startup plugin/ phase does the sourcing either way.
-			-- Post-startup this does NOT apply: :packadd (no bang) sources
-			-- plugin/ here, skipping it would leave the plugin unsourced.
+			-- Packs live in pack/<pkg>/opt/<pkg>; `:packadd` addresses the directory name (entry.pkg), which can differ from
+			-- the id ("which-key" vs "which-key.nvim"). Startup fast path: setup() already activated eager plugins with
+			-- `vim.pack.add(..., { load = false })` (`:packadd!`, no sourcing), so a dir already on 'runtimepath' needs
+			-- neither the glob nor the redundant `:packadd!`. Post-startup this must not apply: plain `:packadd` is what
+			-- sources plugin/.
 			if during_startup then
 				rtp_index = rtp_index or build_rtp_index(data_dir)
 				plugin_dir = rtp_index[entry.pkg]
@@ -476,17 +395,13 @@ local function build_plan(compiled, opts)
 				if plugin_dir then
 					local cmd = during_startup and "packadd! " or "packadd "
 					pcall(vim.cmd, cmd .. vim.fn.fnameescape(entry.pkg))
-					-- A successful packadd puts a new opt dir on 'runtimepath';
-					-- drop the index so later lookups can see it.
 					rtp_index = nil
 				end
 			end
 		end
 
-		-- eager_depth > 0: this load happens inside an eager plugin's startup
-		-- load, i.e. on its behalf. Deferring it to VimEnter would run the
-		-- parent's config before the dependency it depends on (issue #42), so
-		-- it loads with the parent instead.
+		-- Inside an eager plugin's startup load (issue #42): deferring this
+		-- dependency to VimEnter would configure the parent before it.
 		if during_startup and eager_depth == 0 and not entry.eager then
 			loaded[id] = "pending_startup"
 			startup_pending[id] = {
@@ -504,9 +419,8 @@ local function build_plan(compiled, opts)
 			return
 		end
 
-		-- after/plugin/ scripts never run on :packadd: post-startup loads
-		-- source them manually, startup loads get them from the after/plugin
-		-- phase (a manual source + phase would double-execute).
+		-- after/plugin/ never runs on `:packadd`: post-startup loads source it manually; startup loads get it from the
+		-- startup phase (sourcing it twice would double-execute).
 		if not during_startup and plugin_dir then
 			source_after_plugin(plugin_dir)
 		end
@@ -515,23 +429,20 @@ local function build_plan(compiled, opts)
 	end
 
 	local function load_with_deps(id)
-		-- Any assigned loaded[] state (true / "failed" / "pending_startup")
-		-- means this id is already processed or deferred (see load_plugin).
+		-- Any assigned state means already processed or deferred.
 		if loaded[id] then
 			return
 		end
 
-		-- Fast path: no `after` deps means no graph walk — the DFS below
-		-- would allocate stack/cursor tables only to pop once.
+		-- No `after` deps: skip the graph walk entirely.
 		local root_entry = registry[id]
 		if not (root_entry and root_entry.after and root_entry.after[1]) then
 			load_plugin(id)
 			return
 		end
 
-		-- Iterative DFS: each stack entry tracks the id and its dependency cursor.
-		-- A node is popped only after load_plugin has run, so backtracking always
-		-- moves to an unprocessed node. Cycle detection scans the current path.
+		-- Iterative DFS; each level tracks a dependency cursor. A node is popped only after load_plugin runs, so
+		-- backtracking always reaches unprocessed nodes. Cycle detection scans the current path.
 		local stack = { id }
 		local cursor = { 1 }
 		local depth = 1
@@ -553,9 +464,7 @@ local function build_plan(compiled, opts)
 							break
 						end
 					end
-					-- Skip a cyclic dep only: the cursor was already advanced
-					-- above, so the rest of the chain still loads. Aborting
-					-- here would silently drop every sibling dep.
+					-- Skip only the cyclic dep (the cursor already advanced), so sibling deps still load.
 					if not has_cycle then
 						depth = depth + 1
 						stack[depth] = dep
@@ -569,17 +478,13 @@ local function build_plan(compiled, opts)
 		end
 	end
 
-	-- Module triggers: package.preload entries, NOT a _G.require wrapper.
-	-- Zero interception of unrelated requires, zero global mutation, and
-	-- each entry consumes itself on first require (single-shot, exactly
-	-- like the old wrapper's table removal). The preload fn must remove
-	-- its entry BEFORE load_with_deps: load_plugin requires the declared
-	-- modules through original_require, which consults package.preload
-	-- (the old wrapper was bypassed by original_require; preload is not).
-	-- The module must exist after the load hook or require errors — same
-	-- contract as the wrapper.
-	-- Clear preload entries registered by a previous build_plan (hot
-	-- reload): stale closures would keep firing against a dead registry.
+	-- Module triggers are package.preload entries, not a _G.require wrapper:
+	-- unrelated requires are untouched, nothing global is mutated, and each
+	-- entry consumes itself on first require. It must remove the entry before
+	-- load_with_deps, because load_plugin re-requires the declared modules
+	-- through original_require and would otherwise hit the entry again.
+	-- Clear a previous plan's entries: stale closures would target a dead
+	-- registry.
 	for name in pairs(installed_preloads) do
 		package.preload[name] = nil
 		installed_preloads[name] = nil
@@ -589,11 +494,8 @@ local function build_plan(compiled, opts)
 		package.preload[modname] = function()
 			package.preload[modname] = nil
 			installed_preloads[modname] = nil
-			-- Nvim's require holds an in-flight sentinel in
-			-- package.loaded while the preload fn runs; load_plugin
-			-- re-requires the plugin's declared module(s), which would
-			-- hit the sentinel ("loop or previous error loading
-			-- module"). Clear it so the real module loads from rtp.
+			-- require holds an in-flight sentinel in package.loaded while this runs; load_plugin's re-require would hit it.
+			-- Clear it so the real module loads from rtp.
 			package.loaded[modname] = nil
 			for _, id in ipairs(ids) do
 				load_with_deps(id)
@@ -602,10 +504,8 @@ local function build_plan(compiled, opts)
 			for _, id in ipairs(ids) do
 				local pending = loaded[id] == "pending_startup" and startup_pending[id]
 				if pending and not pending.hooks_ran then
-					-- A startup require() needs a configured plugin before it
-					-- returns. Run the hooks now; plugin/ scripts are still left
-					-- to the startup phase / VimEnter finalizer, so the
-					-- source-exactly-once invariant holds.
+					-- A startup require() needs a configured plugin before it returns. Sourcing stays with the startup phase /
+					-- VimEnter finalizer, preserving source-exactly-once.
 					run_hooks(id, pending.entry, pending.start, pending.dir, { partial = true })
 				end
 			end
@@ -615,12 +515,9 @@ local function build_plan(compiled, opts)
 
 	local init_ran = false
 	return function()
-		-- lazy.nvim parity: `init` runs once at startup for every enabled
-		-- plugin whose `cond` passes, before any plugin loads, and receives
-		-- the plugin table. lazy.nvim's own init order is unspecified
-		-- (pairs over its plugin map); sorting by id keeps re-compiles
-		-- deterministic. The plan closure can be invoked more than once,
-		-- so keep this pass one-shot per plan.
+		-- lazy.nvim parity: `init` runs once at startup for every enabled plugin whose `cond` passes, before any load.
+		-- lazy.nvim's own order is unspecified; sorting by id keeps recompiles deterministic. The plan closure can be
+		-- invoked repeatedly, so this pass is one-shot.
 		if not init_ran then
 			init_ran = true
 			local init_ids = {}
@@ -639,14 +536,10 @@ local function build_plan(compiled, opts)
 			end
 		end
 
-		-- Clear the previous plan's keymaps first: unlike autocmd groups
-		-- (cleared below even when empty), keymaps have no group to clear.
-		-- Only delete maps still carrying the trigger desc — after a load
-		-- the plugin's own map may own this lhs (takeover), and a user map
-		-- may share it; both must survive the rebuild.
+		-- Keymaps have no group to clear, so delete the previous plan's maps here. Only maps still carrying the trigger
+		-- desc: a plugin map that took over the lhs, or a user map sharing it, must survive.
 		for _, k in ipairs(installed_keys) do
-			-- get_keymap reports the lhs leader-expanded; expand the same
-			-- way before comparing (mirrors the lookup in tests/run.lua).
+			-- get_keymap reports the leader-expanded lhs; expand likewise.
 			local want = vim.api.nvim_replace_termcodes(k.lhs, true, false, true)
 			local maps
 			if not k.buf then
@@ -665,20 +558,16 @@ local function build_plan(compiled, opts)
 		end
 		installed_keys = {}
 
-		-- Groups are (re)created unconditionally so a rebuilt plan with
-		-- FEWER routes clears stale autocmds: skipping creation when a
-		-- route table is empty would leave the predecessor's closures
-		-- live, firing removed specs' configs.
+		-- Groups are recreated unconditionally (clear = true) so a rebuilt
+		-- plan with fewer routes drops the predecessor's stale closures.
 		local events_group = vim.api.nvim_create_augroup("laze_events", { clear = true })
 		local fts_group = vim.api.nvim_create_augroup("laze_fts", { clear = true })
 		local cmds_group = vim.api.nvim_create_augroup("laze_cmds", { clear = true })
-		-- ft-scoped key triggers: FileType autocmds that install
-		-- buffer-local maps (one group per plan, cleared on rebuild).
+		-- FileType autocmds installing buffer-local maps for ft-scoped keys.
 		local key_fts_group = vim.api.nvim_create_augroup("laze_key_fts", { clear = true })
 
-		-- `User VeryLazy` is emitted unconditionally (lazy.nvim parity), even
-		-- when no spec declares `event = "VeryLazy"`, so user autocmds keyed
-		-- on it always run.
+		-- `User VeryLazy` fires unconditionally (lazy.nvim parity), so user
+		-- autocmds keyed on it run even with no spec declaring it.
 		vim.api.nvim_create_autocmd("UIEnter", {
 			group = vim.api.nvim_create_augroup("laze_verylazy", { clear = true }),
 			once = true,
@@ -689,20 +578,14 @@ local function build_plan(compiled, opts)
 
 		if next(routes.events) then
 			local group = events_group
-			-- routes.events[event] is a list of pattern variants (one per
-			-- distinct (event, pattern) pair). Bucket variants by autocmd
-			-- pattern: one API call per bucket instead of one per event
-			-- (~1.3 us each). `once = true` is per-event-row (verified: rows
-			-- self-delete independently), so fire-once semantics are
-			-- unchanged; the callback dispatches on ev.event and only loads
-			-- that event's ids (a bucket may hold several event names).
+			-- One autocmd per bucket of (event, pattern) variants, keyed by pattern: one API call per bucket instead of per
+			-- event (~1.3 us each). `once` self-deletes per row, so the callback filters on ev.event to load only that
+			-- event's ids.
 			local buckets = {} ---@type table<string, { pattern?: string, names: string[], routes: {event: string, ids: string[]}[] }>
 			local border = {}
 			for event, variants in pairs(routes.events) do
 				if event == "VeryLazy" then
-					-- Synthetic event (lazy.nvim maps it to User VeryLazy; the
-					-- UIEnter emitter is installed above). Any pattern variant
-					-- still fires the one VeryLazy load.
+					-- Synthetic event: lazy.nvim maps VeryLazy to User VeryLazy, emitted by the UIEnter handler above.
 					local verylazy_ids = {}
 					for _, variant in ipairs(variants) do
 						for _, id in ipairs(variant.ids) do
@@ -739,9 +622,7 @@ local function build_plan(compiled, opts)
 					pattern = b.pattern,
 					once = true,
 					callback = function(ev)
-						-- Snapshot before loading: after the load, the new
-						-- plugin's augroups are indistinguishable in intent
-						-- from pre-existing ones except by this diff.
+						-- Snapshot before loading: only this diff separates the new plugin's augroups from pre-existing ones.
 						local exclude = snapshot_event_groups(ev.event)
 						local loaded_any = false
 						for _, route in ipairs(b.routes) do
@@ -755,13 +636,9 @@ local function build_plan(compiled, opts)
 								end
 							end
 						end
-						-- Re-fire only when this dispatch actually loaded a
-						-- plugin (see the ft dispatcher). The triggering
-						-- buffer is forwarded so buffer-local handlers and
-						-- ev.buf match the original event. FileType replays
-						-- globally (lazy.nvim exempts it from the augroup
-						-- exclusion); everything else replays per fresh
-						-- augroup so pre-existing handlers stay single-fire.
+						-- Re-fire only if this dispatch loaded something; the buffer is forwarded so buffer-local handlers see the
+						-- original ev.buf. FileType replays globally (lazy.nvim exempts it from augroup exclusion); the rest replay
+						-- per fresh augroup so pre-existing handlers stay single-fire.
 						if loaded_any then
 							if ev.event == "FileType" then
 								refire_event(ev.event, { buffer = ev.buf, data = ev.data })
@@ -776,11 +653,8 @@ local function build_plan(compiled, opts)
 
 		if next(routes.fts) then
 			local group = fts_group
-			-- Single dispatcher: one FileType autocmd for all triggers
-			-- (N per-ft autocmds cost ~15 us each at startup). The lookup
-			-- is O(1) per FileType event; per-plugin idempotency comes
-			-- from load_with_deps' loaded[] guard (the old per-ft
-			-- `once = true` self-delete is subsumed by it).
+			-- One FileType autocmd for all triggers (per-ft autocmds cost ~15 us each at startup). O(1) lookup per event; the
+			-- loaded[] guard subsumes the old per-ft `once` self-delete.
 			vim.api.nvim_create_autocmd("FileType", {
 				group = group,
 				pattern = "*",
@@ -795,11 +669,8 @@ local function build_plan(compiled, opts)
 								loaded_any = true
 							end
 						end
-						-- Re-fire only when this dispatch actually loaded a
-						-- plugin: its handlers registered too late for the
-						-- natural pass. When nothing loaded, every matching
-						-- handler already saw this FileType, and a re-fire
-						-- would run them a second time for the buffer.
+						-- Re-fire only if something loaded: its handlers missed the natural pass. Otherwise every matching handler
+						-- already saw this FileType.
 						if loaded_any then
 							refire_event("FileType", { buffer = ev.buf })
 						end
@@ -807,15 +678,9 @@ local function build_plan(compiled, opts)
 				end,
 			})
 
-			-- A file passed on Neovim's command line can receive its FileType
-			-- before init.lua reaches laze.setup(). In that case the FileType
-			-- autocmd above correctly exists, but the one event it needed has
-			-- already happened and the plugin would stay unloaded forever (or
-			-- until another buffer with the same ft is opened). Catch up the
-			-- current buffer once after registering routes. During startup this
-			-- is still `:packadd!` only, so Neovim's plugin/ startup phase keeps
-			-- its exactly-once sourcing responsibility; after startup it is a
-			-- normal immediate ft activation.
+			-- A command-line file can get its FileType before init.lua reaches setup(); the FileType autocmd then exists but
+			-- the one event it needed already passed. Catch up the current buffer after registering routes. During startup
+			-- this stays `:packadd!` only, so Neovim's plugin/ phase keeps its exactly-once sourcing.
 			local function load_current_ft()
 				local current_ids = routes.fts[vim.bo.filetype]
 				if current_ids then
@@ -826,9 +691,8 @@ local function build_plan(compiled, opts)
 			end
 			load_current_ft()
 			if vim.v.vim_did_enter == 0 then
-				-- For command-line files the buffer can still have no filetype
-				-- while init.lua runs, then receive it late in startup without a
-				-- usable FileType callback. Check again once startup is complete.
+				-- The buffer can still have no filetype while init.lua runs and receive it late in startup without a usable
+				-- FileType callback. Check again once startup completes.
 				vim.api.nvim_create_autocmd("VimEnter", {
 					group = group,
 					once = true,
@@ -839,9 +703,8 @@ local function build_plan(compiled, opts)
 
 		if next(routes.cmds) then
 			local group = cmds_group
-			-- Single dispatcher: one CmdUndefined autocmd for all triggers
-			-- (N per-cmd autocmds cost ~12 us each at startup). Undefined
-			-- commands are rare, so the O(1) lookup per misfire is free.
+			-- One CmdUndefined autocmd for all triggers (per-cmd autocmds cost ~12 us each at startup). Misfires are rare, so
+			-- the O(1) lookup is free.
 			vim.api.nvim_create_autocmd("CmdUndefined", {
 				group = group,
 				pattern = "*",
@@ -854,25 +717,20 @@ local function build_plan(compiled, opts)
 						load_with_deps(id)
 					end
 					if vim.v.vim_did_enter == 0 then
-						-- Cold: the proxy body is parsed only when a startup
-						-- command actually misfires (docs/performance.md).
+						-- Cold: the proxy body is parsed only when a startup command actually misfires (docs/performance.md).
 						require("laze.cmdproxy").defer(startup_cmd_calls, ev.match)
 					end
 				end,
 			})
 		end
 
-		-- One trigger map per (lhs, mode) variant. A `mode` array in the
-		-- spec is already expanded by compile, so each variant owns exactly
-		-- one mode: deleting this trigger (takeover, below) only touches its
-		-- own mode, and the other variants stay live for their modes.
+		-- One map per (lhs, mode) variant. compile already expands a `mode`
+		-- array, so a takeover below touches only its own mode.
 		for lhs, variants in pairs(routes.keys) do
 			for _, entry in ipairs(variants) do
 				local mode = entry.mode
 				local rhs = entry.rhs
-				-- `enabled` and `cond` are fixed at plan build: a variant whose
-				-- plugins are all disabled gets no map at all — not even the
-				-- self-deleting trigger, because lazy.nvim never enables
+				-- A variant whose plugins are all disabled gets no map at all, not even the trigger: lazy.nvim never enables
 				-- handlers for a disabled plugin (parity, #30).
 				local ids = {}
 				for _, id in ipairs(entry.ids) do
@@ -881,9 +739,7 @@ local function build_plan(compiled, opts)
 					end
 				end
 				if #ids > 0 and rhs ~= false then
-					-- `buf` is nil for a global trigger; `ft` variants install
-					-- a buffer-local map on matching FileType instead
-					-- (lazy.nvim LazyKeysSpec.ft).
+					-- `buf` is nil for a global trigger; an ft variant installs a buffer-local map on matching FileType instead.
 					local function install(buf)
 						local function map_opts(desc)
 							local map_options = { desc = desc }
@@ -896,8 +752,7 @@ local function build_plan(compiled, opts)
 							return map_options
 						end
 						if type(rhs) == "string" and (rhs == "" or rhs:lower() == "<nop>") then
-							-- lazy.nvim: an empty rhs / <nop> is a plain static
-							-- no-op mapping, not a load trigger — never load for it.
+							-- lazy.nvim: an empty rhs / <nop> is a static no-op mapping, not a load trigger.
 							local key_opts = map_opts(entry.desc)
 							vim.keymap.set(mode, lhs, rhs, key_opts)
 							table.insert(installed_keys, { mode = mode, lhs = lhs, desc = key_opts.desc, buf = buf })
@@ -905,31 +760,20 @@ local function build_plan(compiled, opts)
 							local key_opts = map_opts(entry.desc or "laze: load on key")
 							table.insert(installed_keys, { mode = mode, lhs = lhs, desc = key_opts.desc, buf = buf })
 							vim.keymap.set(mode, lhs, function()
-								-- `cond`/`enabled` were resolved once at plan
-								-- build (lazy.nvim caches them at spec
-								-- processing too), so every id here is active;
-								-- a disabled variant never installed this map.
+								-- Verdicts were resolved at plan build, so every id here is active.
 								if rhs == nil then
-									-- No rhs: the plugin's own keymap takes over after load.
-									-- Delete the trigger NOW — at this point it is the only
-									-- map for this lhs in this mode (other mode variants
-									-- are separate maps and must stay). Deleting after
-									-- loading would remove the freshly registered plugin
-									-- map too (vim.keymap.del removes every map for the
-									-- lhs in the mode). An ft variant deletes only its
-									-- buffer-local map.
+									-- Delete the trigger before loading: after the load it would also delete the plugin's fresh map
+									-- (vim.keymap.del removes every map for this lhs in the mode). Other mode variants are separate maps
+									-- and stay.
 									del_map(mode, lhs, buf)
 								end
 								for _, id in ipairs(ids) do
 									load_with_deps(id)
 								end
 								if rhs == nil then
-									-- Replay the key: the plugin's map (registered during
-									-- load) handles it. Insert the replay BEFORE keys already
-									-- queued behind the trigger ('i'): with the default append,
-									-- `gcA` would process `A` first (append at EOL) and then
-									-- insert the replayed `gc` literally instead of firing the
-									-- plugin's longer `gcA` mapping.
+									-- Replay the key so the plugin's own map handles it. Queue it BEFORE keys already behind the trigger
+									-- ('i'): with append, `gcA` would run `A` first and then insert `gc` literally instead of firing
+									-- `gcA`.
 									vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes(lhs, true, false, true), "i", true)
 								elseif type(rhs) == "function" then
 									rhs()
@@ -940,11 +784,8 @@ local function build_plan(compiled, opts)
 						end
 					end
 					if entry.ft then
-						-- One FileType autocmd per ft-scoped variant, like
-						-- lazy.nvim: it only installs the buffer-local map in
-						-- buffers of the declared filetype(s). Buffers that
-						-- already have that ft before the plan runs are not
-						-- retrofitted (lazy.nvim does not either).
+						-- lazy.nvim installs the buffer-local map only in buffers of the declared filetype(s), and does not
+						-- retrofit buffers that already had it.
 						vim.api.nvim_create_autocmd("FileType", {
 							group = key_fts_group,
 							pattern = entry.ft,
@@ -959,10 +800,7 @@ local function build_plan(compiled, opts)
 			end
 		end
 
-		-- Eager plugins: load in spec order, but honor lazy.nvim `priority`
-		-- (higher loads first, default 50) when explicitly set. compile's
-		-- `eager` flag already excludes dependencies (they load via parents)
-		-- and honors an explicit `lazy` override.
+		-- Eager plugins load in spec order, except that an explicit `priority` sorts first (higher first, default 50).
 		local eager = {}
 		for _, entry in pairs(registry) do
 			if enabled_ok[entry.id] and entry.eager then
@@ -980,9 +818,8 @@ local function build_plan(compiled, opts)
 			end)
 		end
 		for _, entry in ipairs(eager) do
-			-- Deps reached from here load synchronously with their parent
-			-- (see the eager_depth note above), matching lazy.nvim's
-			-- dep-config-before-parent-config order for eager plugins.
+			-- Deps reached here load synchronously with their parent (see the eager_depth note above), matching lazy.nvim's
+			-- dep-before-parent config order.
 			eager_depth = eager_depth + 1
 			local ok, err = pcall(load_with_deps, entry.id)
 			eager_depth = eager_depth - 1
@@ -991,10 +828,8 @@ local function build_plan(compiled, opts)
 			end
 		end
 
-		-- VeryLazy fires via a one-shot UIEnter autocmd in a normal startup
-		-- (UI not yet entered). If the plan is built after startup —
-		-- vim_did_enter ~= 0 — UIEnter has already fired (or, headless,
-		-- will never fire) and the one-shot would be dead: fire immediately.
+		-- Normally VeryLazy fires through the one-shot UIEnter autocmd. If the plan is built after startup, UIEnter already
+		-- fired (or, headless, never will), so fire it now.
 		if vim.v.vim_did_enter ~= 0 or #vim.api.nvim_list_uis() == 0 then
 			vim.api.nvim_exec_autocmds("User", { pattern = "VeryLazy" })
 		end

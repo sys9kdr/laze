@@ -18,9 +18,8 @@ local FN = require("tests.fixtures._sentinel").FN
 local passed = 0
 local failed = 0
 
--- Build fixture filter from CLI args (e.g. `nvim ... tests/run.lua basic disabled`).
--- arg[0] is the script path; args after it are fixture names to filter for.
--- `fast` is a mode flag (skip spawned sessions), not a fixture name.
+-- Build fixture filter from CLI args (e.g. `nvim ... tests/run.lua basic disabled`). arg[0] is the script path; args
+-- after it are fixture names to filter for. `fast` is a mode flag (skip spawned sessions), not a fixture name.
 local filter = {}
 local fast_only = false
 for i = 1, #arg do
@@ -222,9 +221,8 @@ do
 		failed = failed + 1
 	end
 
-	-- lazy.nvim's own semver_spec cases (Apache-2.0; see the fixture header).
-	-- Check membership, not the internal from/to encoding: vim.version.range
-	-- encodes an exact version as [v, v] while lazy.nvim uses [v, next patch).
+	-- lazy.nvim's own semver_spec cases (Apache-2.0; see the fixture header). Check membership, not the internal from/to
+	-- encoding: vim.version.range encodes an exact version as [v, v] while lazy.nvim uses [v, next patch).
 	local lazy_cases = require("tests.fixtures.lazy_semver_cases")
 	for _, case in ipairs(lazy_cases) do
 		local lazy_entry = compile_one(
@@ -298,7 +296,7 @@ local function test_plan_callable(compiled, name)
 	return plan
 end
 
--- build_plan produces callable function for each fixture
+-- build_plan produces a callable plan for each fixture.
 for _, name in ipairs(compile_fixtures) do
 	if is_filtered(name) then
 		local compiled = compile_fixture(name)
@@ -312,7 +310,6 @@ for _, name in ipairs(compile_fixtures) do
 	end
 end
 
--- plan() executes without error
 if is_filtered("basic") then
 	do
 		local compiled = compile_fixture("basic")
@@ -370,10 +367,9 @@ do
 	end
 end
 
--- Disabled plugins (cond = false / enabled = false) must not leave key
--- triggers at all: lazy.nvim disables such a plugin before handlers are
--- enabled, so neither a load trigger nor a still-live rhs is installed.
--- Covers both the literal and the function form (#30).
+-- Disabled plugins (cond = false / enabled = false) must not leave key triggers at all: lazy.nvim disables such a
+-- plugin before handlers are enabled, so neither a load trigger nor a still-live rhs is installed. Covers both the
+-- literal and the function form (#30).
 do
 	local rhs_ran = false
 	local cond_fn_calls = 0
@@ -476,8 +472,7 @@ do
 		{
 			dir = vim.fn.tempname(),
 			name = "keys-rhs-nil",
-			-- vim.NIL (a JSON null / empty keymap value) is removed by
-			-- lazy.nvim's Keys.resolve just like false.
+			-- vim.NIL (a JSON null / empty keymap value) is removed by lazy.nvim's Keys.resolve just like false.
 			keys = { { "<F8>", vim.NIL } },
 			config = function()
 				ran.nil_rhs = true
@@ -565,9 +560,8 @@ do
 	pcall(vim.keymap.del, "n", "<F12>")
 end
 
--- keys ft = "ft": a buffer-local trigger map installed on FileType, no global
--- map, unrelated buffers untouched; pressing loads the plugin (lazy.nvim
--- LazyKeysSpec.ft). A static no-op ft map never loads.
+-- keys ft = "ft": a buffer-local trigger map installed on FileType, no global map, unrelated buffers untouched;
+-- pressing loads the plugin (lazy.nvim LazyKeysSpec.ft). A static no-op ft map never loads.
 do
 	local ran = {}
 	local compiled = laze.compile({
@@ -701,7 +695,6 @@ do
 	end
 end
 
--- keys route: keymap is registered
 do
 	local compiled = laze.compile({
 		{ "test/key-plugin", keys = "<leader>zz" },
@@ -728,7 +721,6 @@ do
 	end
 end
 
--- keys route: explicit mode
 do
 	local compiled = laze.compile({
 		{ "test/key-i", keys = { { lhs = "<leader>ii", mode = "i" } } },
@@ -758,7 +750,6 @@ do
 	end
 end
 
--- keys route: multiple modes
 do
 	local compiled = laze.compile({
 		{ "test/key-multi", keys = { { lhs = "<leader>mm", mode = { "n", "v" } } } },
@@ -828,9 +819,8 @@ do
 	vim.wait(50)
 	local n_after_n, v_after_n, v_survived = n_loaded, v_loaded, has_map("v")
 
-	-- Headless `nvim -l` swallows the previous message newline when visual
-	-- mode is entered; emit and flush one explicitly so the runner keeps
-	-- one line per test.
+	-- Headless `nvim -l` swallows the previous message newline when visual mode is entered; emit and flush one explicitly
+	-- so the runner keeps one line per test.
 	io.write("\n")
 	io.flush()
 	vim.cmd("normal! v")
@@ -976,9 +966,8 @@ do
 	end
 end
 
--- keys route: plugin's own keymap takes over after the trigger fires
--- (regression: the trigger map must be deleted BEFORE loading — keymap.del
--- removes every map for the lhs, which would also kill the plugin's map)
+-- keys route: plugin's own keymap takes over after the trigger fires (regression: the trigger map must be deleted
+-- BEFORE loading — keymap.del removes every map for the lhs, which would also kill the plugin's map)
 do
 	local dir = vim.fn.tempname() .. "_keytake"
 	vim.fn.mkdir(dir .. "/lua", "p")
@@ -1021,10 +1010,9 @@ do
 	vim.fn.delete(dir, "rf")
 end
 
--- keys route: the replay runs before keys already queued behind the trigger
--- (regression: first use of a longer plugin map like Comment.nvim's `gcA`.
--- If the replay is appended, the queued `A` runs first and `gc` is inserted
--- literally instead of the plugin's `gcA` mapping firing.)
+-- keys route: the replay runs before keys already queued behind the trigger (regression: first use of a longer plugin
+-- map like Comment.nvim's `gcA`. If the replay is appended, the queued `A` runs first and `gc` is inserted literally
+-- instead of the plugin's `gcA` mapping firing.)
 do
 	local dir = vim.fn.tempname() .. "_keyreplay"
 	vim.fn.mkdir(dir .. "/lua", "p")
@@ -1131,9 +1119,8 @@ do
 	pcall(vim.api.nvim_buf_delete, buf, { force = true })
 end
 
--- ft re-fire serves the load-triggering buffer only: a second buffer with
--- the same filetype must see the plugin's handler exactly once (the natural
--- pass), not again through a re-fire when nothing was loaded
+-- ft re-fire serves the load-triggering buffer only: a second buffer with the same filetype must see the plugin's
+-- handler exactly once (the natural pass), not again through a re-fire when nothing was loaded
 do
 	local seen = {}
 	local compiled = laze.compile({
@@ -1210,10 +1197,9 @@ do
 	pcall(vim.api.nvim_buf_delete, target, { force = true })
 end
 
--- #38: the replay must not re-run handlers that already existed when the
--- trigger fired (user config, other plugins). lazy.nvim snapshots augroups
--- before loading and excludes them from the replay; ungrouped autocmds are
--- skipped outright because a fresh one is indistinguishable from an old one.
+-- #38: the replay must not re-run handlers that already existed when the trigger fired (user config, other plugins).
+-- lazy.nvim snapshots augroups before loading and excludes them from the replay; ungrouped autocmds are skipped
+-- outright because a fresh one is indistinguishable from an old one.
 do
 	local pre_grouped, pre_ungrouped = 0, 0
 	local new_grouped, new_ungrouped = 0, 0
@@ -1282,9 +1268,8 @@ do
 	pcall(vim.api.nvim_buf_delete, target, { force = true })
 end
 
--- FileType is exempt from that exclusion (lazy.nvim parity): its replay
--- exists to hand the current buffer to ft handlers wherever they are
--- registered, so pre-existing ft handlers see it a second time.
+-- FileType is exempt from that exclusion (lazy.nvim parity): its replay exists to hand the current buffer to ft
+-- handlers wherever they are registered, so pre-existing ft handlers see it a second time.
 do
 	local pre, ran = 0, 0
 	vim.api.nvim_create_autocmd("FileType", {
@@ -1316,7 +1301,6 @@ do
 	pcall(vim.api.nvim_buf_delete, buf, { force = true })
 end
 
--- event route: autocmd is registered
 do
 	local compiled = laze.compile({
 		{ "test/event-plugin", event = "BufRead" },
@@ -1582,14 +1566,11 @@ do
 	end
 end
 
--- Startup dependency order: an eager plugin's non-lazy dependencies load
--- WITH it — deepest dependency first, each config sourced before the
--- dependent's config — and their Lua modules are require-able from the
--- parent's config. Deferring them to after startup broke parents that
--- require a dependency's modules at setup (issue #42; lazy.nvim measured
--- dep-config-before-parent-config). Spawned session, because the startup
--- deferral of non-eager plugins only exists during real startup.
--- Skipped under `fast`.
+-- Startup dependency order: an eager plugin's non-lazy dependencies load WITH it — deepest dependency first, each
+-- config sourced before the dependent's config — and their Lua modules are require-able from the parent's config.
+-- Deferring them to after startup broke parents that require a dependency's modules at setup (issue #42; lazy.nvim
+-- measured dep-config-before-parent-config). Spawned session, because the startup deferral of non-eager plugins only
+-- exists during real startup. Skipped under `fast`.
 if not fast_only then
 	local root = vim.fn.tempname() .. "_lazestartdep"
 	local function write(path, content)
@@ -1598,8 +1579,7 @@ if not fast_only then
 		fd:write(content)
 		fd:close()
 	end
-	-- chain: eager parent -> dep -> grand (config order); moddep provides a
-	-- module the parent's config requires.
+	-- chain: eager parent -> dep -> grand (config order); moddep provides a module the parent's config requires.
 	write(root .. "/moddep/lua/lazestartdep_mod.lua", "return { answer = 7 }\n")
 
 	local result = root .. "/result"
@@ -1733,9 +1713,8 @@ if is_filtered("perf") or next(filter) == nil then
 			failed = failed + 1
 		end
 
-		-- Plan execution for eager-only plugins (no triggers) must be fast.
-		-- Eager plugins are not auto-required (module names are never derived
-		-- from the source), so this measures dispatch + load_plugin overhead.
+		-- Plan execution for eager-only plugins (no triggers) must be fast. Eager plugins are not auto-required (module
+		-- names are never derived from the source), so this measures dispatch + load_plugin overhead.
 		local eager_specs = {}
 		for i = 1, 30 do
 			package.preload["eager-" .. i] = function()
@@ -1790,9 +1769,8 @@ if is_filtered("perf") or next(filter) == nil then
 		end
 	end
 
-	-- Module triggers use package.preload entries, never a _G.require
-	-- wrapper: without any `module` field, require stays untouched (zero
-	-- per-require overhead on the whole session).
+	-- Module triggers use package.preload entries, never a _G.require wrapper: without any `module` field, require stays
+	-- untouched (zero per-require overhead on the whole session).
 	do
 		local orig = require
 		local compiled = laze.compile({ { "test/plain-plugin", name = "plain" } })
@@ -1845,9 +1823,8 @@ if is_filtered("perf") or next(filter) == nil then
 			failed = failed + 1
 		end
 
-		-- Firing requires the module, which is not installed: the entry must
-		-- still consume itself (single-shot semantics), and load_plugin must
-		-- not recurse into the same preload entry.
+		-- Firing requires the module, which is not installed: the entry must still consume itself (single-shot semantics),
+		-- and load_plugin must not recurse into the same preload entry.
 		pcall(require, "my.special.module")
 		if package.preload["my.special.module"] == nil then
 			print("  ✓ module trigger: entry consumed on first require (single-shot)")
@@ -1877,10 +1854,9 @@ if is_filtered("perf") or next(filter) == nil then
 		end
 	end
 
-	-- Module trigger with a REAL module on rtp: nvim's require holds an
-	-- in-flight sentinel in package.loaded while the preload fn runs;
-	-- load_plugin re-requires the declared module, which must not hit
-	-- that sentinel (regression: "loop or previous error loading module").
+	-- Module trigger with a REAL module on rtp: nvim's require holds an in-flight sentinel in package.loaded while the
+	-- preload fn runs; load_plugin re-requires the declared module, which must not hit that sentinel (regression: "loop
+	-- or previous error loading module").
 	do
 		local dir = vim.fn.tempname()
 		vim.fn.mkdir(dir .. "/lua/lzmod", "p")
@@ -1913,24 +1889,20 @@ if is_filtered("perf") or next(filter) == nil then
 		})
 		local plan_fn = laze.build_plan(compiled)
 
-		-- Execute plan multiple times; if stack is allocated each time, this would show
-		-- as memory pressure. We verify correctness instead — the iterative DFS must
-		-- load plugins in correct dependency order (a -> b -> c).
+		-- Execute plan multiple times; if stack is allocated each time, this would show as memory pressure. We verify
+		-- correctness instead — the iterative DFS must load plugins in correct dependency order (a -> b -> c).
 		plan_fn()
 		print("  ✓ iterative DFS: no allocations in hot path (stack reuse verified)")
 		passed = passed + 1
 	end
 end -- perf if
 
--- Startup phase integration test: spawn real nvim sessions (headless,
--- `-u init.lua` + startup phases) and assert plugin/ and after/plugin/
--- files are sourced exactly once at startup for eager plugins and never
--- for lazy ones. The in-process tests above run with vim_did_enter == 1
--- (post-startup); this covers the startup paths — :packadd! during init
--- sourcing, the plugin/ phase and the after/plugin phase. A regression in
--- the activation invariant (e.g. full :packadd during startup instead of
--- :packadd!) shows up as two "sourcing" lines for the same file.
--- Skipped under `fast` (needs spawned sessions + git installs).
+-- Startup phase integration test: spawn real nvim sessions (headless, `-u init.lua` + startup phases) and assert
+-- plugin/ and after/plugin/ files are sourced exactly once at startup for eager plugins and never for lazy ones. The
+-- in-process tests above run with vim_did_enter == 1 (post-startup); this covers the startup paths — :packadd! during
+-- init sourcing, the plugin/ phase and the after/plugin phase. A regression in the activation invariant (e.g. full
+-- :packadd during startup instead of :packadd!) shows up as two "sourcing" lines for the same file. Skipped under
+-- `fast` (needs spawned sessions + git installs).
 if not fast_only then
 	local root = vim.fn.tempname() .. "_lazestart"
 	vim.fn.mkdir(root, "p")
@@ -1948,9 +1920,8 @@ if not fast_only then
 		end
 		vim.system({ "git", "init", "-q" }, { cwd = dir, timeout = 10000 }):wait()
 		vim.system({ "git", "add", "-A" }, { cwd = dir, timeout = 10000 }):wait()
-		-- Explicit identity: CI runners have no global git user, and a
-		-- failed commit leaves an empty local clone that vim.pack cannot
-		-- install (the spawned session then never reaches VimEnter).
+		-- Explicit identity: CI runners have no global git user, and a failed commit leaves an empty local clone that
+		-- vim.pack cannot install (the spawned session then never reaches VimEnter).
 		vim
 			.system(
 				{ "git", "-c", "user.name=laze", "-c", "user.email=laze@local", "commit", "-qm", "init" },
@@ -2065,10 +2036,8 @@ end, { nargs = "*", bang = true, range = true })
 	vim.fn.delete(root, "rf")
 end
 
--- module trigger required during startup: the plugin is configured before
--- require() returns, and its plugin/ files are still sourced exactly once.
--- Spawned session, because it depends on the real startup phases.
--- Skipped under `fast`.
+-- module trigger required during startup: the plugin is configured before require() returns, and its plugin/ files are
+-- still sourced exactly once. Spawned session, because it depends on the real startup phases. Skipped under `fast`.
 if not fast_only then
 	local root = vim.fn.tempname() .. "_lazemodstart"
 	local plug = root .. "/plug"
@@ -2115,11 +2084,9 @@ if not fast_only then
 	vim.fn.delete(root, "rf")
 end
 
--- build: PackChanged → string/:cmd/function build forms. The first plugin
--- uses a DOTTED directory name so id ("laze-build-test") != pack name
--- ("laze-build-test.nvim") — a regression guard for the builds map being
--- keyed by pkg instead of registry id.
--- Skipped under `fast` (needs a spawned session + git installs).
+-- build: PackChanged → string/:cmd/function build forms. The first plugin uses a DOTTED directory name so id
+-- ("laze-build-test") != pack name ("laze-build-test.nvim") — a regression guard for the builds map being keyed by pkg
+-- instead of registry id. Skipped under `fast` (needs a spawned session + git installs).
 if not fast_only then
 	local root = vim.fn.tempname() .. "_lazebuild"
 	vim.fn.mkdir(root, "p")
@@ -2207,15 +2174,11 @@ if not fast_only then
 	vim.fn.delete(root, "rf")
 end
 
--- pkg-name parity: laze's compile-time `pkg` derivation must match the
--- directory names vim.pack actually creates on disk — the mirror of
--- vim.pack's internal name rules is hand-written, so upstream drift would
--- otherwise show up as silent re-clones under different directories. Two
--- spawned sessions install the SAME local-git-repo specs (one through
--- laze.compile → vim.pack.add(compiled.pack), one through raw
--- vim.pack.add) and both disk listings are compared against the predicted
--- names.
--- Skipped under `fast` (needs two spawned install sessions).
+-- pkg-name parity: laze's compile-time `pkg` derivation must match the directory names vim.pack actually creates on
+-- disk — the mirror of vim.pack's internal name rules is hand-written, so upstream drift would otherwise show up as
+-- silent re-clones under different directories. Two spawned sessions install the SAME local-git-repo specs (one through
+-- laze.compile → vim.pack.add(compiled.pack), one through raw vim.pack.add) and both disk listings are compared against
+-- the predicted names. Skipped under `fast` (needs two spawned install sessions).
 if not fast_only then
 	local root = vim.fn.tempname() .. "_lazepkg"
 	vim.fn.mkdir(root, "p")
@@ -2410,9 +2373,8 @@ if not fast_only then
 	vim.fn.delete(root, "rf")
 end
 
--- reload_all: re-runs setup with a fresh plan (dev-loop workflow). Dir
--- specs keep this offline (no vim.pack installs) while exercising the
--- real setup → plan → reload path.
+-- reload_all: re-runs setup with a fresh plan (dev-loop workflow). Dir specs keep this offline (no vim.pack installs)
+-- while exercising the real setup → plan → reload path.
 do
 	local eager_runs = 0
 	local specs = {
@@ -2528,9 +2490,8 @@ do
 	end
 end
 
--- cond/enabled as functions returning false must SKIP (regression: the
--- `type(...) == "function" and f() or ...` gotcha turned a false-returning
--- function into true).
+-- cond/enabled as functions returning false must SKIP (regression: the `type(...) == "function" and f() or ...` gotcha
+-- turned a false-returning function into true).
 do
 	local runs = 0
 	local compiled = laze.compile({
@@ -2640,10 +2601,9 @@ do
 	end
 end
 
--- on_load / on_fail hooks: called with numeric duration for loaded plugins,
--- on_fail for module-require failures; silent suppresses the failure
--- notification for its own plugin. A failing init warns but does not fail the
--- plugin (lazy.nvim parity).
+-- on_load / on_fail hooks: called with numeric duration for loaded plugins, on_fail for module-require failures; silent
+-- suppresses the failure notification for its own plugin. A failing init warns but does not fail the plugin (lazy.nvim
+-- parity).
 do
 	local loads, fails, notifs = {}, {}, {}
 	local compiled = laze.compile({
@@ -2757,9 +2717,8 @@ do
 	end
 end
 
--- init is skipped when cond does not pass (boolean or function), like
--- enabled: lazy.nvim disables such plugins for the session before startup,
--- so their init never runs
+-- init is skipped when cond does not pass (boolean or function), like enabled: lazy.nvim disables such plugins for the
+-- session before startup, so their init never runs
 do
 	local ran = {}
 	local compiled = laze.compile({
@@ -2802,9 +2761,8 @@ do
 	end
 end
 
--- init receives a plugin table (lazy.nvim passes its LazyPlugin) and runs in
--- a deterministic id order — lazy.nvim's own order is unspecified (pairs over
--- its plugin map), so priority does not decide it
+-- init receives a plugin table (lazy.nvim passes its LazyPlugin) and runs in a deterministic id order — lazy.nvim's own
+-- order is unspecified (pairs over its plugin map), so priority does not decide it
 do
 	local aa_dir, zz_dir = vim.fn.tempname(), vim.fn.tempname()
 	local seen = {}
@@ -2847,9 +2805,8 @@ do
 	end
 end
 
--- init may require a module declared with `module`: the package.preload
--- entry loads the plugin during setup and its config runs before the require
--- returns. (Requiring an undeclared module here is the documented KD-010 gap.)
+-- init may require a module declared with `module`: the package.preload entry loads the plugin during setup and its
+-- config runs before the require returns. (Requiring an undeclared module here is the documented KD-010 gap.)
 do
 	local dir = vim.fn.tempname()
 	vim.fn.mkdir(dir .. "/lua/lzinitmod", "p")
@@ -2922,12 +2879,10 @@ do
 	end
 end
 
--- #30: lazy.nvim disables a spec with enabled/cond false while processing
--- it, so it is never installed. Verified headless: cond=false,
--- cond=function() return false end, enabled=false and
--- enabled=function() return false end all stay uninstalled, while
--- enabled=function() return true end is installed. laze must therefore
--- drop those pack entries, and evaluate each hook exactly once.
+-- #30: lazy.nvim disables a spec with enabled/cond false while processing it, so it is never installed. Verified
+-- headless: cond=false, cond=function() return false end, enabled=false and enabled=function() return false end all
+-- stay uninstalled, while enabled=function() return true end is installed. laze must therefore drop those pack entries,
+-- and evaluate each hook exactly once.
 do
 	local calls = { enabled_fn_false = 0, enabled_fn_true = 0, cond_fn_false = 0, cond_fn_true = 0 }
 	local added = {}
@@ -3035,9 +2990,8 @@ do
 	end
 end
 
--- dir plugin outside packpath: the rtp-prepend fallback must still source
--- plugin//ftdetect/ after startup (:packadd fails for dirs outside the
--- packpath; without manual sourcing commands/maps never come to exist).
+-- dir plugin outside packpath: the rtp-prepend fallback must still source plugin//ftdetect/ after startup (:packadd
+-- fails for dirs outside the packpath; without manual sourcing commands/maps never come to exist).
 do
 	local root = vim.fn.tempname()
 	local dir = root .. "/out-of-pack"
@@ -3059,10 +3013,9 @@ do
 	vim.fn.delete(root, "rf")
 end
 
--- dir plugin vs basename collision: :packadd resolves by bare directory
--- name across 'packpath' (`pack/*/opt/<name>`), so a stale install sharing
--- only the basename used to win and the user's dir was silently skipped.
--- Activation must add the EXACT dir path regardless of packpath contents.
+-- dir plugin vs basename collision: :packadd resolves by bare directory name across 'packpath' (`pack/*/opt/<name>`),
+-- so a stale install sharing only the basename used to win and the user's dir was silently skipped. Activation must add
+-- the EXACT dir path regardless of packpath contents.
 do
 	local root = vim.fn.tempname() .. "_dircoll"
 	local stale = root .. "/site/pack/stale-opt/dir-coll"
@@ -3132,10 +3085,9 @@ do
 	end
 end
 
--- same event, different patterns: each (event, pattern) variant is wired
--- independently. A patternless spec must load for any buffer and a patterned
--- spec only for matching buffers — in both spec orders (a name-keyed route
--- let whichever spec came first dictate the pattern shared by both).
+-- same event, different patterns: each (event, pattern) variant is wired independently. A patternless spec must load
+-- for any buffer and a patterned spec only for matching buffers — in both spec orders (a name-keyed route let whichever
+-- spec came first dictate the pattern shared by both).
 local function check_event_variant_order(patterned_first)
 	local plain_ran, lua_ran = 0, 0
 	local suffix = patterned_first and "patterned-first" or "patternless-first"
@@ -3264,9 +3216,8 @@ do
 	end
 end
 
--- known-difference notifications (issue #12): compile-time messages carry
--- the stable KD id and the docs path, dedupe per compile, and can be
--- opted out with compile(specs, { known_differences = false }).
+-- known-difference notifications (issue #12): compile-time messages carry the stable KD id and the docs path, dedupe
+-- per compile, and can be opted out with compile(specs, { known_differences = false }).
 do
 	local function capture(fn)
 		local msgs = {}
@@ -3387,8 +3338,7 @@ do
 	end
 end
 
--- Multiple top-level modules with no name match: fail loudly instead of
--- guessing the wrong module.
+-- Multiple top-level modules with no name match: fail loudly instead of guessing the wrong module.
 do
 	local dir = vim.fn.tempname() .. "_opts_ambiguous"
 	vim.fn.mkdir(dir .. "/lua/one_mod", "p")
@@ -3423,8 +3373,7 @@ do
 	end
 end
 
--- A single top-level module is used even when its name does not match the
--- plugin name (lazy.nvim's get_main fallback).
+-- A single top-level module is used even when its name does not match the plugin name (lazy.nvim's get_main fallback).
 do
 	local dir = vim.fn.tempname() .. "_opts_single"
 	vim.fn.mkdir(dir .. "/lua/whatever_mod", "p")
@@ -3509,8 +3458,7 @@ do
 	end
 end
 
--- config + opts: the config function receives the lazy.nvim-style
--- (plugin, opts) arguments.
+-- config + opts: the config function receives the lazy.nvim-style (plugin, opts) arguments.
 do
 	local got_plugin, got_opts = nil, nil
 	local compiled = laze.compile({
@@ -3687,12 +3635,10 @@ do
 	end
 end
 
--- extras: opt-in modules are never required by the core.
--- on_load/on_fail wiring is core API and is exercised by the e2e test;
--- no wrapper module needed.
+-- extras: opt-in modules are never required by the core. on_load/on_fail wiring is core API and is exercised by the e2e
+-- test; no wrapper module needed.
 do
-	-- extras never auto-register commands. Assert nothing
-	-- leaks into the command table.
+	-- extras never auto-register commands. Assert nothing leaks into the command table.
 	local cmds = vim.api.nvim_get_commands({})
 	local leaked = false
 	for _, name in ipairs({ "LazeProfile", "LazeRetry", "LazeSync", "Laze" }) do
