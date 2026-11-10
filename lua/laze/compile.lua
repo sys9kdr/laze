@@ -652,6 +652,30 @@ local function has_dev_source(spec)
 		or (type(spec.dev_path) == "string" and spec.dev_path ~= "")
 end
 
+--- lazy.nvim `dev.patterns`: plain substring match against the plugin URL.
+---@param patterns string[]
+---@param url string
+---@return boolean
+local function matches_dev_pattern(patterns, url)
+	for i = 1, #patterns do
+		if url:find(patterns[i], 1, true) then
+			return true
+		end
+	end
+	return false
+end
+
+--- Directory probe for `dev.fallback`. Plain-Lua unit runs may have no
+--- `vim.fn`; there, keep the dev source (the pre-fallback behavior).
+---@param path string
+---@return boolean
+local function is_directory(path)
+	if type(vim.fn.isdirectory) ~= "function" then
+		return true
+	end
+	return vim.fn.isdirectory(path) == 1
+end
+
 ---@param spec LazeSpec
 ---@param idx integer
 ---@param warned table<string, boolean>
@@ -881,7 +905,7 @@ local function flatten_spec(spec, out, label)
 end
 
 ---@param specs LazeSpec[]|string|LazeSpec
----@param opts? { dev_root?: string }
+---@param opts? { dev_root?: string, dev?: { path?: string, patterns?: string[] } }
 ---@return LazeCompiled
 local function compile(specs, opts)
 	if specs == nil then
@@ -894,7 +918,33 @@ local function compile(specs, opts)
 	end
 	specs = flattened
 
-	local dev_root = (opts and opts.dev_root) or "~/projects"
+	local dev_opts = opts and opts.dev
+	if dev_opts ~= nil and type(dev_opts) ~= "table" then
+		error("compile: opts.dev must be a table", 0)
+	end
+	if dev_opts and dev_opts.path ~= nil and type(dev_opts.path) ~= "string" then
+		error("compile: opts.dev.path must be a string", 0)
+	end
+	if dev_opts and dev_opts.fallback ~= nil and type(dev_opts.fallback) ~= "boolean" then
+		error("compile: opts.dev.fallback must be a boolean", 0)
+	end
+	local dev_root = (dev_opts and dev_opts.path) or (opts and opts.dev_root) or "~/projects"
+	local dev_fallback = dev_opts and dev_opts.fallback == true
+	-- lazy.nvim's `dev.patterns` are plain substring matches against the
+	-- plugin URL (not Lua patterns), applied only when the spec does not set
+	-- `dev` itself. Copy so later mutation of opts cannot change a compile.
+	local dev_patterns = {}
+	if dev_opts and dev_opts.patterns ~= nil then
+		if type(dev_opts.patterns) ~= "table" then
+			error("compile: opts.dev.patterns must be an array of strings", 0)
+		end
+		for i, pattern in ipairs(dev_opts.patterns) do
+			if type(pattern) ~= "string" or pattern == "" then
+				error(("compile: opts.dev.patterns[%d] must be a non-empty string"):format(i), 0)
+			end
+			dev_patterns[i] = pattern
+		end
+	end
 
 	-- Pass 1: index top-level names and resolved sources so dependency
 	-- expansion can reference specs already defined by the user instead of
@@ -1135,7 +1185,9 @@ local function compile(specs, opts)
 		-- `dev_src` also records that the source is a local checkout: an
 		-- active dev path changes version handling below.
 		local dev_src
+		local dev_from_root = false
 		if norm.dev == true then
+			dev_from_root = true
 			dev_src = vim.fn.expand(dev_root .. "/" .. name)
 		elseif type(norm.dev) == "string" and norm.dev ~= "" then
 			-- dev = "path" is the per-plugin dev directory (lazy.nvim
@@ -1144,6 +1196,19 @@ local function compile(specs, opts)
 			dev_src = expand_home(norm.dev)
 		elseif norm.dev_path then
 			dev_src = expand_home(norm.dev_path)
+		elseif norm.dev == nil and norm.dir == nil and matches_dev_pattern(dev_patterns, resolved_src) then
+			-- Global dev patterns (lazy.nvim `dev.patterns`): the spec did
+			-- not opt in or out, so a URL substring match makes it dev with
+			-- the same source as `dev = true` (`<dev_root>/<name>`).
+			dev_from_root = true
+			dev_src = vim.fn.expand(dev_root .. "/" .. name)
+		end
+		-- lazy.nvim `dev.fallback`: when the clone under the dev root is
+		-- missing, fall back to the remote source (vim.pack then installs
+		-- it normally). Only root-derived dev sources participate; explicit
+		-- `dev = "<path>"` / `dev_path` stay verbatim.
+		if dev_src and dev_from_root and dev_fallback and not is_directory(dev_src) then
+			dev_src = nil
 		end
 		local final_src = dev_src or resolved_src
 
