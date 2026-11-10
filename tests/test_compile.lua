@@ -204,8 +204,6 @@ for _, case in ipairs(derive_cases) do
 	end
 end
 
--- Table-driven tiny unit tests for the pure compile helpers.
-
 local function check(got, expected, label)
 	local ok, err = pcall(deep_compare, got, expected)
 	if ok then
@@ -710,7 +708,7 @@ do
 	local explicit_path = dev_compile({ { "user/mine.nvim", name = "mine", dev_path = "/abs/mine" } }, opts)
 	expect(explicit_path and explicit_path.pack[1].src == "/abs/mine", "dev_path overrides patterns")
 
-	-- `dir` is already local; patterns do not rewrite it.
+	-- `dir` is already local.
 	local dir_spec = dev_compile({ { dir = "/abs/dir", name = "dirpat" } }, opts)
 	expect(dir_spec and dir_spec.registry["dirpat"].src == "/abs/dir", "dir is not affected by patterns")
 
@@ -1258,9 +1256,7 @@ do
 	)
 end
 
--- Empty mode values are lazy.nvim-compatible: "" is passed through to
--- vim.keymap.set (multi-mode mapping), while {} resolves to no key handler
--- but keeps the plugin lazy (so it never loads).
+-- Empty mode values are lazy.nvim-compatible; {} keeps the plugin lazy, so it never loads.
 do
 	local c = compile({ { "folke/x.nvim", name = "x", keys = { { lhs = "a", mode = "" } } } })
 	local variants = c.routes.keys["a"]

@@ -9,7 +9,6 @@ package.path = string.format("./lua/?.lua;%s", package.path)
 
 local compile = require("laze.compile").compile
 
--- Stub vim for plain Lua
 if not vim then
 	vim = {}
 	vim.log = { levels = { WARN = "WARN" } }
