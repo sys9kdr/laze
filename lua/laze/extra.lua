@@ -1,5 +1,4 @@
---- Opt-in maintenance entry point. The core never requires this module. `laze.extra` is the public name;
---- `lua/laze/extras/` holds the implementation so consumers can load only part of it.
+--- Opt-in maintenance entry point; the core never requires this. Surface: docs/extras.md.
 
 local maintenance = require("laze.extras.maintenance")
 
@@ -10,7 +9,6 @@ local M = {
 	reload = maintenance.reload,
 }
 
---- Register the `:Laze` user command (update/clean/health/reload).
 function M.setup()
 	require("laze.extras.commands").setup(M)
 end

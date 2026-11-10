@@ -9,7 +9,7 @@
 ---@field [2]? string|fun()|false
 
 ---@class LazeNamedKeySpec: LazeKeySpecBase
----@field lhs string lhs
+---@field lhs string
 ---@field rhs? string|fun()|false
 
 ---@class LazeSpec

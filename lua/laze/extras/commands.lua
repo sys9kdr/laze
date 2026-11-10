@@ -1,5 +1,4 @@
---- `:Laze` command wiring. Requiring this registers nothing; call
---- `setup(api)` with the maintenance table (normally `laze.extra`).
+--- `:Laze` command wiring: requiring registers nothing, `setup(api)` registers. Surface: docs/extras.md.
 
 local M = {}
 
