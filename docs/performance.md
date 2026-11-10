@@ -41,6 +41,18 @@ and pitfalls: `.agents/skills/perf-tuning/SKILL.md`.
 
 ## Resolved
 
+### comment sweep: fewer bytes to parse, but not many fewer µs — resolved (2026-11, cc1d14f)
+
+The comment trim + re-wrap (b4a9761→cc1d14f) shrank the startup-parsed trio
+95,415 → 80,305 B, yet the `load()` oracle (median of 60, best-of-3, fresh
+tree vs baseline worktree) shows only ~11 µs: plan.lua 183.9–197.2 →
+172.9–185.6 µs (disjoint bands), while compile.lua 240.1–268.8 →
+244.2–257.5 µs and init.lua are flat. End-to-end nothing moved: breakdown
+`req.*` phases overlap within their run spreads. The trio extrapolated at
+code's 5.2–6.3 ns/B predicts -79–95 µs; the observed 0–11 µs says comment
+bytes lex far cheaper than code bytes (the lexer scans them to EOL without
+tokenizing). Comment removal is a readability change, not a perf lever.
+
 ### plan.lua: startup command proxy body parsed every startup — resolved (2026-11)
 
 The CmdUndefined startup bridge (the proxy installed when a command misfires
