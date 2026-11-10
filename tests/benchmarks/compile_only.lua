@@ -1,7 +1,6 @@
 -- Benchmark laze.nvim only
 -- Run: nvim --cmd "set rtp+=." --headless -l tests/benchmarks/compile_only.lua
 
--- Auto-detect the repo root (this script lives in tests/benchmarks/).
 local script = debug.getinfo(1, "S").source:sub(2)
 local LAZE_DIR = vim.env.LAZE_DIR or vim.fn.fnamemodify(script, ":h:h:h")
 local PLUGIN_DIR = vim.env.LAZE_PLUGINS or "/tmp/laze-plugins"

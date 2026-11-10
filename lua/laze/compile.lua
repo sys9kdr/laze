@@ -15,7 +15,7 @@ local function copy_array(v)
 	return result
 end
 
---- Whether `value` occurs in a small array (all call sites are per-spec lists, so the linear scan is fine).
+--- Linear scan is fine: every call site is a per-spec list.
 local function contains(list, value)
 	for i = 1, #list do
 		if list[i] == value then
@@ -161,7 +161,6 @@ local function normalize_keys(v)
 					rhs = rhs,
 					desc = item.desc,
 					silent = item.silent,
-					-- ft scopes the trigger to a buffer-local FileType map.
 					ft = item.ft,
 				})
 			end
@@ -393,7 +392,7 @@ local CONSUMED_KEYS = {
 }
 
 --- Accepted but without a vim.pack equivalent: consumed, never passed
---- through, warned once per field per compile (a notify costs ~180 us).
+--- through, warned once per field per compile.
 local UNSUPPORTED_FIELDS = {
 	submodules = "vim.pack always fetches submodules; `submodules = false` cannot be honored",
 	optional = "deps are always required; remove 'optional'",
@@ -893,8 +892,7 @@ local function compile(specs, opts)
 		-- Rare path: keep the require off startup.
 		require("laze.known_differences").notify(id, detail, kd_notified, opts, key)
 	end
-	-- Dependency-derived `after` names live here, not on the user's spec tables: compile must stay a pure transform (the
-	-- same table may be passed to lazy.nvim afterwards).
+	-- `after` names derived from deps live here, not on user specs: a spec table may be passed to lazy.nvim later.
 	local dep_after = {}
 
 	--- Expand one spec's dependencies recursively, deepest first, so `after` always points at a registered id. Top-level
@@ -1215,7 +1213,7 @@ local function compile(specs, opts)
 	}
 end
 
--- Exported for the standalone unit tests and extras.
+-- Exported for the standalone unit tests and benchmarks.
 return {
 	compile = compile,
 	derive_name = derive_name,

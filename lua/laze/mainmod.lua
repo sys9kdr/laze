@@ -4,11 +4,7 @@ local function norm_module_name(name)
 	return name:lower():gsub("^n?vim%-", ""):gsub("%.n?vim$", ""):gsub("[%.%-]lua", ""):gsub("[^a-z]+", "")
 end
 
---- Resolve a plugin's `main` module like lazy.nvim does when `opts` or
---- `config = true` is used without an explicit main:
----   * `mini.<name>` plugins use their own name (except `mini.nvim`),
----   * otherwise scan `<plugin>/lua`, prefer a normalized name match, and
----     fall back to the single module.
+--- Resolve a plugin's `main` module like lazy.nvim when `opts` or `config = true` has no explicit main.
 --- Runs at load time, when the plugin is installed.
 ---@param plugin_dir string?
 ---@param name string

@@ -1,5 +1,4 @@
---- Maintenance helpers for `:Laze` and direct callers. Never registers
---- commands; every function resolves the last setup lazily.
+--- Maintenance helpers for `:Laze` and direct callers. Every function resolves the last setup lazily.
 
 local M = {}
 
@@ -25,12 +24,10 @@ local function installed_names()
 	return names
 end
 
---- Update managed plugins (vim.pack.update).
 function M.update()
 	vim.pack.update()
 end
 
---- List managed plugins missing from the last setup (dry-run). With `bang`, delete them via vim.pack.del instead.
 ---@param bang? boolean
 ---@return string[]? stale names, or nil when no setup has run yet
 function M.clean(bang)
@@ -58,7 +55,6 @@ function M.clean(bang)
 	return stale
 end
 
---- Report setup/compile/install state per plugin.
 function M.health()
 	local laze = require("laze")
 	local specs = laze.get_specs()
@@ -83,7 +79,6 @@ function M.health()
 	vim.notify(table.concat(lines, "\n"))
 end
 
---- Re-run the last setup() (dev loop).
 function M.reload()
 	require("laze").reload_all()
 end

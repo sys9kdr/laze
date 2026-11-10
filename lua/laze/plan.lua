@@ -3,13 +3,11 @@
 -- Module-level so a rebuilt plan clears the previous plan's preload entries instead of stacking stale trigger closures.
 local installed_preloads = {}
 
--- { { mode, lhs, desc } }. Module-level for the same reason; deletion is
--- desc-guarded so a plugin map that took over the lhs survives a rebuild.
+-- { { mode, lhs, desc, buf? } }. Module-level for the same reason; desc-guarded deletion lets a plugin map
+-- that took over the lhs survive a rebuild.
 local installed_keys = {}
 
---- Map `pkg -> opt dir` for pack dirs already on 'runtimepath'. Mirrors the discovery glob below, so a hit means the
---- glob and the follow-up `:packadd` would both be no-ops. One pass per plan instead of an API roundtrip per activation
---- (eager setup() activates most plugins before the plan runs).
+--- See docs/rtp-index.md.
 ---@param data_dir string
 ---@return table<string, string>
 local function build_rtp_index(data_dir)
@@ -87,7 +85,6 @@ local function resolve_verdicts(registry, data_dir)
 	return enabled_ok, cond_ok
 end
 
---- `module` (string | array | false | nil) as an array, or nil when there are no module triggers.
 ---@param entry LazeEntry
 ---@return string[]?
 local function modules_array(entry)
@@ -141,8 +138,7 @@ local function build_plan(compiled, opts)
 		})
 	end
 
-	-- setup() resolves these before vim.pack.add so a disabled plugin is never
-	-- installed; direct build_plan callers get the same evaluation here.
+	-- Unresolved here for direct build_plan callers; setup() pre-resolves (see resolve_verdicts).
 	local enabled_ok, cond_ok = opts.enabled_ok, opts.cond_ok
 	if not (enabled_ok and cond_ok) then
 		local e, c = resolve_verdicts(registry, data_dir)
@@ -234,7 +230,6 @@ local function build_plan(compiled, opts)
 	-- `partial` runs the hooks but keeps the plugin pending_startup, for a startup require() that needs a configured
 	-- plugin now. Hooks run once; the VimEnter finalizer then only marks it loaded.
 	local function run_hooks(id, entry, start, plugin_dir, hook_opts)
-		-- Both failure sites share this: mark failed, warn unless `silent`.
 		local function mark_failed(err)
 			loaded[id] = "failed"
 			if not entry.silent then
@@ -261,9 +256,6 @@ local function build_plan(compiled, opts)
 			return
 		end
 		if pending and hook_opts and hook_opts.partial then
-			-- A startup require() needs a configured plugin before it returns:
-			-- run its hooks now, but the plugin stays pending_startup so the
-			-- VimEnter finalizer still owns the plugin/ sourcing bookkeeping.
 			local plugin_modules = modules_array(entry)
 			local ok, err = pcall(function()
 				if plugin_modules then
@@ -434,7 +426,6 @@ local function build_plan(compiled, opts)
 			return
 		end
 
-		-- No `after` deps: skip the graph walk entirely.
 		local root_entry = registry[id]
 		if not (root_entry and root_entry.after and root_entry.after[1]) then
 			load_plugin(id)
@@ -483,8 +474,6 @@ local function build_plan(compiled, opts)
 	-- entry consumes itself on first require. It must remove the entry before
 	-- load_with_deps, because load_plugin re-requires the declared modules
 	-- through original_require and would otherwise hit the entry again.
-	-- Clear a previous plan's entries: stale closures would target a dead
-	-- registry.
 	for name in pairs(installed_preloads) do
 		package.preload[name] = nil
 		installed_preloads[name] = nil
@@ -653,8 +642,7 @@ local function build_plan(compiled, opts)
 
 		if next(routes.fts) then
 			local group = fts_group
-			-- One FileType autocmd for all triggers (per-ft autocmds cost ~15 us each at startup). O(1) lookup per event; the
-			-- loaded[] guard subsumes the old per-ft `once` self-delete.
+			-- One FileType autocmd for all triggers (per-ft autocmds cost ~15 us each at startup).
 			vim.api.nvim_create_autocmd("FileType", {
 				group = group,
 				pattern = "*",
@@ -739,7 +727,6 @@ local function build_plan(compiled, opts)
 					end
 				end
 				if #ids > 0 and rhs ~= false then
-					-- `buf` is nil for a global trigger; an ft variant installs a buffer-local map on matching FileType instead.
 					local function install(buf)
 						local function map_opts(desc)
 							local map_options = { desc = desc }
@@ -800,7 +787,7 @@ local function build_plan(compiled, opts)
 			end
 		end
 
-		-- Eager plugins load in spec order, except that an explicit `priority` sorts first (higher first, default 50).
+		-- Eager plugins load by `priority` (higher first, default 50), ties by id; spec order is not preserved.
 		local eager = {}
 		for _, entry in pairs(registry) do
 			if enabled_ok[entry.id] and entry.eager then
