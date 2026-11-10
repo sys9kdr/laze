@@ -1,0 +1,75 @@
+--- Fixed e2e matrix: real plugin READMEs, pinned by commit SHA.
+--- Shapes covered: eager/opts-only, dependencies, build, version, branch,
+--- priority, event/VeryLazy, keys, cmd, and plain config tables.
+return {
+	{
+		name = "oil",
+		repo = "stevearc/oil.nvim",
+		sha = "d3733d933833a0e59b813ecec99341527adf0c28",
+		trigger = { kind = "none" },
+		smoke = { kind = "module", value = "oil" },
+	},
+	{
+		name = "telescope",
+		repo = "nvim-telescope/telescope.nvim",
+		sha = "1e1bab730218eaf97fce743be3f56e51075928ac",
+		trigger = { kind = "none" },
+		smoke = { kind = "module", value = "telescope" },
+	},
+	{
+		name = "which-key",
+		repo = "folke/which-key.nvim",
+		sha = "3aab2147e74890957785941f0c1ad87d0a44c15a",
+		trigger = { kind = "event", value = "VeryLazy" },
+		smoke = { kind = "module", value = "which-key" },
+	},
+	{
+		name = "treesitter",
+		repo = "nvim-treesitter/nvim-treesitter",
+		sha = "19bdfc04f40ed2ccb3340591d125f759b0406875",
+		trigger = { kind = "none" },
+		smoke = { kind = "cmd", value = "TSUpdate" },
+	},
+	{
+		name = "catppuccin",
+		repo = "catppuccin/nvim",
+		sha = "edefef779ab08ce1a4a404713e3012b0d202bd35",
+		trigger = { kind = "none" },
+		smoke = { kind = "module", value = "catppuccin" },
+	},
+	{
+		name = "comment",
+		repo = "numToStr/Comment.nvim",
+		sha = "e30b7f2008e52442154b66f7c519bfd2f1e32acb",
+		trigger = { kind = "none" },
+		smoke = { kind = "module", value = "Comment" },
+	},
+	{
+		name = "lazygit",
+		repo = "kdheepak/lazygit.nvim",
+		sha = "9ffc6103926718f7070fb4017694543cd7dc9718",
+		trigger = { kind = "cmd", value = "LazyGit" },
+		smoke = { kind = "cmd", value = "LazyGit" },
+	},
+	{
+		name = "lualine",
+		repo = "nvim-lualine/lualine.nvim",
+		sha = "221ce6b2d999187044529f49da6554a92f740a96",
+		trigger = { kind = "none" },
+		smoke = { kind = "module", value = "lualine" },
+	},
+	{
+		name = "flash",
+		repo = "folke/flash.nvim",
+		sha = "5f0f270fdc7c5b0c21d903ee85b9cb06f2ac636a",
+		trigger = { kind = "event", value = "VeryLazy" },
+		smoke = { kind = "module", value = "flash" },
+	},
+	{
+		name = "neo-tree",
+		repo = "nvim-neo-tree/neo-tree.nvim",
+		sha = "bb9779f532ef9ec62486a840fb5db44591aeff0f",
+		trigger = { kind = "none" },
+		smoke = { kind = "cmd", value = "Neotree" },
+	},
+}

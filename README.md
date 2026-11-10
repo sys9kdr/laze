@@ -119,6 +119,25 @@ ship prebuilt binaries, no Rust toolchain is required. `tests/vendor/` and
 `tests/snapshots/` are excluded from linting (selene configs) and from
 formatting (`.styluaignore`).
 
+### README e2e (manual, network only)
+
+`tests/e2e/` fetches a fixed set of real plugin READMEs at pinned commits,
+takes each lazy.nvim snippet verbatim, installs it in an isolated headless
+Neovim, fires one trigger, and runs one smoke assertion. It needs network and
+is not part of CI:
+
+```sh
+nvim --cmd "set rtp+=." -l tests/run.lua e2e_readme            # all plugins
+nvim --cmd "set rtp+=." -l tests/run.lua e2e_readme oil flash  # by name
+nvim --cmd "set rtp+=." -l tests/run.lua e2e_readme --failed   # last report's failures
+nvim --cmd "set rtp+=." -l tests/run.lua e2e_readme --clean    # drop cached installs
+```
+
+Each row reports `ok` / `warned` (unsupported field) / `failed` with a reason
+category (`unsupported_field`, `validation_error`, `install_error`,
+`runtime_error`, `environment`, `extraction_error`). This is a diagnosis, not
+a pass rate. Reports land in `tests/e2e/report/` (gitignored).
+
 ## Further reading
 
 * [Who laze is for (and who it is not for)](docs/scope.md)
