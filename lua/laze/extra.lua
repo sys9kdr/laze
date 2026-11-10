@@ -1,13 +1,6 @@
---- Opt-in maintenance entry point (lazy.nvim-style, without the UI).
----
---- The core never requires this module. The implementation lives in
---- lua/laze/extras/ so consumers can load only what they need:
----
----   require("laze.extra").setup()          -- register :Laze
----   require("laze.extras.commands")        -- command wiring only
----   require("laze.extras.maintenance")     -- update/clean/health/reload
----
---- `laze.extra` is the public name; `extras/` is the implementation detail.
+--- Opt-in maintenance entry point. The core never requires this module.
+--- `laze.extra` is the public name; `lua/laze/extras/` holds the
+--- implementation so consumers can load only part of it.
 
 local maintenance = require("laze.extras.maintenance")
 

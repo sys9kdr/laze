@@ -7,14 +7,12 @@ local laze = require("laze")
 local plugin_dir = "/tmp/laze-plugins"
 
 local specs = {
-	-- Start plugin — plenary
 	{
 		dir = plugin_dir .. "/plenary.nvim",
 		config = function()
 			print("E2E: plenary loaded")
 		end,
 	},
-	-- Lazy-load on filetype
 	{
 		dir = plugin_dir .. "/nvim-web-devicons",
 		ft = "markdown",
@@ -22,7 +20,6 @@ local specs = {
 			print("E2E: devicons loaded (ft=markdown)")
 		end,
 	},
-	-- Lazy-load on VeryLazy + keymap
 	{
 		dir = plugin_dir .. "/which-key.nvim",
 		event = "VeryLazy",
@@ -32,7 +29,6 @@ local specs = {
 			require("which-key").setup({})
 		end,
 	},
-	-- Lazy-load on command
 	{
 		dir = plugin_dir .. "/oil.nvim",
 		cmd = "Oil",
@@ -42,7 +38,6 @@ local specs = {
 			require("oil").setup({})
 		end,
 	},
-	-- Module-triggered load (nui has nui.popup, nui.layout, etc.)
 	{
 		dir = plugin_dir .. "/nui.nvim",
 		module = "nui.popup",
@@ -64,17 +59,16 @@ plan()
 
 print("E2E: setup complete")
 
--- Trigger lazy loads
-vim.cmd("edit /tmp/test.md") -- trigger ft=markdown
 -- Script mode (-l) skips filetype detection for new buffers: set it
 -- explicitly so the ft=markdown trigger fires.
+vim.cmd("edit /tmp/test.md")
 vim.bo.filetype = "markdown"
 vim.wait(100)
-vim.cmd("Oil") -- trigger cmd=Oil
+vim.cmd("Oil")
 vim.wait(100)
-vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<leader>wk", true, false, true), "n", false) -- trigger keys
+vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<leader>wk", true, false, true), "n", false)
 vim.wait(100)
-require("nui.popup") -- trigger module
+require("nui.popup")
 vim.wait(100)
 
 print("E2E: profile:", vim.inspect(timings))

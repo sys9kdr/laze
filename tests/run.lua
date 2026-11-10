@@ -298,7 +298,7 @@ local function test_plan_callable(compiled, name)
 	return plan
 end
 
--- build_plan produces callable function for each fixture
+-- build_plan produces a callable plan for each fixture.
 for _, name in ipairs(compile_fixtures) do
 	if is_filtered(name) then
 		local compiled = compile_fixture(name)
@@ -312,7 +312,6 @@ for _, name in ipairs(compile_fixtures) do
 	end
 end
 
--- plan() executes without error
 if is_filtered("basic") then
 	do
 		local compiled = compile_fixture("basic")
@@ -701,7 +700,6 @@ do
 	end
 end
 
--- keys route: keymap is registered
 do
 	local compiled = laze.compile({
 		{ "test/key-plugin", keys = "<leader>zz" },
@@ -728,7 +726,6 @@ do
 	end
 end
 
--- keys route: explicit mode
 do
 	local compiled = laze.compile({
 		{ "test/key-i", keys = { { lhs = "<leader>ii", mode = "i" } } },
@@ -758,7 +755,6 @@ do
 	end
 end
 
--- keys route: multiple modes
 do
 	local compiled = laze.compile({
 		{ "test/key-multi", keys = { { lhs = "<leader>mm", mode = { "n", "v" } } } },
@@ -1316,7 +1312,6 @@ do
 	pcall(vim.api.nvim_buf_delete, buf, { force = true })
 end
 
--- event route: autocmd is registered
 do
 	local compiled = laze.compile({
 		{ "test/event-plugin", event = "BufRead" },

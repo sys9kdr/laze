@@ -90,10 +90,8 @@ local plan = require("laze.plan")
 
 local M = {}
 
--- The last setup's specs/opts, kept so reload_all() can rebuild the plan.
--- Documented module-level state — the one exception to the closure-local
--- rule below ("No global state" in AGENTS.md). The plan itself stays
--- closure-local; this only remembers what to re-run.
+-- Documented module-level state: the one exception to the closure-local rule.
+-- Only remembers what reload_all() must re-run; the plan stays closure-local.
 local last_setup = nil
 
 ---@param specs LazeSpec[]
@@ -117,9 +115,8 @@ function M.setup(specs, opts)
 	opts = opts or {}
 	local compiled = _compile.compile(specs, opts)
 
-	--- Run one lazy.nvim build item. A string starting with ":" is an Ex
-	--- command, any other string is a shell command in the plugin directory,
-	--- and a function receives a lazy.nvim-shaped plugin object.
+	--- One lazy.nvim build item: ":..." is an Ex command, other strings are
+	--- shell commands run in the plugin dir, functions get a plugin object.
 	---@param item string|fun(plugin: table)
 	---@param plugin table
 	---@param cwd string
@@ -164,18 +161,16 @@ function M.setup(specs, opts)
 		return run_build_item(build, plugin, cwd)
 	end
 
-	-- vim.pack has no build concept: subscribe to PackChanged and execute
-	-- the spec's `build` after install/update (lazy.nvim-compatible).
-	-- The augroup MUST be registered before vim.pack.add below: PackChanged
-	-- fires synchronously inside add() for a fresh install, so a late
-	-- subscription would silently skip every first build.
+	-- vim.pack has no build concept: run the spec's `build` on PackChanged.
+	-- This augroup MUST be registered before vim.pack.add: PackChanged fires
+	-- synchronously inside add() for a fresh install, so a late subscription
+	-- would skip every first build.
 	local builds = {}
 	for _, entry in pairs(compiled.registry) do
 		if entry.build and entry.pkg then
-			-- Key by the PACK name (entry.pkg): PackChanged delivers
-			-- data.spec.name, which is the pack entry name — identical to
-			-- the registry id only for undotted repos (which-key.nvim has
-			-- id "which-key" but pack name "which-key.nvim").
+			-- PackChanged delivers data.spec.name (the pack name), which differs
+			-- from the registry id for dotted repos ("which-key" vs
+			-- "which-key.nvim").
 			builds[entry.pkg] = entry.build
 		end
 	end
@@ -191,10 +186,10 @@ function M.setup(specs, opts)
 				if not build then
 					return
 				end
-				-- Fresh installs are not on the runtimepath (no-op load
-				-- fun); activate before running the build so plugins like
-				-- treesitter's :TSInstallSelf work. Use :packadd! during
-				-- startup to avoid double-sourcing with the plugin phases.
+				-- A fresh install is not on the runtimepath yet, so activate it
+				-- before the build (:TSInstallSelf and similar need it).
+				-- `packadd!` during startup avoids double-sourcing by the
+				-- startup plugin phases.
 				if data.kind == "install" and not data.active then
 					if vim.v.vim_did_enter == 0 then
 						pcall(vim.cmd, "packadd! " .. vim.fn.fnameescape(data.spec.name))
@@ -214,25 +209,20 @@ function M.setup(specs, opts)
 		})
 	end
 
-	-- Split activation responsibility: eager plugins (compile's `eager`
-	-- flag: no trigger and not a dependency, unless `lazy` overrides) get the
-	-- runtimepath entry at setup (:packadd! via `load = false`) so the
-	-- startup plugin/ and after/plugin phases source their files — their
-	-- init/config still run via the plan. Lazy plugins get a no-op `load`
-	-- fun: never on the runtimepath until the plan activates them on demand.
-	-- A plain add() would :packadd everything, defeating lazy loading.
-	-- Pack specs carry the directory name (`pkg`), which can differ from
-	-- the registry id for dotted repos — map back via pkg.
+	-- Eager plugins get the runtimepath entry at setup (`load = false`, i.e.
+	-- `:packadd!`) so the startup plugin phases source their files; their
+	-- init/config still run via the plan. Lazy plugins get a no-op `load` so
+	-- they stay off the runtimepath until a trigger fires — a plain add()
+	-- would `:packadd` everything and defeat lazy loading. Pack specs carry
+	-- the directory name (`pkg`), which can differ from the registry id.
 	local pkg_to_id = {}
 	for id, entry in pairs(compiled.registry) do
 		if entry.pkg then
 			pkg_to_id[entry.pkg] = id
 		end
 	end
-	-- Resolve `enabled`/`cond` before touching vim.pack: lazy.nvim disables
-	-- such a plugin while processing the spec, so a false verdict (literal
-	-- or function) also means it is never installed. The plan reuses these
-	-- verdicts instead of re-evaluating the hooks.
+	-- Resolve verdicts before touching vim.pack: a disabled plugin is never
+	-- installed. The plan reuses these instead of re-evaluating the hooks.
 	local data_dir = vim.fn.stdpath("data")
 	local enabled_ok, cond_ok = plan.resolve_verdicts(compiled.registry, data_dir)
 	local eager_pack = {}
@@ -261,19 +251,16 @@ function M.setup(specs, opts)
 	return compiled
 end
 
---- Specs from the last setup() call (for opt-in extras like LazeClean).
---- Read-only view: do not mutate the returned table.
+--- Specs from the last setup() call (for opt-in extras). Do not mutate.
 ---@return LazeSpec[]?
 function M.get_specs()
 	return last_setup and last_setup.specs
 end
 
---- Re-run the last setup() call: re-compile, re-add to vim.pack
---- (idempotent for existing installs), rebuild all triggers and run a
---- fresh plan. Eager plugins re-load with a fresh `loaded` state, so
---- their init/config callbacks and plugin files run again — treat it as
---- a restart of the plugin stack. Intended for dev loops: edit files in
---- a dev clone, call reload_all() (or bind it to a command).
+--- Re-run the last setup(): recompile, re-add to vim.pack (idempotent for
+--- existing installs), rebuild all triggers, run a fresh plan. Eager plugins
+--- re-load with fresh state, so their init/config and plugin files run again:
+--- treat it as a restart of the plugin stack. For dev loops.
 ---@param new_specs? LazeSpec[] Optional override; defaults to the last setup() specs
 ---@return LazeCompiled
 function M.reload_all(new_specs)

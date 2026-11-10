@@ -4,7 +4,6 @@ local laze = require("laze")
 local plugin_dir = vim.env.LAZE_PLUGINS or "/tmp/laze-plugins"
 
 local specs = {
-	-- 1. Eager (no triggers) — loads at startup
 	{
 		dir = plugin_dir .. "/plenary.nvim",
 		config = function()
@@ -12,8 +11,7 @@ local specs = {
 		end,
 	},
 
-	-- 2. Multi-trigger on one plugin (laze allows one spec per id): both
-	-- ft and module stay lazy — each fires the same load.
+	-- One spec per id: ft and module both stay lazy and each fires the same load.
 	{
 		dir = plugin_dir .. "/nui.nvim",
 		ft = "markdown",
@@ -23,7 +21,6 @@ local specs = {
 		end,
 	},
 
-	-- 3. VeryLazy + keys triggers
 	{
 		dir = plugin_dir .. "/which-key.nvim",
 		event = "VeryLazy",
@@ -34,7 +31,6 @@ local specs = {
 		end,
 	},
 
-	-- 4. cmd + keys triggers
 	{
 		dir = plugin_dir .. "/oil.nvim",
 		cmd = "Oil",
@@ -45,8 +41,7 @@ local specs = {
 		end,
 	},
 
-	-- 5. Eager + cond: skipped when the condition is false (default true;
-	-- set g:laze_test_cond=false and restart to observe the skip).
+	-- Set g:laze_test_cond=false and restart to observe the skip.
 	{
 		dir = plugin_dir .. "/nvim-web-devicons",
 		cond = function()

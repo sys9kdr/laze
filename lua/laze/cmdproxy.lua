@@ -1,27 +1,13 @@
---- Startup command proxy: bridge a command fired before its plugin has
---- defined it. Required on first CmdUndefined hit during startup, never at
---- plan build (the body is cold code, see docs/performance.md).
+--- Startup command bridge: a command typed before its plugin defined it.
+--- Required on first CmdUndefined hit during startup, never at plan build
+--- (cold code; see docs/performance.md).
 ---
---- A CmdUndefined handler normally loads a plugin and lets Neovim retry the
---- command immediately. That is sufficient after VimEnter: `:packadd` sources
---- plugin/ synchronously, and the plugin's `:command!` definition exists
---- before Neovim retries the original command.
----
---- Startup is deliberately different. load_plugin uses `:packadd!` while
---- vim_did_enter == 0. `:packadd!` adds the plugin directory to rtp but does
---- not source plugin/; Neovim's later startup plugin/ and after/plugin/
---- phases do that exactly once. Using full `:packadd` here would make a
---- command available immediately, but would also source plugin/ twice when
---- those startup phases arrive. The activation invariant therefore wins.
----
---- The otherwise unavoidable gap is: CmdUndefined fires, laze activates the
---- package with `:packadd!`, Neovim retries the command, but the plugin has
---- not yet defined it. Install a short-lived user-command proxy before that
---- retry. It records the fully retried invocation; VimEnter runs after the
---- startup plugin phase, by which time a normal plugin `:command!` has
---- replaced the proxy. We then replay the original range/bang/modifiers/
---- arguments against the plugin command. This is only a startup bridge:
---- post-startup command routes remain stateless CmdUndefined handlers.
+--- During startup load_plugin uses `:packadd!`, which adds rtp but does not
+--- source plugin/ (Neovim's own startup phases do, exactly once); a full
+--- `:packadd` would source plugin/ twice. So the retried command may still be
+--- undefined. This proxy records the invocation and replays it at VimEnter,
+--- after the startup plugin phase, by which point the plugin's `:command!`
+--- has usually replaced the proxy. Post-startup routes stay stateless.
 local M = {}
 
 local PROXY_DESC = "laze: defer command until VimEnter"
@@ -55,11 +41,10 @@ function M.defer(calls, cmd)
 		callback = function()
 			local queued = calls[cmd]
 			calls[cmd] = nil
-			-- A plugin's `:command!` normally replaces this proxy during the
-			-- startup plugin phase. If it did not (missing package, or a
-			-- plugin which does not define the advertised command), remove our
-			-- proxy before replaying. Otherwise the replay would re-queue
-			-- itself forever and mask the real "not an editor command" error.
+			-- A plugin's `:command!` normally replaced this proxy already. If
+			-- not (missing package, or a command the plugin never defines),
+			-- remove it before replaying or the replay re-queues itself
+			-- forever and masks the real "not an editor command" error.
 			local current = vim.api.nvim_get_commands({ builtin = false })[cmd]
 			if current and current.desc == PROXY_DESC then
 				pcall(vim.api.nvim_del_user_command, cmd)

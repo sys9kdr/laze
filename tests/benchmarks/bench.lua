@@ -1,4 +1,4 @@
---- Benchmark: measure only plan registration (no plugin loading)
+--- Benchmark: plan registration only (no plugin loading)
 --- Run: nvim --cmd "set rtp+=." -l tests/benchmarks/bench.lua
 local laze = require("laze")
 local uv = vim.uv or vim.loop
@@ -7,12 +7,10 @@ local function elapsed_us(start)
 	return (uv.hrtime() - start) / 1000
 end
 
--- Warmup JIT
 laze.compile({ { "u/warmup", event = "VeryLazy" } })
 
 print("=== laze benchmark (registration only) ===\n")
 
--- Generate real-world like specs (no fake plugins)
 local N = 100
 local specs = {}
 for i = 1, N do
@@ -38,24 +36,20 @@ for i = 1, N do
 	table.insert(specs, s)
 end
 
--- compile
 local t0 = uv.hrtime()
 local compiled = laze.compile(specs)
 print(("compile %d specs: %.0f μs"):format(N, elapsed_us(t0)))
 
--- Disable BEFORE build_plan: the plan resolves `enabled` once at build
--- time, so disabling afterwards has no effect on the built plan and
--- plan() would still attempt eager activation below.
+-- Before build_plan: the plan resolves `enabled` at build time, so a later
+-- disable would leave plan() eagerly activating these.
 for _, entry in pairs(compiled.registry) do
 	entry.enabled = false
 end
 
--- build_plan
 local t1 = uv.hrtime()
 local plan = laze.build_plan(compiled)
 print(("build_plan:     %.0f μs"):format(elapsed_us(t1)))
 
--- plan() — only trigger registration, not plugin loading
 local t2 = uv.hrtime()
 plan()
 print(("plan() (no load): %.0f μs"):format(elapsed_us(t2)))
@@ -106,16 +100,13 @@ end
 
 print("\n=== name derivation ===\n")
 
--- pkg_name/derive_name are pure string work per spec; this tracks their
--- constant factor (the parity with vim.pack's on-disk names is asserted by
--- the integration suite, not here).
+-- Name parity with vim.pack is asserted by the integration suite, not here.
 local compile_mod = require("laze.compile")
 local srcs = {}
 for i = 1, 10000 do
 	srcs[i] = ("https://github.com/user/plugin-%d.git"):format(i)
 end
 
--- Warmup JIT
 for i = 1, 100 do
 	compile_mod.pkg_name(srcs[i])
 	compile_mod.derive_name(srcs[i])

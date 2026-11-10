@@ -1,4 +1,4 @@
---- `:Laze` command wiring. Requiring this module registers nothing; call
+--- `:Laze` command wiring. Requiring this registers nothing; call
 --- `setup(api)` with the maintenance table (normally `laze.extra`).
 
 local M = {}
@@ -6,7 +6,6 @@ local M = {}
 local SUBCOMMANDS = { "update", "clean", "health", "reload" }
 
 local function complete_subcommand(arglead, cmdline, _)
-	-- Complete only the first argument (the subcommand name).
 	local args = vim.split(cmdline, "%s+")
 	if #args > 2 then
 		return {}

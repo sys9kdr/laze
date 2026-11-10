@@ -1,7 +1,5 @@
---- Maintenance helpers shared by the `:Laze` command and direct callers.
----
---- This module never registers commands and never reads the user's spec list
---- at load time; every function resolves the last setup lazily.
+--- Maintenance helpers for `:Laze` and direct callers. Never registers
+--- commands; every function resolves the last setup lazily.
 
 local M = {}
 

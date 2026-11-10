@@ -1,9 +1,8 @@
 -- lazy.nvim's `version` is a semver range, not a git ref. vim.version.range
--- is lenient enough to misparse refs ("abc123" → 123.0.0), drop everything
--- after the first comparator ("1.2 || 1.3", ">=1.2.0 <2.0.0"), and ignore
--- trailing junk. Validate the whole string before handing it to vim.pack so
--- an unrepresentable range fails at compile time instead of silently
--- narrowing. Refs belong in branch/tag/commit.
+-- is lenient enough to misparse refs ("abc123" -> 123.0.0), keep only the
+-- first comparator of a compound range, and ignore trailing junk, so the
+-- whole string is validated here: an unrepresentable range fails at compile
+-- time instead of silently narrowing. Refs belong in branch/tag/commit.
 local function is_digit(b)
 	return b ~= nil and b >= 48 and b <= 57
 end
@@ -16,9 +15,8 @@ local function is_ident_byte(b)
 	return b ~= nil and ((b >= 48 and b <= 57) or (b >= 65 and b <= 90) or (b >= 97 and b <= 122) or b == 45)
 end
 
--- Scan one version token after an optional comparator. Accepts the shapes
--- lazy.nvim/vim.version.range support: partial versions, x/X/* wildcards,
--- prerelease, and build metadata. Returns false on any trailing bytes.
+-- Scan one version token after an optional comparator: partial versions,
+-- x/X/* wildcards, prerelease, build metadata. false on trailing bytes.
 local function is_version_token(s, i)
 	local n = #s
 	local b = s:byte(i)
@@ -60,8 +58,8 @@ local function is_version_token(s, i)
 		return false
 	end
 
-	-- Prerelease/build after a wildcard would be stripped by vim.version.range
-	-- along with the wildcard, so reject it rather than guess.
+	-- vim.version.range would strip a prerelease/build along with the
+	-- wildcard, so reject instead of guessing.
 	if wildcard and (s:byte(i) == 45 or s:byte(i) == 43) then
 		return false
 	end
@@ -133,9 +131,8 @@ local function looks_like_semver_range(v)
 		return true
 	end
 
-	-- The only whitespace accepted is a single hyphen-range separator. This
-	-- rejects compound ranges (" >=1.2.0 <2.0.0") instead of letting
-	-- vim.version.range keep only the first comparator.
+	-- Only a single " - " hyphen-range separator may contain whitespace;
+	-- this rejects compound ranges that vim.version.range would truncate.
 	local hyphen = v:find(" - ", 1, true)
 	if hyphen then
 		if v:find(" - ", hyphen + 3, true) then
@@ -155,11 +152,9 @@ local function looks_like_semver_range(v)
 end
 
 --- lazy.nvim's SemverRange:matches requires the candidate's prerelease to
---- equal the lower bound's prerelease (`version.prerelease ~=
---- self.from.prerelease` -> false). `vim.version.range` does not apply that
---- filter, so a `>1.2.3` range would otherwise include `1.2.4-alpha`.
---- Extract the lower bound's prerelease from the input spec (comparator and
---- hyphen form) and wrap only `has`: the range check itself stays Neovim's.
+--- equal the lower bound's; vim.version.range does not, so `>1.2.3` would
+--- otherwise include `1.2.4-alpha`. Wrap only `has`; the range check stays
+--- Neovim's.
 ---@param spec string
 ---@param range vim.VersionRange
 ---@return vim.VersionRange

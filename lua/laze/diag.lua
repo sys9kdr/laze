@@ -1,10 +1,6 @@
---- Error and notify message formatting, kept out of the hot modules.
---- compile/plan/init parse on every startup, but these messages fire at
---- most once per problem, so their string constants and format calls must
---- not weigh down those modules: call sites use an inline
---- `require("laze.diag")`, which parses this file only when a message
---- actually fires. The messages are themselves the contract — tests
---- substring-match them — so keep the bytes.
+--- Error and notify formatting, kept out of the hot modules: call sites use
+--- an inline require, so this parses only when a message fires. The message
+--- bytes are the contract (tests substring-match them).
 local M = {}
 
 --- Warn with the standard "laze: " prefix.
