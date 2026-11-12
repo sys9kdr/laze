@@ -6,7 +6,7 @@ local VERSION_REF_FIELDS = { "branch", "tag", "commit" }
 local FUNCTION_OR_BOOLEAN_FIELDS = { "cond", "enabled" }
 local BOOLEAN_FIELDS = { "lazy", "submodules" }
 
---- Shallow copy of the ipairs part: compile must neither mutate nor share input tables.
+--- Copy so compile neither mutates nor shares input tables.
 local function copy_array(v)
 	local result = {}
 	for _, item in ipairs(v) do
@@ -15,7 +15,6 @@ local function copy_array(v)
 	return result
 end
 
---- Linear scan is fine: every call site is a per-spec list.
 local function contains(list, value)
 	for i = 1, #list do
 		if list[i] == value then
@@ -223,10 +222,8 @@ local function resolve_version(spec, idx, range)
 	end
 	local v = spec.version
 	if v ~= nil and v ~= false then
-		-- Reuse the range validated during compile instead of parsing twice.
 		return range or require("laze.internal.semver").to_semver_range(v, idx)
 	end
-	-- false/omitted version: branch still applies, else vim.pack's default.
 	return spec.branch
 end
 
@@ -504,7 +501,6 @@ local function validate_triggers(spec, idx, spec_id)
 			end
 		end
 
-		-- Single `{ event = ..., pattern = ... }` table or the array form.
 		if spec.event.event ~= nil then
 			check_event_spec(spec.event, "event")
 		else
@@ -552,7 +548,6 @@ local function validate_triggers(spec, idx, spec_id)
 					bad("keys[" .. i .. "].rhs", "must be a string, function, false, or vim.NIL")
 				end
 				if item.ft ~= nil then
-					-- FileType autocmd pattern for the buffer-local map.
 					if type(item.ft) == "string" then
 						if item.ft == "" then
 							bad("keys[" .. i .. "].ft", "must not be empty")
@@ -667,8 +662,6 @@ local function validate_spec(spec, idx, warned, notify)
 			err("config must be a function or true")
 		end
 	end
-	-- `opts` desugars to require(main).setup(opts) at load; main is resolved
-	-- then because the plugin is not installed at compile time.
 	if spec.opts ~= nil and type(spec.opts) ~= "table" and type(spec.opts) ~= "function" then
 		err("opts must be a table or function")
 	end
@@ -795,13 +788,12 @@ local function flatten_spec(spec, out, label)
 		end
 		return
 	end
-	-- More entries than a dense 1..n layout but not a list: sparse.
+	-- Not a dense 1..n layout (e.g. { [1] = "foo", [3] = "bar" }): ipairs
+	-- would silently drop the trailing entry.
 	if #spec > 1 then
 		error("compile: " .. label .. " must not be sparse", 0)
 	end
 
-	-- Sparse numeric lists (e.g. { [1] = "foo", [3] = "bar" }) would silently
-	-- drop trailing entries under ipairs; reject them.
 	local numeric, string = false, false
 	for k in pairs(spec) do
 		if type(k) == "number" then
@@ -863,9 +855,9 @@ local function compile(specs, opts)
 		end
 	end
 
-	-- Index top-level names and resolved sources first, so dependency expansion can reference user-defined specs instead
-	-- of re-registering them. This is what keeps `{ "foo/baz", name = "bar" }` from being duplicated as `baz` when
-	-- another spec depends on `"foo/baz"`.
+	-- Index top-level names and resolved sources first so dependency expansion
+	-- references them instead of re-registering: `{ "foo/baz", name = "bar" }`
+	-- must not reappear as `baz` when another spec depends on `"foo/baz"`.
 	local spec_names = {}
 	local spec_srcs = {}
 	for _, spec in ipairs(specs) do
@@ -889,7 +881,6 @@ local function compile(specs, opts)
 	-- closure is shared by dependency expansion and spec validation.
 	local kd_notified = {}
 	local function notify_kd(id, detail, key)
-		-- Rare path: keep the require off startup.
 		require("laze.internal.known_differences").notify(id, detail, kd_notified, opts, key)
 	end
 	-- `after` names derived from deps live here, not on user specs: a spec table may be passed to lazy.nvim later.
@@ -932,7 +923,6 @@ local function compile(specs, opts)
 			local existing_top = (spec_names[dep_name] and dep_name) or (dep_src and spec_srcs[dep_src])
 			local existing_expanded = (dep_src and expanded_srcs[dep_src]) or (expanded_names[dep_name] and dep_name)
 			local target = existing_top or existing_expanded or dep_name
-			-- Same dep listed twice (including aliases for one plugin) wires once.
 			if not contains(dep_names, target) then
 				table.insert(dep_names, target)
 				if not existing_top and not existing_expanded then
@@ -976,7 +966,7 @@ local function compile(specs, opts)
 		local url = spec.url
 		local base_src = src or dir or url
 		local name = spec.name or derive_name(base_src)
-		-- Directory name under pack/<pkg>/opt/: vim.pack's derivation unless the user pinned `name`.
+		-- Directory name under pack/<pkg>/opt/, as vim.pack derives it.
 		local pkg = pkg_name(base_src or name, spec.name)
 
 		if registry[name] then
@@ -1119,8 +1109,8 @@ local function compile(specs, opts)
 			dev = norm.dev,
 			dev_path = norm.dev_path,
 			lazy = spec.lazy,
-			has_route = false, -- set below
-			-- Not `is_local and nil or pkg`: nil cannot flow through and/or. Local dir plugins have no pack entry.
+			has_route = false,
+			-- Local dir plugins have no pack entry (`is_local and nil or pkg` returns pkg).
 			pkg = (not is_local) and pkg or nil,
 		}
 
