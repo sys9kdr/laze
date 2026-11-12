@@ -93,7 +93,6 @@ local function build_plan(compiled, opts)
 	local on_fail = opts.on_fail
 	local registry = compiled.registry
 	local routes = compiled.routes
-	-- Resolved once: it cannot change during a plan.
 	local data_dir = vim.fn.stdpath("data")
 	-- Lazy pkg -> opt dir cache. Invalidated by this plan's only 'runtimepath' mutations (the dir prepend and the
 	-- `:packadd!` fallback). A miss is always safe; closure-local because reload_all() rebuilds it. See
@@ -109,7 +108,7 @@ local function build_plan(compiled, opts)
 	local eager_depth = 0
 
 	-- Neovim sources every 'runtimepath' plugin/ dir when its startup phase begins. Packs activated before that are
-	-- sourced by Neovim; later ones by the VimEnter finalizer. This tracks the handover.
+	-- sourced by Neovim; later ones by the VimEnter finalizer.
 	local startup_plugin_phase_started = false
 	if vim.v.vim_did_enter == 0 then
 		local group = vim.api.nvim_create_augroup("laze_startup_phase", { clear = true })
@@ -490,7 +489,6 @@ local function build_plan(compiled, opts)
 		local events_group = vim.api.nvim_create_augroup("laze_events", { clear = true })
 		local fts_group = vim.api.nvim_create_augroup("laze_fts", { clear = true })
 		local cmds_group = vim.api.nvim_create_augroup("laze_cmds", { clear = true })
-		-- FileType autocmds installing buffer-local maps for ft-scoped keys.
 		local key_fts_group = vim.api.nvim_create_augroup("laze_key_fts", { clear = true })
 
 		-- `User VeryLazy` fires unconditionally (lazy.nvim parity), so user
@@ -643,7 +641,6 @@ local function build_plan(compiled, opts)
 							local key_opts = map_opts(entry.desc or "laze: load on key")
 							table.insert(installed_keys, { mode = mode, lhs = lhs, desc = key_opts.desc, buf = buf })
 							vim.keymap.set(mode, lhs, function()
-								-- Verdicts were resolved at plan build, so every id here is active.
 								require("laze.internal.dispatch").keys(load_with_deps, mode, lhs, ids, rhs, buf)
 							end, key_opts)
 						end
