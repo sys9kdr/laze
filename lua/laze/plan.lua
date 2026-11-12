@@ -41,17 +41,6 @@ local function plugin_view(id, entry, data_dir)
 	}
 end
 
----@param mode string
----@param lhs string
----@param buf? integer
-local function del_map(mode, lhs, buf)
-	if buf then
-		pcall(vim.keymap.del, mode, lhs, { buffer = buf })
-	else
-		pcall(vim.keymap.del, mode, lhs)
-	end
-end
-
 --- Resolve `enabled`/`cond` once per session, like lazy.nvim. setup() resolves
 --- them before vim.pack.add so a false verdict also skips installation.
 ---@param registry table<string, LazeEntry>
@@ -71,7 +60,7 @@ local function resolve_verdicts(registry, data_dir)
 			ok, res = pcall(value)
 		end
 		if not ok then
-			require("laze.diag").warn(("%s hook failed for %s: %s"):format(hook, id, tostring(res)))
+			require("laze.internal.diag").warn(("%s hook failed for %s: %s"):format(hook, id, tostring(res)))
 			return false
 		end
 		return res ~= false
@@ -165,48 +154,6 @@ local function build_plan(compiled, opts)
 		end
 	end
 
-	-- Re-fire the triggering event after a load so autocmds the plugin registers while loading see it (an ft plugin's
-	-- FileType handler would otherwise miss the buffer). Guarded against dispatcher re-entry.
-	local refiring = {}
-	local function refire_event(event, exec_opts)
-		if refiring[event] then
-			return
-		end
-		refiring[event] = true
-		exec_opts.modeline = false
-		pcall(vim.api.nvim_exec_autocmds, event, exec_opts)
-		refiring[event] = nil
-	end
-
-	-- Groups that already handle `event`, captured before the load. lazy.nvim excludes them from the replay so a
-	-- pre-existing handler does not see the event twice. FileType is exempt: its replay exists to hand the current buffer
-	-- to freshly loaded ft handlers.
-	local function snapshot_event_groups(event)
-		local groups = {}
-		if event == "FileType" then
-			return groups
-		end
-		for _, autocmd in ipairs(vim.api.nvim_get_autocmds({ event = event })) do
-			if autocmd.group_name then
-				groups[autocmd.group_name] = true
-			end
-		end
-		return groups
-	end
-
-	-- Replay for what the load added, one exec per augroup. Ungrouped autocmds are skipped: they cannot be told apart
-	-- from pre-existing ones (lazy.nvim does the same).
-	local function replay_event_groups(event, ev, exclude)
-		local done = {}
-		for _, autocmd in ipairs(vim.api.nvim_get_autocmds({ event = event })) do
-			local name = autocmd.group_name
-			if name and not exclude[name] and not done[name] then
-				done[name] = true
-				refire_event(event, { group = name, buffer = ev.buf, data = ev.data })
-			end
-		end
-	end
-
 	--- lazy.nvim opts resolution at load time: a function gets the plugin and a mutable base; a table return replaces it,
 	--- a non-table return is wrapped, nil keeps the base.
 	---@param entry LazeEntry
@@ -233,7 +180,7 @@ local function build_plan(compiled, opts)
 		local function mark_failed(err)
 			loaded[id] = "failed"
 			if not entry.silent then
-				require("laze.diag").warn("failed to load " .. id .. ": " .. tostring(err))
+				require("laze.internal.diag").warn("failed to load " .. id .. ": " .. tostring(err))
 			end
 		end
 		local plugin = {
@@ -294,7 +241,7 @@ local function build_plan(compiled, opts)
 				entry.config(plugin, resolve_opts(entry, plugin))
 			end)
 			if not ok_cfg then
-				require("laze.diag").warn("config failed for " .. id .. ": " .. tostring(err_cfg))
+				require("laze.internal.diag").warn("config failed for " .. id .. ": " .. tostring(err_cfg))
 			end
 		end
 		if pending then
@@ -303,6 +250,17 @@ local function build_plan(compiled, opts)
 		loaded[id] = true
 		if on_load and start then
 			on_load(id, (vim.uv.hrtime() - start) / 1e6)
+		end
+	end
+
+	-- The preload path's hooks-only entry. A startup require() needs a configured plugin before it returns; sourcing
+	-- stays with the startup phase / VimEnter finalizer, preserving source-exactly-once. Stale `pending_startup`
+	-- state stays in this closure.
+	---@param id string
+	local function partial_hooks(id)
+		local pending = loaded[id] == "pending_startup" and startup_pending[id]
+		if pending and not pending.hooks_ran then
+			run_hooks(id, pending.entry, pending.start, pending.dir, { partial = true })
 		end
 	end
 
@@ -332,24 +290,24 @@ local function build_plan(compiled, opts)
 		-- Finalized ft plugins registered their autocmds during finalization; re-fire FileType so they see the current
 		-- buffer. Only when one was actually finalized: otherwise its handlers already saw this event.
 		if finalized_ft then
-			refire_event("FileType", { buffer = vim.api.nvim_get_current_buf() })
+			require("laze.internal.dispatch").refire("FileType", { buffer = vim.api.nvim_get_current_buf() })
 		end
 	end
 
 	local function load_plugin(id)
 		if loaded[id] then
-			return
+			return false
 		end
 
 		local entry = registry[id]
 		if not entry then
-			return
+			return false
 		end
 		if not enabled_ok[id] then
-			return
+			return false
 		end
 		if not cond_ok[id] then
-			return
+			return false
 		end
 
 		local start = on_load and vim.uv.hrtime() or nil
@@ -408,7 +366,7 @@ local function build_plan(compiled, opts)
 				startup_finalizer_installed = true
 				vim.api.nvim_create_autocmd("VimEnter", { once = true, callback = finalize_startup_pending })
 			end
-			return
+			return false
 		end
 
 		-- after/plugin/ never runs on `:packadd`: post-startup loads source it manually; startup loads get it from the
@@ -418,18 +376,18 @@ local function build_plan(compiled, opts)
 		end
 
 		run_hooks(id, entry, start, plugin_dir)
+		return loaded[id] == true
 	end
 
 	local function load_with_deps(id)
 		-- Any assigned state means already processed or deferred.
 		if loaded[id] then
-			return
+			return false
 		end
 
 		local root_entry = registry[id]
 		if not (root_entry and root_entry.after and root_entry.after[1]) then
-			load_plugin(id)
-			return
+			return load_plugin(id)
 		end
 
 		-- Iterative DFS; each level tracks a dependency cursor. A node is popped only after load_plugin runs, so
@@ -450,7 +408,7 @@ local function build_plan(compiled, opts)
 					local has_cycle = false
 					for j = 1, depth do
 						if stack[j] == dep then
-							require("laze.diag").warn(("cycle in after deps (%s)"):format(dep))
+							require("laze.internal.diag").warn(("cycle in after deps (%s)"):format(dep))
 							has_cycle = true
 							break
 						end
@@ -467,6 +425,7 @@ local function build_plan(compiled, opts)
 				depth = depth - 1
 			end
 		end
+		return loaded[id] == true
 	end
 
 	-- Module triggers are package.preload entries, not a _G.require wrapper:
@@ -491,12 +450,7 @@ local function build_plan(compiled, opts)
 			end
 			local mod = original_require(modname)
 			for _, id in ipairs(ids) do
-				local pending = loaded[id] == "pending_startup" and startup_pending[id]
-				if pending and not pending.hooks_ran then
-					-- A startup require() needs a configured plugin before it returns. Sourcing stays with the startup phase /
-					-- VimEnter finalizer, preserving source-exactly-once.
-					run_hooks(id, pending.entry, pending.start, pending.dir, { partial = true })
-				end
+				partial_hooks(id)
 			end
 			return mod
 		end
@@ -520,30 +474,14 @@ local function build_plan(compiled, opts)
 				local entry = registry[id]
 				local ok_init, err_init = pcall(entry.init, plugin_view(id, entry, data_dir))
 				if not ok_init then
-					require("laze.diag").warn(("init failed for %s: %s"):format(id, tostring(err_init)))
+					require("laze.internal.diag").warn(("init failed for %s: %s"):format(id, tostring(err_init)))
 				end
 			end
 		end
 
-		-- Keymaps have no group to clear, so delete the previous plan's maps here. Only maps still carrying the trigger
-		-- desc: a plugin map that took over the lhs, or a user map sharing it, must survive.
-		for _, k in ipairs(installed_keys) do
-			-- get_keymap reports the leader-expanded lhs; expand likewise.
-			local want = vim.api.nvim_replace_termcodes(k.lhs, true, false, true)
-			local maps
-			if not k.buf then
-				maps = vim.api.nvim_get_keymap(k.mode)
-			elseif vim.api.nvim_buf_is_valid(k.buf) then
-				maps = vim.api.nvim_buf_get_keymap(k.buf, k.mode)
-			else
-				maps = {}
-			end
-			for _, km in ipairs(maps) do
-				if km.lhs == want and km.desc == k.desc then
-					del_map(k.mode, k.lhs, k.buf)
-					break
-				end
-			end
+		-- Keymaps have no group to clear. The sweep body parses only on a rebuild, when a previous plan left maps.
+		if #installed_keys > 0 then
+			require("laze.internal.dispatch").clear(installed_keys)
 		end
 		installed_keys = {}
 
@@ -611,30 +549,7 @@ local function build_plan(compiled, opts)
 					pattern = b.pattern,
 					once = true,
 					callback = function(ev)
-						-- Snapshot before loading: only this diff separates the new plugin's augroups from pre-existing ones.
-						local exclude = snapshot_event_groups(ev.event)
-						local loaded_any = false
-						for _, route in ipairs(b.routes) do
-							if route.event == ev.event then
-								for _, id in ipairs(route.ids) do
-									local was = loaded[id]
-									load_with_deps(id)
-									if was ~= true and loaded[id] == true then
-										loaded_any = true
-									end
-								end
-							end
-						end
-						-- Re-fire only if this dispatch loaded something; the buffer is forwarded so buffer-local handlers see the
-						-- original ev.buf. FileType replays globally (lazy.nvim exempts it from augroup exclusion); the rest replay
-						-- per fresh augroup so pre-existing handlers stay single-fire.
-						if loaded_any then
-							if ev.event == "FileType" then
-								refire_event(ev.event, { buffer = ev.buf, data = ev.data })
-							else
-								replay_event_groups(ev.event, ev, exclude)
-							end
-						end
+						require("laze.internal.dispatch").event(ev, b.routes, load_with_deps)
 					end,
 				})
 			end
@@ -647,21 +562,9 @@ local function build_plan(compiled, opts)
 				group = group,
 				pattern = "*",
 				callback = function(ev)
-					local current_ids = routes.fts[ev.match]
-					if current_ids then
-						local loaded_any = false
-						for _, id in ipairs(current_ids) do
-							local was = loaded[id]
-							load_with_deps(id)
-							if was ~= true and loaded[id] == true then
-								loaded_any = true
-							end
-						end
-						-- Re-fire only if something loaded: its handlers missed the natural pass. Otherwise every matching handler
-						-- already saw this FileType.
-						if loaded_any then
-							refire_event("FileType", { buffer = ev.buf })
-						end
+					local ids = routes.fts[ev.match]
+					if ids then
+						require("laze.internal.dispatch").ft(ev, ids, load_with_deps)
 					end
 				end,
 			})
@@ -698,15 +601,8 @@ local function build_plan(compiled, opts)
 				pattern = "*",
 				callback = function(ev)
 					local ids = routes.cmds[ev.match]
-					if not ids then
-						return
-					end
-					for _, id in ipairs(ids) do
-						load_with_deps(id)
-					end
-					if vim.v.vim_did_enter == 0 then
-						-- Cold: the proxy body is parsed only when a startup command actually misfires (docs/performance.md).
-						require("laze.cmdproxy").defer(startup_cmd_calls, ev.match)
+					if ids then
+						require("laze.internal.dispatch").cmd(ev, ids, startup_cmd_calls, load_with_deps)
 					end
 				end,
 			})
@@ -748,25 +644,7 @@ local function build_plan(compiled, opts)
 							table.insert(installed_keys, { mode = mode, lhs = lhs, desc = key_opts.desc, buf = buf })
 							vim.keymap.set(mode, lhs, function()
 								-- Verdicts were resolved at plan build, so every id here is active.
-								if rhs == nil then
-									-- Delete the trigger before loading: after the load it would also delete the plugin's fresh map
-									-- (vim.keymap.del removes every map for this lhs in the mode). Other mode variants are separate maps
-									-- and stay.
-									del_map(mode, lhs, buf)
-								end
-								for _, id in ipairs(ids) do
-									load_with_deps(id)
-								end
-								if rhs == nil then
-									-- Replay the key so the plugin's own map handles it. Queue it BEFORE keys already behind the trigger
-									-- ('i'): with append, `gcA` would run `A` first and then insert `gc` literally instead of firing
-									-- `gcA`.
-									vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes(lhs, true, false, true), "i", true)
-								elseif type(rhs) == "function" then
-									rhs()
-								else
-									vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes(rhs, true, false, true), "i", true)
-								end
+								require("laze.internal.dispatch").keys(load_with_deps, mode, lhs, ids, rhs, buf)
 							end, key_opts)
 						end
 					end
@@ -811,7 +689,7 @@ local function build_plan(compiled, opts)
 			local ok, err = pcall(load_with_deps, entry.id)
 			eager_depth = eager_depth - 1
 			if not ok then
-				require("laze.diag").warn(("failed to load %s: %s"):format(entry.id, tostring(err)))
+				require("laze.internal.diag").warn(("failed to load %s: %s"):format(entry.id, tostring(err)))
 			end
 		end
 

@@ -46,7 +46,7 @@ commit [`306a055`](https://github.com/folke/lazy.nvim/tree/306a05526ada86a7b30af
   sharing one difference cost one notification. Opt out with
   `compile(specs, { known_differences = false })` (or the same option to
   `setup`). The runtime table is
-  [`lua/laze/known_differences.lua`](../lua/laze/known_differences.lua);
+  [`lua/laze/internal/known_differences.lua`](../lua/laze/internal/known_differences.lua);
   `tests/test_subset.lua` keeps it in sync with the registry below.
 
 The registry is metadata, not runtime behavior: the runtime table lists only

@@ -450,7 +450,7 @@ end
 -- Issue #12: runtime compile-time notifications must be a subset of the
 -- active registry, and exactly the entries whose policy is `compile`.
 do
-	local runtime = require("laze.known_differences")
+	local runtime = require("laze.internal.known_differences")
 	local runtime_ids = {}
 	local sync_errors = {}
 	for id in pairs(runtime.entries) do
@@ -462,7 +462,7 @@ do
 	for _, kd in ipairs(known) do
 		if kd.notify == "compile" then
 			if not runtime_ids[kd.id] then
-				table.insert(sync_errors, kd.id .. " missing from lua/laze/known_differences.lua")
+				table.insert(sync_errors, kd.id .. " missing from lua/laze/internal/known_differences.lua")
 			end
 		elseif runtime_ids[kd.id] then
 			table.insert(sync_errors, kd.id .. " is notify=never but has a runtime message")

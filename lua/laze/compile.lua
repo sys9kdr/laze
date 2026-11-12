@@ -224,7 +224,7 @@ local function resolve_version(spec, idx, range)
 	local v = spec.version
 	if v ~= nil and v ~= false then
 		-- Reuse the range validated during compile instead of parsing twice.
-		return range or require("laze.semver").to_semver_range(v, idx)
+		return range or require("laze.internal.semver").to_semver_range(v, idx)
 	end
 	-- false/omitted version: branch still applies, else vim.pack's default.
 	return spec.branch
@@ -334,7 +334,7 @@ local function add_to_key_route(route_map, keys, plugin_id)
 						variant = { mode = mode, ids = {}, rhs = ke.rhs, desc = ke.desc, silent = ke.silent, ft = ft }
 						table.insert(variants, variant)
 					elseif variant.rhs ~= ke.rhs or variant.desc ~= ke.desc or variant.silent ~= ke.silent then
-						require("laze.diag").warn(
+						require("laze.internal.diag").warn(
 							("keys %q in mode %q is shared by multiple plugins with different rhs/opts — keeping the first"):format(
 								lhs,
 								mode
@@ -468,7 +468,7 @@ end
 --- them to "no trigger" would silently make the plugin eager.
 local function validate_triggers(spec, idx, spec_id)
 	local function bad(field, msg)
-		require("laze.diag").bad(idx, spec_id, field, msg)
+		require("laze.internal.diag").bad(idx, spec_id, field, msg)
 	end
 
 	for _, field in ipairs(TRIGGER_FIELDS) do
@@ -620,23 +620,23 @@ end
 local function validate_spec(spec, idx, warned, notify)
 	local src = spec[1] or spec.src
 	if not src and not spec.dir and not spec.url then
-		require("laze.diag").spec_at(idx, "missing source — use [1], .src, .dir, or .url")
+		require("laze.internal.diag").spec_at(idx, "missing source — use [1], .src, .dir, or .url")
 	end
 	if src ~= nil and (type(src) ~= "string" or src == "") then
-		require("laze.diag").spec_at(idx, "[1]/src must be a non-empty string")
+		require("laze.internal.diag").spec_at(idx, "[1]/src must be a non-empty string")
 	end
 	for _, f in ipairs(SOURCE_FIELDS) do
 		local value = spec[f]
 		if value ~= nil and (type(value) ~= "string" or value == "") then
-			require("laze.diag").spec_at(idx, f .. " must be a non-empty string")
+			require("laze.internal.diag").spec_at(idx, f .. " must be a non-empty string")
 		end
 	end
 
 	local spec_id = tostring(src or spec.dir or spec.url)
 
-	-- One short call per check; `require("laze.diag")` stays inline so it is parsed only when a message actually fires.
+	-- One short call per check; the diagnostic module is required inline so it is parsed only when a message fires.
 	local function err(msg)
-		require("laze.diag").spec(idx, spec_id, msg)
+		require("laze.internal.diag").spec(idx, spec_id, msg)
 	end
 
 	warn_unsupported(spec, idx, spec_id, warned, notify)
@@ -650,7 +650,7 @@ local function validate_spec(spec, idx, warned, notify)
 	end
 
 	if spec.dev == "" then
-		require("laze.diag").warn(("spec [%d] (%s) has dev='' — ignored"):format(idx, spec_id))
+		require("laze.internal.diag").warn(("spec [%d] (%s) has dev='' — ignored"):format(idx, spec_id))
 	end
 
 	if spec.init ~= nil and type(spec.init) ~= "function" then
@@ -748,7 +748,7 @@ local function validate_spec(spec, idx, warned, notify)
 		-- is reused by resolve_version. semver is required lazily: most configs never use it. Local checkouts (`dir`, an
 		-- active dev source) ignore version/refs (KD-004), so their ranges are validated but never lowered.
 		if spec.commit == nil and spec.tag == nil and spec.dir == nil and not has_dev_source(spec) then
-			version_range = require("laze.semver").to_semver_range(version, idx, spec_id)
+			version_range = require("laze.internal.semver").to_semver_range(version, idx, spec_id)
 		end
 	end
 	for _, f in ipairs(VERSION_REF_FIELDS) do
@@ -890,7 +890,7 @@ local function compile(specs, opts)
 	local kd_notified = {}
 	local function notify_kd(id, detail, key)
 		-- Rare path: keep the require off startup.
-		require("laze.known_differences").notify(id, detail, kd_notified, opts, key)
+		require("laze.internal.known_differences").notify(id, detail, kd_notified, opts, key)
 	end
 	-- `after` names derived from deps live here, not on user specs: a spec table may be passed to lazy.nvim later.
 	local dep_after = {}
@@ -1031,7 +1031,7 @@ local function compile(specs, opts)
 			local explicit_main = spec.main
 			local plugin_name = name
 			config = function(plugin, config_opts)
-				local main = explicit_main or require("laze.mainmod").get_main(plugin and plugin.dir, plugin_name)
+				local main = explicit_main or require("laze.internal.mainmod").get_main(plugin and plugin.dir, plugin_name)
 				if not main then
 					error(
 						("Lua module not found for config of %s. Please use a `config()` function instead"):format(plugin_name),
@@ -1126,7 +1126,7 @@ local function compile(specs, opts)
 
 		if is_local then
 			if norm.build ~= nil then
-				require("laze.diag").warn(
+				require("laze.internal.diag").warn(
 					"plugin '" .. name .. "' is a local dir; build is not run (vim.pack does not install or rebuild local dirs)"
 				)
 			end
@@ -1182,7 +1182,7 @@ local function compile(specs, opts)
 	for id, entry in pairs(registry) do
 		for _, dep_id in ipairs(entry.after or {}) do
 			if not registry[dep_id] then
-				require("laze.diag").warn(
+				require("laze.internal.diag").warn(
 					"plugin '" .. id .. "' has after dependency on '" .. dep_id .. "' which does not exist"
 				)
 			end
