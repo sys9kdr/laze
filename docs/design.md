@@ -13,6 +13,13 @@ At load time, laze only requires module names explicitly declared via `module`. 
 
 Laze is deliberately small: specs compile to a pure IR, the plan only wires triggers, and everything else is an opt-in extra.
 
+## Source layout
+
+- `init.lua` — public entry (`require("laze")`): spec types, `setup`, `compile`/`build_plan`, `reload_all`.
+- `compile.lua`, `plan.lua` — the two stages: specs → IR, IR → execution plan.
+- `extra.lua`, `extras/` — opt-in commands, never required by the core.
+- `internal/` — implementation helpers (`diag`, `known_differences`, `semver`, `mainmod`, `cmdproxy`, `dispatch`). Most are required inline at first use, so they cost no startup parse time; `dispatch` and `cmdproxy` also stay cold until their trigger fires.
+
 ## When does a plugin's code run?
 
 * **Disabled** (`enabled = false` or `cond = false`, literal or a function returning false): resolved once at setup while the spec is processed, before `vim.pack.add`, so the spec is not installed at all (lazy.nvim parity). The verdicts are shared with the plan, so `init`, loads and key triggers agree, and the hooks are evaluated once.

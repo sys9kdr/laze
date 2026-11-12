@@ -197,7 +197,7 @@ function M.setup(specs, opts)
 				local ok, build_ok, err = pcall(run_build, build, plugin, data.path)
 				if not ok or not build_ok then
 					-- pcall failure: the message is in build_ok; build failure: in err.
-					require("laze.diag").warn(
+					require("laze.internal.diag").warn(
 						("build failed for %s: %s"):format(data.spec.name, tostring(ok and err or build_ok))
 					)
 				end
@@ -259,7 +259,7 @@ end
 ---@return LazeCompiled
 function M.reload_all(new_specs)
 	if not last_setup and not new_specs then
-		require("laze.diag").warn("reload_all: no setup has run yet")
+		require("laze.internal.diag").warn("reload_all: no setup has run yet")
 		return nil
 	end
 	if new_specs then

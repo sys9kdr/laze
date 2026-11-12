@@ -41,6 +41,27 @@ and pitfalls: `.agents/skills/perf-tuning/SKILL.md`.
 
 ## Resolved
 
+### plan.lua: trigger bodies parsed every startup — resolved (2026-11)
+
+The key/event/ft/cmd callbacks, the event snapshot/replay/refire helpers,
+and the hot-reload key sweep run only when their trigger fires, but
+`build_plan` parsed them on every startup. They now live in
+`laze.internal.dispatch`, required inline on the first such path. Its
+bodies take only the values they need; the loader state (`loaded`, startup
+pending + finalizer, `rtp_index`, `eager_depth`) stays in plan.lua, so the
+startup-ordering and hot-reload invariants are unchanged. `load_with_deps`
+now returns whether the root freshly loaded, replacing the dispatchers'
+`loaded[id]` transition reads. The `package.preload` body stays in plan:
+it needs four pieces of plan state, and widening dispatch's interface to
+absorb it was a worse trade than the ~5 µs it costs.
+
+`load()` oracle (median of 60, three runs, fresh baseline worktree):
+plan.lua 28,926 B / 169.9–173.0 µs → 24,541 B / 127.2–133.5 µs, i.e.
+**-4.39 KB / ~36–46 µs per startup**. Best-of-3 breakdown `req.plan`
+253 → 215 µs. `laze.internal.dispatch` is 5,789 B (~31 µs) and parses once
+at the first trigger fire; a startup that never fires a trigger never pays
+it. All 184 integration tests, spawned included, pass unedited. Issue #49.
+
 ### comment sweep: fewer bytes to parse, but not many fewer µs — resolved (2026-11, cc1d14f)
 
 The comment trim + re-wrap (b4a9761→cc1d14f) shrank the startup-parsed trio
@@ -57,7 +78,7 @@ tokenizing). Comment removal is a readability change, not a perf lever.
 
 The CmdUndefined startup bridge (the proxy installed when a command misfires
 before VimEnter) runs only once a startup command actually misses. Moved
-verbatim from `build_plan` to `laze.cmdproxy`, required inline at the
+verbatim from `build_plan` to `laze.internal.cmdproxy`, required inline at the
 CmdUndefined call site. `load()` oracle (median of 60 in-process parses,
 three runs): plan.lua 40711 B / 188.2–198.1 µs → 37942 B / 169.8–177.1 µs,
 i.e. **-2.77 KB / ~16 µs per startup**. Best-of-3 breakdown `req.plan`
@@ -72,9 +93,9 @@ Cold-setup breakdown (`tests/benchmarks/breakdown.lua`): requiring compile + pla
 init costs ~0.85–0.95 ms of module parsing, on par with compile()'s actual work
 for 50 specs (~0.7 ms). Parsing scales with bytes (~5.2–6.3 ns/B measured), so
 code that most startups never execute is pure overhead. Two blocks moved out of
-compile.lua into modules required inline at their call sites: `laze.semver` (the
+compile.lua into modules required inline at their call sites: `laze.internal.semver` (the
 semver scanner + range lowering, 6.3 KB, runs only when a spec carries `version`)
-and `laze.mainmod` (the `get_main` scan of `<plugin>/lua`, runs only in the
+and `laze.internal.mainmod` (the `get_main` scan of `<plugin>/lua`, runs only in the
 desugared `config = true` closure at load time). `load()` oracle (median of 60
 in-process parses of compile.lua): 329.7 → 229.5 µs. Even a user who requires
 both modules parses less in total (271 µs vs 330 µs). Error messages and
@@ -269,7 +290,7 @@ Each used range is parsed once. This is new work relative to main, which only
 converted `"*"`: 100 versioned specs ~0.20–0.22 ms vs ~0.06 ms before; 100
 plain specs unchanged (~0.07 ms). The cost is inherent to faithful lowering,
 not a regression in an existing path. (Since 2026-11 the scanner lives in the
-lazily-required `laze.semver`; see Resolved.)
+lazily-required `laze.internal.semver`; see Resolved.)
 
 ### Compile-time micro-items (negligible, one-shot)
 
@@ -331,17 +352,14 @@ function, not microbenchmarked in isolation):
 
 ## Open items
 
-- Cold code inside `build_plan` is parsed every startup. Per-module lazy
-  require is exhausted (setup parses only compile + plan + init,
-  ~0.8–0.95 ms; diag/semver/mainmod/cmdproxy are lazy), and the cmdproxy
-  pilot landed (-2.77 KB, issue #48). The remaining ~7.6 KB of
-  trigger-fire-only bodies (35.7 KB before the pilot): keymap trigger
-  callbacks (1.8 KB), cmds dispatcher body (0.6 KB), module preload closure
-  (1.3 KB), event/ft dispatch bodies + event replay (3.9 KB). At ~5.2 ns/B
-  the ceiling is ~40 µs per startup. Moving code between eagerly-required
-  files parses the same bytes — only first-fire deferral saves, and only
-  behind deep modules (scattered forwarders over a 10-field ctx is the
-  shallow anti-pattern). Design: issue #49; do not re-derive the numbers.
+- Startup parsing is one module per component: setup parses only compile +
+  plan + init (~0.8–0.95 ms; the `internal/` helpers are required inline at
+  first use). The first-fire bodies moved to `laze.internal.dispatch`
+  (-4.39 KB, ~40 µs; see Resolved), leaving the VimEnter startup finalizer
+  (~1.2 KB, ~7 µs) as the only cold body still in plan.lua. Moving it would
+  hand `source_glob`/`run_hooks` state to the dispatch module to save one
+  VimEnter-only parse. `laze.loader` was dropped: its contents run during
+  plan build/execution, so extraction is parse-neutral. Design: issue #49.
 
 New hot paths must land with a perf regression test in
 `tests/run.lua perf` (asserted thresholds) or a note here explaining
