@@ -1,29 +1,17 @@
 # Known differences from lazy.nvim
 
-This is the canonical index of deliberate differences between laze and
-lazy.nvim. It is not a bug list: each entry is a design decision, a
-delegation boundary, or an encoding detail.
+This page defines the vocabulary and notification policy.
+The registry itself is data, in [`tests/fixtures/known_differences.lua`](../tests/fixtures/known_differences.lua): `active` holds the current differences, `resolved` retires IDs without reusing them.
+`tests/test_subset.lua` validates the records and checks that every `notify = "compile"` entry has a matching call site in `lua/laze/compile.lua`.
 
-The machine-readable mirror lives in
-[`tests/fixtures/known_differences.lua`](../tests/fixtures/known_differences.lua).
-`tests/test_subset.lua` keeps the two in sync: IDs must be unique, required
-fields must be present, every test reference must resolve, and every ID here
-must exist in the registry (and vice versa).
-
-Related: [migration notes](migration.md), [what laze does not have](not-have.md),
-and the message-policy design in issue
-[#12](https://github.com/sys9kdr/laze/issues/12).
+Related: [migration notes](migration.md), [what laze does not have](not-have.md), and the message-policy design in issue [#12](https://github.com/sys9kdr/laze/issues/12).
 
 ## Baseline
 
-The subset is measured against lazy.nvim's documented spec at
-<https://lazy.folke.io/spec>, fetched **2026-08-18**. Coverage targets
-documented fields; undocumented behavior that happens to work is not part of
-the contract.
+The subset is measured against lazy.nvim's documented spec at <https://lazy.folke.io/spec>, fetched **2026-08-18**.
+Coverage targets documented fields; undocumented behavior that happens to work is not part of the contract.
 
-The vendored behavioral oracle in
-[`tests/vendor/lazy.nvim/`](../tests/vendor/lazy.nvim/) is pinned to lazy.nvim
-commit [`306a055`](https://github.com/folke/lazy.nvim/tree/306a05526ada86a7b30af95c5cc81ffba93fef97).
+The vendored behavioral oracle in [`tests/vendor/lazy.nvim/`](../tests/vendor/lazy.nvim/) is pinned to lazy.nvim commit [`306a055`](https://github.com/folke/lazy.nvim/tree/306a05526ada86a7b30af95c5cc81ffba93fef97).
 
 ## Classes
 
@@ -39,65 +27,21 @@ commit [`306a055`](https://github.com/folke/lazy.nvim/tree/306a05526ada86a7b30af
 
 `notify` is the policy for issue [#12](https://github.com/sys9kdr/laze/issues/12):
 
-* `never` — docs-only. Warning on every use would be noise (for example, an
-  `encoding` difference in every version spec).
-* `compile` — surfaced at compile time with a `vim.notify` WARN that names
-  the KD id and this file. Messages are deduped per compile, so many specs
-  sharing one difference cost one notification. Opt out with
-  `compile(specs, { known_differences = false })` (or the same option to
-  `setup`). The runtime table is
-  [`lua/laze/internal/known_differences.lua`](../lua/laze/internal/known_differences.lua);
-  `tests/test_subset.lua` keeps it in sync with the registry below.
-
-The registry is metadata, not runtime behavior: the runtime table lists only
-the IDs it needs, and `docs/known-differences.md` remains canonical.
-
-## Active registry
-
-IDs are stable. Never renumber an ID or reuse it for a different difference;
-add a new ID instead. When a difference is resolved, remove it from the active
-registry and note the removal without reassigning the ID.
-
-| ID | Area | Class | Notify | lazy.nvim | laze | Why | Test |
-| --- | --- | --- | --- | --- | --- | --- | --- |
-| KD-001 | version | delegated | never | No tag matches the range: falls back to the default branch. | No tag matches: `vim.pack` errors. Use `branch`/`tag`/`commit` for repos without semver tags. | `vim.pack` owns tag resolution; laze does not run a second resolver. | docs-only |
-| KD-003 | version | encoding | never | `1.2.3` is encoded as `[1.2.3, 1.2.4)`. | `vim.version.range('1.2.3')` is encoded as `[1.2.3, 1.2.3]`; stable-tag membership is the same. | The IR uses Neovim's `VersionRange`; exact versions stay exact. | `tests/run.lua` |
-| KD-005 | version | safe-direction | never | Does not define compound ranges; `vim.version.range` would parse only the first range or misparse a ref. | Rejects multi-ranges, whitespace-separated comparator sets, and git refs in `version`. | Silently narrowing a range would select the wrong tag; failing loudly is safe. | `tests/test_subset.lua` |
-| KD-010 | triggers | extension | never | `module = false` opts out of automatic require-loading; module strings are not triggers. | `module = string` or `string[]` is an opt-in require trigger via `package.preload`; `false` means no triggers. A lazy plugin's `init` cannot require its undeclared module before activation. | laze never patches global `require`; preload entries are explicit and single-shot. | `tests/test_compile.lua` |
-| KD-011 | triggers | safe-direction | never | Accepts function-shaped `event`/`cmd`/`ft`/`keys` triggers. | Rejects them with a compile error. | Normalizing a function trigger to "no trigger" would make a lazy plugin eager. | `tests/test_compile.lua` |
-| KD-016 | keys | silent-drop | compile | Passes `vim.keymap.set` options such as `noremap`, `nowait`, `expr`, `callback`, and `buffer`. | Keeps `lhs`/`rhs`/`mode`/`desc`/`silent`/`ft`; other options are dropped. | The trigger map is a laze-owned pre-load stub, not a full keymap. | `tests/test_compile.lua` |
-| KD-017 | source | extension | never | Documents `dev` as boolean; a string is truthy and uses `config.dev.path`. | A string `dev` is used as the per-plugin dev directory. Global `dev.path`/`dev.patterns`/`dev.fallback` are accepted via the setup/compile opts. | laze makes the spec-level source explicit and keeps `dev_root` as an alias; global patterns/fallback still apply only when a spec leaves `dev` unset. | `tests/test_compile.lua` |
-| KD-018 | dependencies | extension | never | Has no top-level `after` field; use `dependencies` for ordering. | `after = { ... }` orders loading after named plugins; dependency-derived `after` is merged. | laze uses `after` for explicit ordering without making a plugin a dependency. | `tests/test_compile.lua` |
-| KD-019 | loading | extension | never | `silent` exists only on keys entries; top-level `silent` is not a lazy.nvim field. | Top-level `silent = true` suppresses require-failure notifications for that plugin. | laze's module trigger can fail at require time; `silent` lets optional integrations stay quiet. | `tests/run.lua` |
-| KD-020 | spec | silent-drop | compile | Supports `lazy`, `import`, `submodules`, `optional`, and `specs`. | Honors `lazy`; `submodules = true` matches vim.pack. `submodules = false`, `import`, `optional`, and `specs` warn once per field per compile. | laze's core is compile -> plan -> setup; spec discovery and optional resolution are outside it. | `tests/test_compile.lua` |
-| KD-022 | spec | safe-direction | never | Merges fragments for the same plugin (opts/config/dependencies/triggers) into one spec. | Rejects duplicate ids with a compile error. | Merging fragments changes config/opts precedence and trigger composition; laze keeps compile deterministic and fails loudly instead of silently dropping a fragment. | `tests/test_compile.lua` |
-| KD-023 | keys | silent-drop | never | Treats notation aliases as one handler id (`nvim_replace_termcodes`); `<C-h>` and `<c-H>` share a trigger and every declaring plugin loads. | Routes keys by the raw `lhs`; two spellings create two trigger maps, and Neovim's keymap table lets the later `vim.keymap.set` replace the earlier one. | Normalizing would add a termcode pass and change route keys; laze keeps the raw lhs and documents the alias edge case. | `tests/test_compile.lua` |
-| KD-024 | setup | safe-direction | never | Accepts `config = { ... }` as a deprecated alias for `opts` (merged across fragments). | Compile error; use `main = "..."` with `opts = { ... }`, or a `config` function. | The table form is deprecated upstream and laze has an explicit `opts` path; failing loudly avoids a silent no-op. | `tests/test_compile.lua` |
-| KD-025 | dependencies | delegated | never | Normalizes sources through `url_format`, so `https://github.com/foo/baz.git` and `foo/baz` are the same plugin. | Source matching is verbatim; `.git` and bare spellings are different keys, so the dependency registers a second spec (3 pack entries instead of 2). | Use the same URL spelling or give the dependency the explicit `name`; normalizing sources is a resolver concern laze does not own. | `tests/test_compile.lua` |
-
-## Resolved differences
-
-| ID | Area | Class | Resolved in | Note |
-| --- | --- | --- | --- | --- |
-| KD-002 | version | encoding | laze 0.x (`with_lower_prerelease`) | Prerelease boundary now matches lazy.nvim: the lowered range wraps `has` and requires the candidate's prerelease to equal the lower bound's prerelease. The ID is retired (not reused). |
-| KD-004 | version | safe-direction | laze 0.x (local checkout parity) | `dir` and active `dev`/`dev_path` sources ignore `version` (and refs) like lazy.nvim; an invalid range is no longer rejected for them. The ID is retired (not reused). |
-| KD-012 | setup | safe-direction | laze 0.x (`config = true`) | `config = true` lowers to `require(main).setup(opts)`; the module is resolved at load time. The ID is retired (not reused). |
-| KD-013 | setup | safe-direction | laze 0.x (auto main) | `main` is optional; it resolves at load time from an explicit value, a normalized name match, or the plugin's single top-level Lua module. The ID is retired (not reused). |
-| KD-014 | setup | safe-direction | laze 0.x (opts function) | `opts` accepts a table or a `function(plugin, opts)` mutator resolved at load. The ID is retired (not reused). |
-| KD-015 | build | safe-direction | laze 0.x (build lists) | `build` accepts a list of strings/functions and runs them sequentially after install/update. The ID is retired (not reused). |
-| KD-021 | dependencies | silent-drop | laze 0.x (recursive expansion) | Inline dependency specs expand recursively, deepest first; each spec is registered once and shared deps are referenced. The ID is retired (not reused). |
+* `never` — docs-only.
+  Warning on every use would be noise (for example, an `encoding` difference in every version spec).
+* `compile` — surfaced at compile time with a `vim.notify` WARN that names the KD id and this file.
+  Messages are deduped per compile, so many specs sharing one difference cost one notification.
+  Opt out with `compile(specs, { known_differences = false })` (or the same option to `setup`).
+  The runtime formatter is [`lua/laze/internal/known_differences.lua`](../lua/laze/internal/known_differences.lua).
 
 ## Adding an entry
 
-1. Pick the next free `KD-xxx` ID. Do not renumber existing entries.
-2. Add the full record to `tests/fixtures/known_differences.lua`:
-   `id`, `title`, `area`, `class`, `notify`, `lazy`, `laze`, `rationale`,
-   and `test`.
-3. Add the row to the table above with the same ID.
-4. Add or point at an executable test. Use a static label that appears in the
-   test file, or `docs-only: <reason>` when the difference is delegated to
-   `vim.pack` and cannot be exercised in laze.
-5. When the lazy.nvim side is covered by an upstream test, cite the vendored
-   oracle in [`tests/vendor/lazy.nvim/README.md`](../tests/vendor/lazy.nvim/README.md)
-   instead of relying on a hand-written observation.
-6. Run `make test-subset`. It fails if the registry and this file drift apart.
+1. Pick the next free `KD-xxx` ID.
+   Do not renumber existing entries or reuse retired IDs.
+2. Add the full record to the `active` list in [`tests/fixtures/known_differences.lua`](../tests/fixtures/known_differences.lua): `id`, `title`, `area`, `class`, `notify`, `lazy`, `laze`, `rationale`, and `test`.
+3. Add or point at an executable test.
+   Use a static label that appears in the test file, or `docs-only: <reason>` when the difference is delegated to `vim.pack` and cannot be exercised in laze.
+4. When the lazy.nvim side is covered by an upstream test, cite the vendored oracle in [`tests/vendor/lazy.nvim/README.md`](../tests/vendor/lazy.nvim/README.md) instead of relying on a hand-written observation.
+5. When the difference is resolved, move the record to `resolved` with the release/description and a note.
+   Keep the ID retired.
+6. Run `make test-subset`.

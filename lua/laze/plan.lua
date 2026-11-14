@@ -1,4 +1,4 @@
--- Accepted perf items: docs/performance.md.
+-- Accepted perf items: docs/internal/performance.md.
 
 -- Module-level so a rebuilt plan clears the previous plan's preload entries instead of stacking stale trigger closures.
 local installed_preloads = {}
@@ -7,7 +7,7 @@ local installed_preloads = {}
 -- that took over the lhs survive a rebuild.
 local installed_keys = {}
 
---- See docs/rtp-index.md.
+--- See docs/internal/performance.md.
 ---@param data_dir string
 ---@return table<string, string>
 local function build_rtp_index(data_dir)
@@ -96,7 +96,7 @@ local function build_plan(compiled, opts)
 	local data_dir = vim.fn.stdpath("data")
 	-- Lazy pkg -> opt dir cache. Invalidated by this plan's only 'runtimepath' mutations (the dir prepend and the
 	-- `:packadd!` fallback). A miss is always safe; closure-local because reload_all() rebuilds it. See
-	-- docs/rtp-index.md.
+	-- docs/internal/performance.md.
 	local rtp_index = nil
 	local loaded = {}
 	local startup_pending = {}
@@ -151,6 +151,14 @@ local function build_plan(compiled, opts)
 		for _, file in ipairs(vim.fn.glob(dir .. pattern, false, true)) do
 			pcall(vim.cmd.source, file)
 		end
+	end
+
+	-- Post-startup sourcing when `:packadd` did not source anything: all three runtime dirs by hand,
+	-- matching the shapes `:packadd` and the dir branch of load_plugin use.
+	local function source_plugin_files(dir)
+		source_glob(dir, "/plugin/**/*.{lua,vim}")
+		source_glob(dir, "/ftdetect/*.vim")
+		source_after_plugin(dir)
 	end
 
 	--- lazy.nvim opts resolution at load time: a function gets the plugin and a mutable base; a table return replaces it,
@@ -230,7 +238,7 @@ local function build_plan(compiled, opts)
 			if not ok_req then
 				mark_failed(err_req)
 				if on_fail then
-					on_fail(id, err_req)
+					on_fail(id, tostring(err_req))
 				end
 				return
 			end
@@ -293,7 +301,9 @@ local function build_plan(compiled, opts)
 		end
 	end
 
-	local function load_plugin(id)
+	---@param activate_only? boolean Pass 1 of a post-startup tree load: activate the dir, defer sourcing and hooks (see load_with_deps).
+	---@return boolean ok, { start: number?, dir: string? }? ctx
+	local function load_plugin(id, activate_only)
 		if loaded[id] then
 			return false
 		end
@@ -322,7 +332,7 @@ local function build_plan(compiled, opts)
 			-- sharing the name wins and the user's dir is silently skipped (issue: module not found with no hint).
 			vim.opt.rtp:prepend(entry.dir)
 			rtp_index = nil -- rtp mutated: rebuild the fast-path index on next use
-			if not during_startup then
+			if not during_startup and not activate_only then
 				-- Nothing else sources these post-startup, so commands, maps and filetype detection would never exist.
 				source_glob(entry.dir, "/plugin/**/*.{lua,vim}")
 				source_glob(entry.dir, "/ftdetect/*.vim")
@@ -342,11 +352,21 @@ local function build_plan(compiled, opts)
 				local found = vim.fn.glob(data_dir .. "/site/pack/*/opt/" .. entry.pkg, false, true)
 				plugin_dir = found[1]
 				if plugin_dir then
-					local cmd = during_startup and "packadd! " or "packadd "
+					-- `packadd!` for startup (Neovim's own phases source) and for the tree-load activation pass
+					-- (sourcing waits for finish_plugin); plain `:packadd` sources plugin/ right away.
+					local cmd = (during_startup or activate_only) and "packadd! " or "packadd "
+					-- LuaLS sees `vim.cmd` as a callable table, not a function.
+					---@diagnostic disable-next-line: param-type-mismatch
 					pcall(vim.cmd, cmd .. vim.fn.fnameescape(entry.pkg))
 					rtp_index = nil
 				end
 			end
+		end
+
+		if activate_only then
+			-- Pass 1 of a post-startup tree load: return the sourcing data and let finish_plugin run
+			-- once every directory of the tree is on 'runtimepath'.
+			return true, { start = start, dir = plugin_dir }
 		end
 
 		-- Inside an eager plugin's startup load (issue #42): deferring this
@@ -378,6 +398,16 @@ local function build_plan(compiled, opts)
 		return loaded[id] == true
 	end
 
+	-- Pass 2 of a post-startup tree load: source the runtime files and run hooks for a plugin that
+	-- activate_only left on 'runtimepath' but untouched (see load_with_deps).
+	local function finish_plugin(id, entry, ctx)
+		if ctx.dir then
+			source_plugin_files(ctx.dir)
+		end
+		run_hooks(id, entry, ctx.start, ctx.dir)
+		return loaded[id] == true
+	end
+
 	local function load_with_deps(id)
 		-- Any assigned state means already processed or deferred.
 		if loaded[id] then
@@ -388,6 +418,15 @@ local function build_plan(compiled, opts)
 		if not (root_entry and root_entry.after and root_entry.after[1]) then
 			return load_plugin(id)
 		end
+
+		-- Post-startup invariant (lazy.nvim's loader, and Neovim's own startup phases): every directory of the
+		-- dependency tree is on 'runtimepath' before any of it sources after/plugin. Deps whose after/plugin does
+		-- `require('cmp')`-style setup need the parent loaded first, and the source pcall would swallow that error.
+		-- So: pass 1 activates the whole tree (`packadd!` / rtp prepend only), pass 2 sources and runs hooks in the
+		-- same dep-first order the old single-pass DFS had. Startup keeps the single pass: sourcing is deferred to
+		-- Neovim's phases / the VimEnter finalizer anyway, which already respects the invariant.
+		local activate = vim.v.vim_did_enter ~= 0
+		local finish_queue
 
 		-- Iterative DFS; each level tracks a dependency cursor. A node is popped only after load_plugin runs, so
 		-- backtracking always reaches unprocessed nodes. Cycle detection scans the current path.
@@ -420,8 +459,19 @@ local function build_plan(compiled, opts)
 					end
 				end
 			else
-				load_plugin(current)
+				local ok, ctx = load_plugin(current, activate)
+				if activate and ok then
+					finish_queue = finish_queue or {}
+					finish_queue[#finish_queue + 1] = { id = current, entry = entry, ctx = ctx }
+				end
 				depth = depth - 1
+			end
+		end
+
+		if finish_queue then
+			-- Dep-first: the DFS pops leaves before parents, so parents' config hooks see configured deps.
+			for _, node in ipairs(finish_queue) do
+				finish_plugin(node.id, node.entry, node.ctx)
 			end
 		end
 		return loaded[id] == true

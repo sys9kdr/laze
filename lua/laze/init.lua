@@ -13,7 +13,8 @@
 ---@field rhs? string|fun()|false
 
 ---@class LazeSpec
----@field [1] string
+---@field [1]? string
+---@field src? string
 ---@field name? string
 ---@field dir? string
 ---@field url? string
@@ -21,6 +22,8 @@
 ---@field ft? string|string[]
 ---@field cmd? string|string[]
 ---@field keys? string|(string|LazeKeySpec|LazeNamedKeySpec)[]
+---@field dependencies? (string|LazeSpec)[]
+---@field lazy? boolean
 ---@field dev? boolean|string
 ---@field dev_path? string
 ---@field version? string|false Semver range; git refs use branch/tag/commit. Ignored for dir/dev sources.
@@ -45,6 +48,12 @@
 ---@field pack vim.pack.Spec[]
 ---@field registry table<string, LazeEntry>
 ---@field routes LazeRoutes
+---@field diagnostics LazeDiagnostic[]
+
+---@class LazeDiagnostic
+---@field message? string Plain warning, formatted by the shell
+---@field id? string Known-difference id (e.g. "KD-016")
+---@field detail? string Known-difference detail
 
 ---@class LazeEntry
 ---@field id string
@@ -90,15 +99,24 @@ local plan = require("laze.plan")
 
 local M = {}
 
+---@class LazeLastSetup
+---@field specs LazeSpec[]
+---@field opts table
+
 -- Documented module-level state: the one exception to the closure-local rule.
 -- Only remembers what reload_all() must re-run; the plan stays closure-local.
+---@type LazeLastSetup?
 local last_setup = nil
 
 ---@param specs LazeSpec[]
 ---@param opts? { dev_root?: string, known_differences?: boolean, dev?: { path?: string, patterns?: string[], fallback?: boolean } }
 ---@return LazeCompiled
 function M.compile(specs, opts)
-	return _compile.compile(specs, opts)
+	local compiled = _compile.compile(specs, opts)
+	if #compiled.diagnostics > 0 then
+		require("laze.internal.diag").flush(compiled.diagnostics)
+	end
+	return compiled
 end
 
 ---@param compiled LazeCompiled
@@ -114,6 +132,9 @@ end
 function M.setup(specs, opts)
 	opts = opts or {}
 	local compiled = _compile.compile(specs, opts)
+	if #compiled.diagnostics > 0 then
+		require("laze.internal.diag").flush(compiled.diagnostics)
+	end
 
 	--- One lazy.nvim build item: ":..." is an Ex command, other strings are
 	--- shell commands run in the plugin dir, functions get a plugin object.
@@ -130,6 +151,8 @@ function M.setup(specs, opts)
 			end
 			return true
 		elseif item:sub(1, 1) == ":" then
+			-- LuaLS sees `vim.cmd` as a callable table, not a function.
+			---@diagnostic disable-next-line: param-type-mismatch
 			local ok, err = pcall(vim.cmd, item)
 			if not ok then
 				return false, tostring(err)
@@ -188,6 +211,8 @@ function M.setup(specs, opts)
 				-- need it). `packadd!` during startup avoids double-sourcing by the startup plugin phases.
 				if data.kind == "install" and not data.active then
 					if vim.v.vim_did_enter == 0 then
+						-- LuaLS sees `vim.cmd` as a callable table, not a function.
+						---@diagnostic disable-next-line: param-type-mismatch
 						pcall(vim.cmd, "packadd! " .. vim.fn.fnameescape(data.spec.name))
 					else
 						pcall(vim.cmd.packadd, data.spec.name)
@@ -256,14 +281,14 @@ end
 --- re-load with fresh state, so their init/config and plugin files run again:
 --- treat it as a restart of the plugin stack. For dev loops.
 ---@param new_specs? LazeSpec[] Optional override; defaults to the last setup() specs
----@return LazeCompiled
+---@return LazeCompiled?
 function M.reload_all(new_specs)
-	if not last_setup and not new_specs then
-		require("laze.internal.diag").warn("reload_all: no setup has run yet")
-		return nil
-	end
 	if new_specs then
 		return M.setup(new_specs)
+	end
+	if not last_setup then
+		require("laze.internal.diag").warn("reload_all: no setup has run yet")
+		return nil
 	end
 	return M.setup(last_setup.specs, last_setup.opts)
 end

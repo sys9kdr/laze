@@ -16,12 +16,28 @@ local function desired_pkgs()
 	return set
 end
 
-local function installed_names()
-	local names = {}
-	for _, p in ipairs(vim.pack.get()) do
-		names[#names + 1] = p.name
+--- Directory of the plugin that provides this module, or nil when laze is not
+--- loaded from a `lua/laze/...` tree (e.g. a single-file bundle).
+--- `clean` never proposes deleting it: the running copy cannot be removed while
+--- it is running, and removing the on-disk copy under it is never wanted.
+---@return string?
+local function self_dir()
+	local source = debug.getinfo(1, "S").source
+	if source:sub(1, 1) ~= "@" then
+		return nil
 	end
-	return names
+	return source:sub(2):match("^(.*)/lua/laze/extras/maintenance%.lua$")
+end
+
+--- Installed plugins with the fields `clean` needs. `info = false` skips the
+--- per-plugin `git branches/tags` spawn in `vim.pack.get()` (unused here).
+---@return { name: string, path: string, active: boolean }[]
+local function installed_plugins()
+	local plugins = {}
+	for _, p in ipairs(vim.pack.get(nil, { info = false })) do
+		plugins[#plugins + 1] = { name = p.spec.name, path = p.path, active = p.active }
+	end
+	return plugins
 end
 
 function M.update()
@@ -36,10 +52,15 @@ function M.clean(bang)
 		vim.notify("laze: clean: no setup has run yet", vim.log.levels.WARN)
 		return nil
 	end
+	local self = self_dir()
+	---@type string[]
 	local stale = {}
-	for _, name in ipairs(installed_names()) do
-		if not desired[name] then
-			table.insert(stale, name)
+	---@type table<string, boolean>
+	local active = {}
+	for _, p in ipairs(installed_plugins()) do
+		if p.path ~= self and not desired[p.name] then
+			stale[#stale + 1] = p.name
+			active[p.name] = p.active
 		end
 	end
 	table.sort(stale)
@@ -47,10 +68,44 @@ function M.clean(bang)
 		vim.notify("laze: clean — every managed plugin is in the spec list")
 		return stale
 	end
-	if bang then
-		vim.pack.del(stale)
-	else
-		vim.notify(("laze: %d unmanaged plugin(s), clean(true) to delete:\n%s"):format(#stale, table.concat(stale, "\n")))
+
+	-- `vim.pack.del` refuses plugins active in this session; handing them over
+	-- makes it delete the rest and then throw.
+	---@type string[]
+	local deletable = {}
+	---@type string[]
+	local blocked = {}
+	for _, name in ipairs(stale) do
+		if active[name] then
+			blocked[#blocked + 1] = name
+		else
+			deletable[#deletable + 1] = name
+		end
+	end
+
+	if not bang then
+		local lines = {
+			("laze: %d unmanaged plugin(s), clean(true) to delete:"):format(#stale),
+			table.concat(stale, "\n"),
+		}
+		if #blocked > 0 then
+			lines[#lines + 1] = ("active this session (restart before deleting): " .. table.concat(blocked, ", "))
+		end
+		vim.notify(table.concat(lines, "\n"))
+		return stale
+	end
+
+	if #deletable > 0 then
+		local ok, err = pcall(vim.pack.del, deletable)
+		if not ok then
+			vim.notify(("laze: clean: %s"):format(err), vim.log.levels.WARN)
+		end
+	end
+	if #blocked > 0 then
+		vim.notify(
+			("laze: %d active plugin(s) not deleted (restart first):\n%s"):format(#blocked, table.concat(blocked, "\n")),
+			vim.log.levels.WARN
+		)
 	end
 	return stale
 end

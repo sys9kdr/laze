@@ -1628,6 +1628,56 @@ do
 	vim.fn.delete(dir, "rf")
 end
 
+-- Post-startup tree load order (the nvim-cmp regression): a dep's after/plugin that requires the PARENT's modules
+-- needs the whole dependency tree on 'runtimepath' before any of it sources, matching lazy.nvim's loader and
+-- Neovim's own startup phases. The unit runner is post-startup, so this exercises load_with_deps' two-pass path.
+do
+	local root = vim.fn.tempname() .. "_treetest"
+	local function write(path, content)
+		vim.fn.mkdir(vim.fn.fnamemodify(path, ":h"), "p")
+		local fd = io.open(path, "w")
+		fd:write(content)
+		fd:close()
+	end
+	write(root .. "/parent/lua/treeparentmod/init.lua", "return { ok = true }\n")
+	write(
+		root .. "/dep/after/plugin/dep_after.lua",
+		[[
+		vim.g.laze_tree_log = (vim.g.laze_tree_log or '') .. 'after,'
+		vim.g.laze_tree_dep_req = pcall(require, 'treeparentmod') and 'ok' or 'fail'
+	]]
+	)
+	write(root .. "/dep/plugin/dep_plugin.lua", "vim.g.laze_tree_log = (vim.g.laze_tree_log or '') .. 'plugin,'\n")
+
+	local compiled = laze.compile({
+		{
+			dir = root .. "/parent",
+			name = "treeparent",
+			event = "BufRead",
+			dependencies = { { dir = root .. "/dep", name = "treedep" } },
+			config = function()
+				vim.g.laze_tree_log = (vim.g.laze_tree_log or "") .. "config"
+			end,
+		},
+	})
+	local plan = laze.build_plan(compiled)
+	plan()
+
+	vim.api.nvim_exec_autocmds("BufRead", { group = "laze_events" })
+	local got_log = vim.g.laze_tree_log or "<missing>"
+	local got_req = vim.g.laze_tree_dep_req or "<missing>"
+	if got_req == "ok" and got_log == "plugin,after,config" then
+		print("  ✓ tree load: dep after/plugin sees parent on rtp, sourcing precedes parent config")
+		passed = passed + 1
+	else
+		print(("  ✗ tree load: got log=%s req=%s (expected plugin,after,config and ok)"):format(got_log, got_req))
+		failed = failed + 1
+	end
+	vim.g.laze_tree_log = nil
+	vim.g.laze_tree_dep_req = nil
+	vim.fn.delete(root, "rf")
+end
+
 if is_filtered("perf") or next(filter) == nil then
 	print("\n=== perf regression tests ===\n")
 
@@ -3664,6 +3714,71 @@ do
 	else
 		print("  ✗ extra: direct clean() call failed")
 		failed = failed + 1
+	end
+
+	do
+		-- clean must ignore the plugin it is running from, and must not hand active plugins to
+		-- vim.pack.del (it deletes the rest, then throws).
+		local maintenance = require("laze.extras.maintenance")
+		local file = vim.api.nvim_get_runtime_file("lua/laze/extras/maintenance.lua", false)[1]
+		local self_root = file and file:match("^(.*)/lua/laze/extras/maintenance%.lua$")
+		local orig_get, orig_del, orig_notify = vim.pack.get, vim.pack.del, vim.notify
+		local msgs, deleted = {}, nil
+		vim.notify = function(msg)
+			msgs[#msgs + 1] = msg
+		end
+		vim.pack.get = function()
+			return {
+				{ spec = { name = "laze" }, path = self_root, active = true },
+				{ spec = { name = "zz-gone" }, path = "/nonexistent/gone", active = false },
+				{ spec = { name = "zz-busy" }, path = "/nonexistent/busy", active = true },
+			}
+		end
+		vim.pack.del = function(names)
+			deleted = names
+		end
+		local ok, stale_names = pcall(maintenance.clean, true)
+		local warned_busy = false
+		for _, msg in ipairs(msgs) do
+			if msg:find("zz-busy", 1, true) then
+				warned_busy = true
+			end
+		end
+		msgs = {}
+		vim.pack.del = function()
+			error("del exploded")
+		end
+		local ok_err = pcall(maintenance.clean, true)
+		local warned_err = false
+		for _, msg in ipairs(msgs) do
+			if msg:find("del exploded", 1, true) then
+				warned_err = true
+			end
+		end
+		vim.pack.get, vim.pack.del, vim.notify = orig_get, orig_del, orig_notify
+		if
+			self_root
+			and ok
+			and vim.deep_equal(stale_names, { "zz-busy", "zz-gone" })
+			and vim.deep_equal(deleted, { "zz-gone" })
+			and warned_busy
+			and ok_err
+			and warned_err
+		then
+			print("  ✓ extra: clean excludes running laze and deletes only inactive plugins")
+			passed = passed + 1
+		else
+			print("  ✗ extra: clean self-exclusion/active handling misbehaved: " .. vim.inspect({
+				self_root = self_root,
+				ok = ok,
+				stale = stale_names,
+				deleted = deleted,
+				warned_busy = warned_busy,
+				ok_err = ok_err,
+				warned_err = warned_err,
+			}))
+			failed = failed + 1
+		end
 	end
 end
 

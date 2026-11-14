@@ -5,12 +5,14 @@
 NVIM   ?= nvim
 SELENE ?= selene
 STYLUA ?= stylua
+LUA_LS ?= lua-language-server
+VIMRUNTIME ?= $(shell $(NVIM) --clean --headless +'lua io.write(vim.env.VIMRUNTIME)' +qa 2>/dev/null)
 BENCH_BREAKDOWN_N ?= 50
 BENCH_JIT_N ?= 100
 
 .DEFAULT_GOAL := help
 
-.PHONY: help test test-fast test-perf test-unit test-subset lint lint-tests \
+.PHONY: help test test-fast test-perf test-unit test-subset typecheck lint lint-tests \
 	fmt fmt-check fast check e2e \
 	bench bench-lua bench-compile bench-compare bench-breakdown bench-parse \
 	bench-jit bench-jit-pro
@@ -37,6 +39,9 @@ test-unit: ## Compile/IR unit tests
 
 test-subset: ## Spec-surface conformance
 	$(NVIM) --clean -l tests/test_subset.lua
+
+typecheck: ## LuaLS type check (Warning+), not part of check yet
+	VIMRUNTIME=$(VIMRUNTIME) $(LUA_LS) --check=lua/laze --checklevel=Warning --check_format=pretty --configpath=$(abspath .luarc.json)
 
 # --- lint + format ---
 

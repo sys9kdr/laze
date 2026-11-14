@@ -1,6 +1,6 @@
 ---
 name: perf-tuning
-description: Measure real startup cost before claiming a laze change is fast or slow. Use when a change touches compile/plan/setup, when a JIT or "the compiled path stays hot" folklore claim is made, when a perf difference needs an executable oracle, or when re-proposing something from the rejected list in docs/performance.md.
+description: Measure real startup cost before claiming a laze change is fast or slow. Use when a change touches compile/plan/setup, when a JIT or "the compiled path stays hot" folklore claim is made, when a perf difference needs an executable oracle, or when re-proposing something from the rejected list in docs/internal/performance.md.
 ---
 
 # Measure startup cost
@@ -27,7 +27,7 @@ measured number encoded in a test or doc is.
    The inter-process noise floor is ±100 µs (process startup), so a µs-scale
    claim needs an in-process N-loop micro-harness, and an end-to-end sub-ms
    claim needs best-of-3 ×3 before it is real.
-3. Encode the number: a `tests/run.lua perf` threshold, a docs/performance.md
+3. Encode the number: a `tests/run.lua perf` threshold, a docs/internal/performance.md
    Resolved entry with before→after figures, or both. Entries under
    "Rejected (measured)" are law: re-proposing requires new numbers.
 4. Only propose JIT-shaped rewrites (byte loops, pattern-free probes,

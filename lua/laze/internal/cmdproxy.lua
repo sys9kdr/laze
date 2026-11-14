@@ -1,5 +1,5 @@
 --- Startup command bridge: a command typed before its plugin defined it. Required on first CmdUndefined hit during
---- startup, never at plan build (cold code; see docs/performance.md).
+--- startup, never at plan build (cold code; see docs/internal/performance.md).
 ---
 --- During startup load_plugin uses `:packadd!`, which adds rtp but does not source plugin/ (Neovim's own startup phases
 --- do, exactly once); a full `:packadd` would source plugin/ twice. So the retried command may still be undefined. This
@@ -42,10 +42,13 @@ function M.defer(calls, cmd)
 			-- never defines), remove it before replaying or the replay re-queues itself forever and masks the real "not an
 			-- editor command" error.
 			local current = vim.api.nvim_get_commands({ builtin = false })[cmd]
-			if current and current.desc == PROXY_DESC then
+			-- `nvim_get_commands` exposes a user command's `desc` as `definition`.
+			if current and current.definition == PROXY_DESC then
 				pcall(vim.api.nvim_del_user_command, cmd)
 			end
 			for _, call in ipairs(queued or {}) do
+				-- LuaLS sees `vim.cmd` as a callable table, not a function.
+				---@diagnostic disable-next-line: param-type-mismatch
 				pcall(vim.cmd, call)
 			end
 		end,

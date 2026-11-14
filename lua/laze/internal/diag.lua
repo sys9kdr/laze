@@ -7,6 +7,18 @@ function M.warn(msg)
 	vim.notify("laze: " .. msg, vim.log.levels.WARN)
 end
 
+--- Emit the diagnostics returned by compile. The functional core collects them; the shell notifies.
+---@param diagnostics LazeDiagnostic[]
+function M.flush(diagnostics)
+	for _, d in ipairs(diagnostics or {}) do
+		if d.id then
+			vim.notify(require("laze.internal.known_differences").format(d.id, d.detail), vim.log.levels.WARN)
+		elseif d.message then
+			M.warn(d.message)
+		end
+	end
+end
+
 function M.spec(idx, spec_id, msg)
 	error(("spec [%d] (%s): %s"):format(idx, spec_id, msg), 0)
 end

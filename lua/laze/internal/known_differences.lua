@@ -1,33 +1,16 @@
---- Compile-time notifications for known differences (issue #12). Only `notify = "compile"` entries from
---- docs/known-differences.md are surfaced; "never" entries stay docs-only.
+--- Compile-time notifications for known differences (issue #12). The registry lives in
+--- tests/fixtures/known_differences.lua; docs/known-differences.md defines the classes and policy.
 ---
---- The caller dedupes per compile.
+--- Compile returns KD diagnostics as data; the shell formats and emits them with `format`.
 local M = {}
 
 M.docs = "docs/known-differences.md"
 
-M.entries = {
-	["KD-016"] = "unsupported key options are dropped",
-	["KD-020"] = "field has no laze equivalent",
-}
-
 ---@param id string Stable KD id (e.g. "KD-016").
 ---@param detail string One-line, caller-provided detail.
----@param notified? table<string, boolean> Per-compile dedupe table.
----@param opts? { known_differences?: boolean } Compile options.
----@param key? string Dedupe key when one ID covers several distinct cases.
-function M.notify(id, detail, notified, opts, key)
-	if opts and opts.known_differences == false then
-		return
-	end
-	key = key or id
-	if notified then
-		if notified[key] then
-			return
-		end
-		notified[key] = true
-	end
-	vim.notify(("laze: %s (%s, see %s)"):format(detail, id, M.docs), vim.log.levels.WARN)
+---@return string
+function M.format(id, detail)
+	return ("laze: %s (%s, see %s)"):format(detail, id, M.docs)
 end
 
 return M

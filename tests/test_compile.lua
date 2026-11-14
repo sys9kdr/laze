@@ -45,6 +45,15 @@ local normalize_events = require("laze.compile").normalize_events
 local resolve_version = require("laze.compile").resolve_version
 local FN = require("tests.fixtures._sentinel").FN
 
+--- Compile returns diagnostics as data; flatten them to the messages the shell would emit.
+local function diagnostics_messages(c)
+	local out = {}
+	for _, d in ipairs(c.diagnostics or {}) do
+		out[#out + 1] = d.message or require("laze.internal.known_differences").format(d.id, d.detail)
+	end
+	return out
+end
+
 local passed = 0
 local failed = 0
 
@@ -1371,15 +1380,11 @@ end
 -- Same lhs + same mode: shared trigger map, first declaration's rhs/opts
 -- win; every declaring plugin still loads on the key.
 do
-	local msgs = {}
-	vim.notify = function(msg, _)
-		table.insert(msgs, msg)
-	end
 	local c = compile({
 		{ "A/first", name = "first", keys = { { lhs = "x", rhs = "<cmd>First<CR>", desc = "first" } } },
 		{ "B/second", name = "second", keys = { { lhs = "x", rhs = "<cmd>Second<CR>" } } },
 	})
-	vim.notify = function() end
+	local msgs = diagnostics_messages(c)
 	local variants = c.routes.keys["x"]
 	expect(#variants == 1, "same lhs + same mode: single shared variant")
 	expect(
@@ -1400,15 +1405,11 @@ do
 end
 
 do
-	local msgs = {}
-	vim.notify = function(msg, _)
-		table.insert(msgs, msg)
-	end
 	local c = compile({
 		{ "A/first", name = "first", keys = { { lhs = "x", mode = "v", rhs = "<cmd>X<CR>" } } },
 		{ "B/second", name = "second", keys = { { lhs = "x", mode = "n", rhs = "<cmd>X<CR>" } } },
 	})
-	vim.notify = function() end
+	local msgs = diagnostics_messages(c)
 	local variants = c.routes.keys["x"]
 	expect(#variants == 2, "same lhs + different modes: both variants survive")
 	local warned = false
@@ -1421,10 +1422,6 @@ do
 end
 
 do
-	local msgs = {}
-	vim.notify = function(msg, _)
-		table.insert(msgs, msg)
-	end
 	local c = compile({
 		{
 			"user/dup",
@@ -1435,7 +1432,7 @@ do
 			},
 		},
 	})
-	vim.notify = function() end
+	local msgs = diagnostics_messages(c)
 	local variant = c.routes.keys["x"][1]
 	expect(#variant.ids == 1, "same plugin declaring the same variant twice routes it once")
 	local warned = false
@@ -1483,10 +1480,6 @@ do
 end
 
 do
-	local msgs = {}
-	vim.notify = function(msg, _)
-		table.insert(msgs, msg)
-	end
 	local c = compile({
 		{
 			"folke/parent.nvim",
@@ -1511,8 +1504,7 @@ do
 			dependencies = { "nested-child" },
 		},
 	})
-	vim.notify = function() end
-	expect(#msgs == 0, "nested dependencies expand without warnings")
+	expect(#c.diagnostics == 0, "nested dependencies expand without warnings")
 	expect(c.registry["nested-parent"].after[1] == "nested-child", "nested parent -> child after edge")
 	expect(c.registry["nested-child"].after[1] == "nested-grand", "nested child -> grand after edge")
 	expect(c.registry["nested-grand"].after[1] == "nested-great", "nested grand -> great after edge")
@@ -1630,11 +1622,7 @@ do
 end
 
 do
-	local msgs = {}
-	vim.notify = function(msg, _)
-		table.insert(msgs, msg)
-	end
-	compile({
+	local c = compile({
 		{
 			"folke/x.nvim",
 			name = "x-unsup",
@@ -1646,7 +1634,7 @@ do
 			specs = {},
 		},
 	})
-	vim.notify = function() end
+	local msgs = diagnostics_messages(c)
 	for _, field in ipairs({ "submodules", "optional", "import", "specs" }) do
 		local found = false
 		for _, m in ipairs(msgs) do
@@ -1669,14 +1657,9 @@ do
 end
 
 do
-	local msgs = {}
-	vim.notify = function(msg, _)
-		table.insert(msgs, msg)
-	end
-	compile({ { "folke/sub-true.nvim", name = "sub-true", submodules = true } })
-	expect(#msgs == 0, "submodules = true matches vim.pack and does not warn")
-	compile({ { "folke/sub-false.nvim", name = "sub-false", submodules = false } })
-	vim.notify = function() end
+	local sub_true = compile({ { "folke/sub-true.nvim", name = "sub-true", submodules = true } })
+	expect(#sub_true.diagnostics == 0, "submodules = true matches vim.pack and does not warn")
+	local msgs = diagnostics_messages(compile({ { "folke/sub-false.nvim", name = "sub-false", submodules = false } }))
 	local found = false
 	for _, m in ipairs(msgs) do
 		if m:find("submodules", 1, true) then

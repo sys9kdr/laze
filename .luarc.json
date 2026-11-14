@@ -5,7 +5,7 @@
   },
   "workspace": {
     "library": [
-      "$VIMRUNTIME/lua"
+      "${env:VIMRUNTIME}/lua"
     ]
   }
 }

@@ -332,12 +332,15 @@ end
 
 print("\n=== subset: known differences registry ===\n")
 
--- The canonical human-readable index is docs/known-differences.md; the
--- machine-readable mirror is tests/fixtures/known_differences.lua. Keep both
--- in sync. Test references are either "path: static label" (the label must
+-- The registry is data in tests/fixtures/known_differences.lua: `active`
+-- holds current differences, `resolved` retires IDs without reusing them.
+-- docs/known-differences.md defines the classes and policy without duplicating
+-- entries. Test references are either "path: static label" (the label must
 -- occur in that file) or "docs-only: reason" for delegated behavior that
 -- cannot be exercised inside laze.
-local known = require("tests.fixtures.known_differences")
+local registry = require("tests.fixtures.known_differences")
+local known = registry.active
+local resolved = registry.resolved
 local required_fields = {
 	"id",
 	"title",
@@ -401,8 +404,35 @@ for _, kd in ipairs(known) do
 	end
 end
 
+-- Retired IDs keep their history but only need identity and a resolution note.
+for _, kd in ipairs(resolved) do
+	local label = tostring(kd.id or "<missing id>")
+	for _, field in ipairs({ "id", "title", "area", "class", "resolved", "note" }) do
+		if type(kd[field]) ~= "string" or kd[field] == "" then
+			table.insert(kd_errors, ("%s: missing %s"):format(label, field))
+		end
+	end
+	if type(kd.id) == "string" then
+		if not kd.id:match("^KD%-%d%d%d$") then
+			table.insert(kd_errors, ("%s: id must match KD-NNN"):format(label))
+		end
+		if kd_seen[kd.id] then
+			table.insert(kd_errors, ("%s: duplicate id"):format(label))
+		end
+		kd_seen[kd.id] = true
+	end
+	if type(kd.class) == "string" and not allowed_classes[kd.class] then
+		table.insert(kd_errors, ("%s: unknown class %q"):format(label, kd.class))
+	end
+end
+
 if #kd_errors == 0 then
-	pass(("known differences: %d entries have valid fields and test references"):format(#known))
+	pass(
+		("known differences: %d active + %d resolved entries have valid fields and test references"):format(
+			#known,
+			#resolved
+		)
+	)
 else
 	fail("known differences registry is valid", table.concat(kd_errors, "; "))
 end
@@ -413,65 +443,46 @@ if not doc_fh then
 else
 	local doc = doc_fh:read("*a")
 	doc_fh:close()
-	-- Resolved IDs stay documented for history but are no longer active, so
-	-- they are not part of the active-registry sync check.
-	doc = doc:gsub("## Resolved differences.*$", "")
-	local doc_ids = {}
-	for id in doc:gmatch("KD%-%d%d%d") do
-		doc_ids[id] = true
-	end
-	local missing, extra = {}, {}
-	for id in pairs(kd_seen) do
-		if not doc_ids[id] then
-			table.insert(missing, id)
-		end
-	end
-	for id in pairs(doc_ids) do
-		if not kd_seen[id] then
-			table.insert(extra, id)
-		end
-	end
-	table.sort(missing)
-	table.sort(extra)
-	local doc_errors = {}
-	if #missing > 0 then
-		table.insert(doc_errors, "missing from docs: " .. table.concat(missing, ", "))
-	end
-	if #extra > 0 then
-		table.insert(doc_errors, "documented but not registered: " .. table.concat(extra, ", "))
-	end
-	if #doc_errors == 0 then
-		pass("known differences: docs and registry IDs are in sync")
+	if doc:find("tests/fixtures/known_differences.lua", 1, true) then
+		pass("known differences: docs point at the registry fixture")
 	else
-		fail("known differences docs and registry IDs are in sync", table.concat(doc_errors, "; "))
+		fail("known differences docs point at the registry fixture", "no link to tests/fixtures/known_differences.lua")
 	end
 end
 
--- Issue #12: runtime compile-time notifications must be a subset of the
--- active registry, and exactly the entries whose policy is `compile`.
+-- Issue #12: every `notify = "compile"` entry must be emitted by compile.lua,
+-- and a `never` entry must not be referenced from live code. Comment lines are
+-- ignored so parity notes can still cite retired IDs.
 do
-	local runtime = require("laze.internal.known_differences")
-	local runtime_ids = {}
-	local sync_errors = {}
-	for id in pairs(runtime.entries) do
-		runtime_ids[id] = true
-		if not kd_seen[id] then
-			table.insert(sync_errors, id .. " not in the registry")
-		end
-	end
-	for _, kd in ipairs(known) do
-		if kd.notify == "compile" then
-			if not runtime_ids[kd.id] then
-				table.insert(sync_errors, kd.id .. " missing from lua/laze/internal/known_differences.lua")
-			end
-		elseif runtime_ids[kd.id] then
-			table.insert(sync_errors, kd.id .. " is notify=never but has a runtime message")
-		end
-	end
-	if #sync_errors == 0 then
-		pass("known differences: compile notifications match the registry")
+	local fh = io.open("lua/laze/compile.lua", "r")
+	if not fh then
+		fail("known differences: compile call sites checked", "lua/laze/compile.lua is missing")
 	else
-		fail("known differences compile notifications match the registry", table.concat(sync_errors, "; "))
+		local live = {}
+		for line in fh:lines() do
+			local code = line:gsub("^%s+", "")
+			if not code:match("^%-%-") then
+				for id in code:gmatch('"(KD%-%d%d%d)"') do
+					live[id] = true
+				end
+			end
+		end
+		fh:close()
+		local sync_errors = {}
+		for _, kd in ipairs(known) do
+			if kd.notify == "compile" then
+				if not live[kd.id] then
+					table.insert(sync_errors, kd.id .. " missing from lua/laze/compile.lua")
+				end
+			elseif live[kd.id] then
+				table.insert(sync_errors, kd.id .. " is notify=never but compile.lua references it in code")
+			end
+		end
+		if #sync_errors == 0 then
+			pass("known differences: compile notifications match the registry")
+		else
+			fail("known differences compile notifications match the registry", table.concat(sync_errors, "; "))
+		end
 	end
 end
 

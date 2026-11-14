@@ -1,30 +1,26 @@
 # AGENTS.md — laze.nvim
 
-laze is a thin wrapper around `vim.pack`: it compiles a documented subset of lazy.nvim specs into `vim.pack` specs and a small execution plan. Installation, tag/ref resolution, and dependency solving stay with `vim.pack`.
+laze is a thin wrapper around `vim.pack`: it compiles a documented subset of lazy.nvim specs into `vim.pack` specs and a small execution plan.
+Installation stuff stays with `vim.pack`.
 
 - Design: docs/design.md
-- Spec surface: README.md#spec-shape
-- Out of scope: docs/not-have.md
-- Known differences: docs/known-differences.md
-- Tests are the source of truth for behavior. When laze and lazy.nvim disagree, measure lazy.nvim first; see .agents/skills/lazy-oracle/SKILL.md. When a perf claim (JIT or otherwise) is at stake, measure in fresh processes; see .agents/skills/perf-tuning/SKILL.md.
-
-## Module design
-
-Deepen modules and simplify interfaces. A module should hide a real mechanism behind a narrow entry point; pass each call only the values it needs, never a ctx bag of the caller's state. Adding a module has to buy that: moving code between eagerly-required files is parse-neutral, so cold bodies move behind an inline `require` only when the interface stays small (docs/performance.md). Keep plan-private mechanisms (loader state, `package.preload` wiring) in plan.lua rather than widening a module to shave a few µs.
+    - docs/not-have.md
+    - docs/known-differences.md (registry: tests/fixtures/known_differences.lua)
+- Spec surface: docs/design.md#spec-shape
+- Docs policy:
+    - `docs/` is the user-facing contract; implementation notes live in `docs/internal/`.
+    - `docs/internal/performance.md` is the single ledger for measurements and rejected ideas.
+    - No ADR numbering or one-off design notes: fold durable facts into the current contract or the perf ledger, then delete the note.
+    - Roles: `design.md` = architecture; `spec.md` = field behavior; `migration.md` = lazy.nvim deltas; `not-have.md` = non-goals. Link instead of restating.
+- Tests are the source of truth for behavior.
+  When laze and lazy.nvim disagree, measure lazy.nvim first; see .agents/skills/lazy-oracle/SKILL.md.
+  When a perf claim (JIT or otherwise) is at stake, measure in fresh processes; see .agents/skills/perf-tuning/SKILL.md.
 
 ## Commands
 
-Dev commands live in the [`Makefile`](Makefile); run `make` to list targets.
-The ones you will reach for:
-
-```sh
-make check        # all gates: unit, subset, integration, lint, format check
-make fast         # quick gates: fast integration, unit, subset, format check
-make test         # integration (+ spawned + perf), single run
-make test-unit    # unit; also test-subset, test-perf
-make lint         # static lint; also lint-tests. make fmt / make fmt-check
-```
+Dev commands live in the Makefile.
 
 ## Commit style
 
-Use present tense. Keep it to a concise single line, plus an optional body.
+Use present tense.
+Keep it to a concise single line, plus an optional body.

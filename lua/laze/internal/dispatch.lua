@@ -1,5 +1,5 @@
 --- Trigger-time behavior, required at the first fire rather than at plan build: none of this runs on a startup that
---- never hits a trigger (docs/performance.md). Everything these bodies need is an explicit argument, so the plan's
+--- never hits a trigger (docs/internal/performance.md). Everything these bodies need is an explicit argument, so the plan's
 --- loader state stays in its closure.
 local M = {}
 
