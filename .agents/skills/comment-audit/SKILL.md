@@ -52,7 +52,7 @@ Never delete a comment that carries information the code cannot express:
 - Traps where a refactor reintroduces a bug: `nil` through `and/or`, `vim.NIL`
   as JSON null, `rhs == false` cancelling a mapping, feedkeys ordering,
   source-exactly-once across startup phases.
-- `docs/` pointers (`docs/rtp-index.md`, `docs/performance.md`).
+- `docs/` pointers (`docs/internal/performance.md`).
 - Why a byte loop or byte compare replaces a pattern match.
 - Why an invalid input is rejected at compile time instead of failing later.
 

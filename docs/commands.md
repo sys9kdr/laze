@@ -1,13 +1,14 @@
 # Custom commands
 
-The core ships no commands; [`laze.extra`](extras.md) registers four maintenance commands but only on explicit `setup()`. For anything else, add your own against the compiled table returned by `setup`: 
+The core ships no commands; [`laze.extra`](extras.md) registers four maintenance commands but only on explicit `setup()`.
+For anything else, add your own against the compiled table returned by `setup`:
 
 ## Sync (update all)
 
 ```lua
 vim.api.nvim_create_user_command("Sync", function()
-  vim.pack.update()
-  vim.notify("laze: synced", vim.log.levels.INFO)
+	vim.pack.update()
+	vim.notify("laze: synced", vim.log.levels.INFO)
 end, { desc = "Sync all plugins" })
 ```
 
@@ -41,10 +42,8 @@ end, {
 })
 ```
 
-Note: this is session-scoped. The next startup re-registers the original
-`src` from the specs, so the switch does not persist — combine with
-`reload_all()` or dev specs (`dev = true` / `dev = "path"`) for persistent
-dev mode.
+Note: this is session-scoped.
+The next startup re-registers the original `src` from the specs, so the switch does not persist — combine with `reload_all()` or dev specs (`dev = true` / `dev = "path"`) for persistent dev mode.
 
 ## Hot reload dev plugin
 
@@ -81,11 +80,9 @@ end, { desc = "Reload all plugins (fresh plan)" })
 
 ## Pinning versions
 
-No recipe needed: `vim.pack` keeps its own lockfile
-(`$XDG_CONFIG_HOME/nvim/nvim-pack-lock.json`) and installs at the locked
-revision on a fresh machine. Commit it to version control — that is the
-entire workflow. (There is no laze lock module: the native lockfile covers
-pinning, verified end-to-end.)
+No recipe needed: `vim.pack` keeps its own lockfile (`$XDG_CONFIG_HOME/nvim/nvim-pack-lock.json`) and installs at the locked revision on a fresh machine.
+Commit it to version control — that is the entire workflow.
+(There is no laze lock module: the native lockfile covers pinning, verified end-to-end.)
 
 ## Store compiled IR for commands
 
@@ -93,11 +90,9 @@ pinning, verified end-to-end.)
 local compiled = laze.setup(specs)  -- setup returns the compiled table
 ```
 
-Note: never feed `compiled.pack` to a raw `vim.pack.add()` at startup —
-it `:packadd`s everything and bypasses lazy triggers. Startup must go
-through `laze.setup()`, which splits eager (`load = false`) from lazy
-(no-op `load`). A raw add is only safe in manually-run maintenance
-commands, where sourcing everything immediately is the point.
+Note: never feed `compiled.pack` to a raw `vim.pack.add()` at startup — it `:packadd`s everything and bypasses lazy triggers.
+Startup must go through `laze.setup()`, which splits eager (`load = false`) from lazy (no-op `load`).
+A raw add is only safe in manually-run maintenance commands, where sourcing everything immediately is the point.
 
 ## Sandbox testing
 
@@ -111,4 +106,5 @@ A ready-to-use test profile is at `tests/profile/`:
 ./tests/profile/run.sh
 ```
 
-The profile exercises all lazy-loading triggers (event, ft, cmd, keys) with real plugins via `dir` paths. Edit `tests/profile/init.lua` to experiment.
+The profile exercises all lazy-loading triggers (event, ft, cmd, keys) with real plugins via `dir` paths.
+Edit `tests/profile/init.lua` to experiment.

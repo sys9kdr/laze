@@ -60,8 +60,8 @@ a measured result encoded in a test is.
 
 - Put the measured behavior in the owning test (`tests/test_compile.lua`,
   `tests/run.lua`, or `tests/test_subset.lua` notes), not only in prose.
-- Update `docs/known-differences.md` and
-  `tests/fixtures/known_differences.lua` together when the result retires or
-  adds a KD id.
+- Update `tests/fixtures/known_differences.lua` (active or resolved) when the
+  result retires or adds a KD id; `docs/known-differences.md` only defines the
+  classes and notification policy.
 - Re-run the full suite; parity work usually touches compile, plan, and the
   spec-surface notes at once.
