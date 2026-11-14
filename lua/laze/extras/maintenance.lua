@@ -85,7 +85,7 @@ function M.clean(bang)
 
 	if not bang then
 		local lines = {
-			("laze: %d unmanaged plugin(s), clean(true) to delete:"):format(#stale),
+			("laze: %d unmanaged plugin(s), clean! to remove:"):format(#stale),
 			table.concat(stale, "\n"),
 		}
 		if #blocked > 0 then
