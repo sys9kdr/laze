@@ -3665,6 +3665,71 @@ do
 		print("  ✗ extra: direct clean() call failed")
 		failed = failed + 1
 	end
+
+	do
+		-- clean must ignore the plugin it is running from, and must not hand active plugins to
+		-- vim.pack.del (it deletes the rest, then throws).
+		local maintenance = require("laze.extras.maintenance")
+		local file = vim.api.nvim_get_runtime_file("lua/laze/extras/maintenance.lua", false)[1]
+		local self_root = file and file:match("^(.*)/lua/laze/extras/maintenance%.lua$")
+		local orig_get, orig_del, orig_notify = vim.pack.get, vim.pack.del, vim.notify
+		local msgs, deleted = {}, nil
+		vim.notify = function(msg)
+			msgs[#msgs + 1] = msg
+		end
+		vim.pack.get = function()
+			return {
+				{ spec = { name = "laze" }, path = self_root, active = true },
+				{ spec = { name = "zz-gone" }, path = "/nonexistent/gone", active = false },
+				{ spec = { name = "zz-busy" }, path = "/nonexistent/busy", active = true },
+			}
+		end
+		vim.pack.del = function(names)
+			deleted = names
+		end
+		local ok, stale_names = pcall(maintenance.clean, true)
+		local warned_busy = false
+		for _, msg in ipairs(msgs) do
+			if msg:find("zz-busy", 1, true) then
+				warned_busy = true
+			end
+		end
+		msgs = {}
+		vim.pack.del = function()
+			error("del exploded")
+		end
+		local ok_err = pcall(maintenance.clean, true)
+		local warned_err = false
+		for _, msg in ipairs(msgs) do
+			if msg:find("del exploded", 1, true) then
+				warned_err = true
+			end
+		end
+		vim.pack.get, vim.pack.del, vim.notify = orig_get, orig_del, orig_notify
+		if
+			self_root
+			and ok
+			and vim.deep_equal(stale_names, { "zz-busy", "zz-gone" })
+			and vim.deep_equal(deleted, { "zz-gone" })
+			and warned_busy
+			and ok_err
+			and warned_err
+		then
+			print("  ✓ extra: clean excludes running laze and deletes only inactive plugins")
+			passed = passed + 1
+		else
+			print("  ✗ extra: clean self-exclusion/active handling misbehaved: " .. vim.inspect({
+				self_root = self_root,
+				ok = ok,
+				stale = stale_names,
+				deleted = deleted,
+				warned_busy = warned_busy,
+				ok_err = ok_err,
+				warned_err = warned_err,
+			}))
+			failed = failed + 1
+		end
+	end
 end
 
 print(("\n%d passed, %d failed\n"):format(passed, failed))
