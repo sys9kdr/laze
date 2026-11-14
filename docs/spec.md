@@ -1,6 +1,7 @@
 # Spec field details
 
-Authoritative behavior for the fields listed in
+Authoritative behavior for the fields in the
+[`LazeSpec`](../lua/laze/init.lua) type, introduced in
 [README § Spec shape](../README.md#spec-shape). For converting a spec from
 lazy.nvim, see [migration.md](migration.md); for the canonical difference
 registry, see [known-differences.md](known-differences.md).

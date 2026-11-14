@@ -1,5 +1,5 @@
 --- test_subset.lua — verify laze's spec surface stays a lazy.nvim subset.
---- Run: nvim --clean -l tests/test_subset.lua   (luajit also works, no nvim)
+--- Run: nvim --clean -l tests/test_subset.lua
 ---
 --- The escape-hatch principle (see AGENTS.md): a config written for laze
 --- should work in lazy.nvim with little or no changes. This test pins that

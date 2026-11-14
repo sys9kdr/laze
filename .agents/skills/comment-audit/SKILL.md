@@ -75,14 +75,8 @@ Rewrite rather than delete when the fact matters but the prose is loose:
 
 ## Verify
 
-Comments are code-adjacent, so run the same gates:
-
-```sh
-nvim --cmd "set rtp+=." -l tests/run.lua fast
-nvim --clean -l tests/test_compile.lua
-nvim --clean -l tests/test_subset.lua
-stylua --check .
-```
+Comments are code-adjacent, so run the same gates: `make fast` (fast
+integration, unit, subset, format check).
 
 If a comment claimed a measurement and you cannot point at it, delete the
 claim rather than the measurement. If a comment turns out to be stale (the code

@@ -58,16 +58,6 @@ laze.setup({
 })
 ```
 
-Or just one call if you have specs elsewhere:
-
-```lua
-local compiled = laze.setup(specs)   -- compile + vim.pack.add + plan(), returns compiled
-```
-
-`setup()` returns the compiled IR (`LazeCompiled`). You can hand it to [`laze.build_plan`](docs/performance.md#instrumenting-load-time) for hooks like load-time timings, or just keep it around for inspection — otherwise ignore it. Pinning needs no code: commit `vim.pack`'s own lockfile (`$XDG_CONFIG_HOME/nvim/nvim-pack-lock.json`).
-
-That's it. Everything else in laze is declarative spec fields, opt-in extras, and your own commands — [see below](#spec-shape).
-
 ## Spec shape
 
 A spec is a table, a bare `"owner/repo"` string, or a nested list of those.
@@ -75,41 +65,15 @@ Nested lists are flattened; sparse lists are rejected.
 
 The full field set is the `LazeSpec` LuaCATS type in [`lua/laze/init.lua`](lua/laze/init.lua); behavior details are in [docs/spec.md](docs/spec.md).
 
-```lua
-{
-  { "owner/repo" },                                 -- eager: no trigger
-  { "owner/repo", event = "VeryLazy" },             -- lazy: event
-  { "owner/repo", cmd = "Cmd", keys = { "<F5>" } }, -- lazy: command / key
-  { "owner/repo", module = "mod", config = true },  -- lazy: require("mod")
-  { "owner/repo", dependencies = { "dep/repo" } },
-  { "owner/repo", version = "^1.2" },               -- or branch/tag/commit
-  { "owner/repo", build = ":Build", dev = true },
-  { "owner/repo", dir = "~/src/repo", priority = 60 },
-}
-```
-
-Rejected at compile time:
-
-```lua
-{ "owner/repo", event = function() end }   -- function-shaped triggers
-{ "owner/repo", version = "main" }         -- use branch/tag/commit
-```
-
-`import`, `specs`, `optional`, and `submodules = false` are warned and ignored.
-
 ## Development
 
-Run the packaged test suites and the pinned linter/formatter from the
-repository root:
+Dev commands are wrapped in the [`Makefile`](Makefile); run `make` from the
+repository root to list every target (`test-*`, `lint*`, `fmt*`, `bench-*`,
+`e2e`). The usual entry points:
 
 ```sh
-nvim --cmd "set rtp+=." -l tests/run.lua        # integration (+ perf)
-nvim --clean -l tests/test_compile.lua          # unit (luajit also works)
-nvim --clean -l tests/test_subset.lua           # spec-surface conformance
-selene lua                                      # static lint, production (0.32.0)
-selene --config tests/selene.toml tests         # static lint, tests
-stylua .                                        # format (StyLua 2.6.0)
-stylua --check .                                # formatting check (CI)
+make check   # all gates: unit, subset, integration, lint, format check
+make fast    # quick gates: fast integration, unit, subset, format check
 ```
 
 Install the pinned Selene 0.32.0 and StyLua 2.6.0 from their GitHub Release
@@ -119,6 +83,9 @@ ship prebuilt binaries, no Rust toolchain is required. `tests/vendor/` and
 `tests/snapshots/` are excluded from linting (selene configs) and from
 formatting (`.styluaignore`).
 
+CI runs these same targets — `make check` is the union of what its jobs run —
+so a failing pipeline is reproducible with the command above.
+
 ### README e2e (manual, network only)
 
 `tests/e2e/` fetches a fixed set of real plugin READMEs at pinned commits,
@@ -127,10 +94,10 @@ Neovim, fires one trigger, and runs one smoke assertion. It needs network and
 is not part of CI:
 
 ```sh
-nvim --cmd "set rtp+=." -l tests/run.lua e2e_readme            # all plugins
-nvim --cmd "set rtp+=." -l tests/run.lua e2e_readme oil flash  # by name
-nvim --cmd "set rtp+=." -l tests/run.lua e2e_readme --failed   # last report's failures
-nvim --cmd "set rtp+=." -l tests/run.lua e2e_readme --clean    # drop cached installs
+make e2e                   # all plugins
+make e2e ARGS="oil flash"  # by name
+make e2e ARGS=--failed     # last report's failures
+make e2e ARGS=--clean      # drop cached installs
 ```
 
 Each row reports `ok` / `warned` (unsupported field) / `failed` with a reason

@@ -17,8 +17,8 @@ measured number encoded in a test or doc is.
    repeated in-process (`reload_all`, per-event probes). A rewrite that only
    wins warm never wins at startup.
 2. Baseline before the change, apply it, then A/B in fresh processes —
-   [tests/benchmarks/jit_ab.lua](../../tests/benchmarks/jit_ab.lua) shows the
-   protocol:
+   [tests/benchmarks/jit_ab.lua](../../../tests/benchmarks/jit_ab.lua) shows the
+   protocol (`make bench-jit` runs it from the repo root):
 
    ```sh
    for r in 1 2 3; do nvim --clean -l harness.lua; done   # best-of-3 per side

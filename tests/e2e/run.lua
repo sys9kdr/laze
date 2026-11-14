@@ -16,13 +16,12 @@ local clean = false
 local failed_only = false
 for i = 1, #arg do
 	local value = arg[i]
-	if value == "e2e_readme" then
-		-- entry marker from tests/run.lua
-	elseif value == "--clean" then
+	if value == "--clean" then
 		clean = true
 	elseif value == "--failed" then
 		failed_only = true
-	else
+	elseif value ~= "e2e_readme" then
+		-- anything else is a plugin name; `e2e_readme` is tests/run.lua's entry marker
 		wanted[value] = true
 	end
 end

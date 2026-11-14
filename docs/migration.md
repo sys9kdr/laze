@@ -6,7 +6,24 @@ laze accepts lazy.nvim's declarative spec shape on purpose (escape hatch first).
 
 **One-line conversions**
 * `lazy = true`/`false` → honored as an explicit override. Without it, *no trigger* means eager and a trigger means lazy.
-* `import = "..."` → not supported; load your spec files yourself and pass the resulting tables to `setup`.
+* `import = "..."` → not supported; load your spec files yourself and pass the resulting tables to `setup`. A single spec module is enough for most configs; split it only when the file outgrows grep:
+
+  ```lua
+  -- lua/plugins.lua
+  return {
+    { "nvim-lua/plenary.nvim" },
+    { "neovim/nvim-lspconfig", event = "BufReadPre" },
+  }
+  ```
+
+  ```lua
+  -- init.lua
+  local specs = { "your-name/laze" }
+  vim.list_extend(specs, require("plugins"))
+  require("laze").setup(specs)
+  ```
+
+  With several modules, loop over their names and `vim.list_extend` each one in the order lazy.nvim used to import them.
 * `priority` → **honored for eager ordering** (higher first, tie-break: id), default 50 — matches lazy.nvim's colorscheme-first workflow. Non-number priorities are rejected.
 * `submodules = false`, `optional`, `specs`: consumed with a per-compile warning (each compile, not one-time), no equivalent. `submodules = true` matches vim.pack and is silent.
 * `build = { ... }` (lazy.nvim's array form) → supported; items run sequentially after install/update. `build = false` means "no build", like lazy.nvim. An empty list `build = {}` normalizes to "no build" everywhere (registry and `vim.pack` spec alike).

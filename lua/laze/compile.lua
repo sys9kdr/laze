@@ -1077,6 +1077,7 @@ local function compile(specs, opts)
 			dev_src = expand_home(norm.dev_path)
 		elseif norm.dev == nil and norm.dir == nil and matches_dev_pattern(dev_patterns, resolved_src) then
 			-- A URL substring match acts like `dev = true` (`<dev_root>/<name>`) when the spec neither opts in nor out.
+			-- selene: allow(if_same_then_else)
 			dev_from_root = true
 			dev_src = vim.fn.expand(dev_root .. "/" .. name)
 		end

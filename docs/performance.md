@@ -292,6 +292,19 @@ plain specs unchanged (~0.07 ms). The cost is inherent to faithful lowering,
 not a regression in an existing path. (Since 2026-11 the scanner lives in the
 lazily-required `laze.internal.semver`; see Resolved.)
 
+A `version` spec's first-use cost is module loading, not parsing:
+`require("vim.version")` ~0.15–0.27 ms plus
+`require("laze.internal.semver")` ~0.12 ms, against ~0.005 ms for
+`to_semver_range("*")` itself. It does not stop at laze: vim.pack writes the
+lowered range into the lockfile and re-runs `vim.version.range()` over it on
+every later startup, so both modules load before laze is asked anything. A
+15-spec config carrying one `version = "*"` spec measured 9.67 → 9.34 ms
+startup and 2.99 → 2.63 ms `laze.setup()` with that spec removed (12
+alternating fresh processes). A `"*"` fast path skipping `semver` was
+prototyped: 0.11 ms of `compile()` (the `vim.version` load stays, paid by
+vim.pack) for a second copy of `with_lower_prerelease`'s prerelease rules —
+rejected. The cheap fix is the spec, not laze.
+
 ### Compile-time micro-items (negligible, one-shot)
 
 - `normalize_array`/`normalize_events`/`normalize_keys` allocate fresh
@@ -326,7 +339,17 @@ function, not microbenchmarked in isolation):
   install/update/del), loss of vim.pack activation, and silent symlink
   staleness. Eager→lazy conversion (≈0.1 ms/plugin) dominates it.
 - **`vim.pack.add` 2-call → 1-call merge**: medians 3011 vs 3015 µs —
-  identical. The split's price is the ~3–20 µs empty-call floor.
+  identical. The split's price is the ~3–20 µs empty-call floor. Re-checked
+  2026-11 with the merge written out (`load` is per-call, so one callable
+  branches on eager vs lazy and replicates `:packadd!`): `laze.setup()`
+  2.665/2.975 ms split vs 2.710/3.077 ms merged (min/median, 18 alternating
+  fresh processes), same `'runtimepath'` afterwards. Nothing to recover —
+  `lock_read` returns as soon as `plugin_lock` is set, so only the first
+  call reads the lockfile and runs `lock_sync`, and the per-spec
+  normalize/validate runs once either way (empty `add` 4–14 µs warm, a
+  re-added installed spec ~20–30 µs). The merged form would also take over
+  `:packadd!`'s name escaping and the post-startup `after/plugin` sourcing
+  that vim.pack owns today.
 - **keys raw-API swap / opts trimming**: true floor is ~8 µs/map
   (API+store ~6.3, callback ~0.7, wrapper ~1.0 — measured decomposition),
   recoverable ≤ ~1.5 µs/map. Reimplementing wrapper semantics for that
@@ -343,6 +366,17 @@ function, not microbenchmarked in isolation):
   apparent win — distributions fully overlap. Lexer comment-skipping is
   ~10× cheaper per byte than code parsing; max realistic diet ≤ ~0.1 ms.
 - **`jit.off()` around require**: measured worse (+0.5 ms).
+- **`jit.off()` around the `compile()` body**: prototyped and measured — the
+  first `compile()` on 15 real specs drops 1.02 → 0.40 ms, `laze.setup()`
+  2.81 → 1.88 ms, and end-to-end startup 9.00 → 8.16 ms (10 alternating
+  fresh processes, `--startuptime`). The cold path never amortizes trace
+  construction, so the win is real and reproducible. Not adopted: a library
+  flipping global VM state around a call is surprising for callers (a
+  nested or profiled `compile` silently runs interpreted), and restoring it
+  on the error path needs `pcall`, which drops the traceback for internal
+  errors. Callers who want it can wrap `laze.compile` themselves. Distinct
+  from the `require` variant above, which also moved module parsing off the
+  JIT and measured worse.
 - **startup-mechanism cuts** (pending queue, cmd proxy, ft catch-up,
   VeryLazy bridge, lazy rtp_index): always-paid total ≈ 2 µs; removal
   buys E492 / silent non-load / late-UI regress. All kept.
@@ -383,30 +417,18 @@ laze.build_plan(compiled, {
 
 ## Benchmarks
 
-Standalone benchmarks for manual profiling (not part of CI):
+Standalone benchmarks for manual profiling (not part of CI); each is a
+`Makefile` target:
 
 ```sh
-# Bash benchmark (cold/warm start + profile breakdown)
-bash tests/benchmarks/bench.sh
-
-# Lua micro-benchmark (μs scale, multiple sizes)
-nvim --cmd "set rtp+=." -l tests/benchmarks/bench.lua
-
-# laze.nvim only
-nvim -u NONE --headless -l tests/benchmarks/compile_only.lua
-
-# Fair comparison: laze.nvim vs lazy.nvim
-nvim -u NONE --headless -l tests/benchmarks/compile_compare.lua
-
-# Cold-setup breakdown (fixed require/parse cost vs per-spec work; N=50 default)
-N=50 nvim --clean -l tests/benchmarks/breakdown.lua
-
-# Parse cost oracle (median-of-60 in-process load(); gate for lazy-require work)
-nvim --clean -l tests/benchmarks/parse_cost.lua
-
-# JIT A/B oracle (fresh process per row; JIT=on|off, WORKLOAD=compile|probe)
-for m in on off; do JIT=$m N=100 nvim --clean -l tests/benchmarks/jit_ab.lua; done
-WORKLOAD=probe nvim --clean -l tests/benchmarks/jit_ab.lua
+make bench             # cold/warm start + profile breakdown (bash)
+make bench-lua         # Lua micro-benchmark (μs scale, multiple sizes)
+make bench-compile     # laze.nvim only: setup cost
+make bench-compare     # fair comparison: laze.nvim vs lazy.nvim
+make bench-breakdown   # cold-setup breakdown (BENCH_BREAKDOWN_N=50)
+make bench-parse       # parse-cost oracle (median-of-60 in-process load())
+make bench-jit         # JIT A/B oracle, compile (fresh process/row; BENCH_JIT_N=100)
+make bench-jit-pro     # JIT A/B oracle, probe workload (JIT=on|off)
 ```
 
 Latest manual run (2026-10-29, Neovim 0.12.6, 4 real dir plugins):
