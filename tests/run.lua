@@ -3647,7 +3647,7 @@ do
 
 	do
 		local preloaded = {}
-		for _, mod in ipairs({ "laze.extra", "laze.extras.commands", "laze.extras.maintenance" }) do
+		for _, mod in ipairs({ "laze.extra", "laze.extras", "laze.extras.commands", "laze.extras.maintenance" }) do
 			if package.loaded[mod] ~= nil then
 				table.insert(preloaded, mod)
 			end
@@ -3660,35 +3660,35 @@ do
 			failed = failed + 1
 		end
 	end
-	local extra = require("laze.extra")
+	local extra = require("laze.extras")
 	if vim.api.nvim_get_commands({})["LazeHealth"] then
-		print("  ✗ extra: require registered commands without setup()")
+		print("  ✗ extras: require registered commands without setup()")
 		failed = failed + 1
 	else
-		print("  ✓ extra: require alone registers nothing")
+		print("  ✓ extras: require alone registers nothing")
 		passed = passed + 1
 	end
 	extra.setup()
 	local laze_cmd = vim.api.nvim_get_commands({})["Laze"]
 	if not laze_cmd then
-		print("  ✗ extra: setup did not register :Laze")
+		print("  ✗ extras: setup did not register :Laze")
 		failed = failed + 1
 	else
-		print("  ✓ extra: setup registers :Laze (update/clean/health/reload)")
+		print("  ✓ extras: setup registers :Laze (update/clean/health/reload)")
 		passed = passed + 1
 	end
 	if pcall(vim.cmd, "Laze health") then
-		print("  ✓ extra: Laze health runs without error")
+		print("  ✓ extras: Laze health runs without error")
 		passed = passed + 1
 	else
-		print("  ✗ extra: Laze health threw")
+		print("  ✗ extras: Laze health threw")
 		failed = failed + 1
 	end
 	if pcall(vim.cmd, "Laze clean") then
-		print("  ✓ extra: Laze clean dry-run runs without error (never deletes without !)")
+		print("  ✓ extras: Laze clean dry-run runs without error (never deletes without !)")
 		passed = passed + 1
 	else
-		print("  ✗ extra: Laze clean threw")
+		print("  ✗ extras: Laze clean threw")
 		failed = failed + 1
 	end
 	do
@@ -3700,20 +3700,50 @@ do
 		local ok = pcall(vim.cmd, "Laze bogus")
 		vim.notify = orig_notify
 		if ok and #msgs == 1 and msgs[1]:find("unknown subcommand", 1, true) then
-			print("  ✓ extra: unknown subcommand warns instead of throwing")
+			print("  ✓ extras: unknown subcommand warns instead of throwing")
 			passed = passed + 1
 		else
-			print("  ✗ extra: unknown subcommand misbehaved")
+			print("  ✗ extras: unknown subcommand misbehaved")
 			failed = failed + 1
 		end
 	end
 	local ok_clean, stale = pcall(extra.clean, false)
 	if ok_clean and type(stale) == "table" then
-		print("  ✓ extra: clean() is directly callable (custom wiring door)")
+		print("  ✓ extras: clean() is directly callable (custom wiring door)")
 		passed = passed + 1
 	else
-		print("  ✗ extra: direct clean() call failed")
+		print("  ✗ extras: direct clean() call failed")
 		failed = failed + 1
+	end
+
+	do
+		-- deprecated shim: require("laze.extra") warns and forwards to the same table
+		local msgs = {}
+		local orig_notify = vim.notify
+		vim.notify = function(msg, _)
+			table.insert(msgs, tostring(msg))
+		end
+		local shim = require("laze.extra")
+		vim.notify = orig_notify
+		local warned = false
+		for _, msg in ipairs(msgs) do
+			if msg:find("laze.extra", 1, true) and msg:find("deprecated", 1, true) then
+				warned = true
+			end
+		end
+		if warned and shim == extra then
+			print("  ✓ extras: deprecated laze.extra shim warns and returns laze.extras")
+			passed = passed + 1
+		else
+			print(
+				"  ✗ extras: deprecated laze.extra shim misbehaved (warn="
+					.. tostring(warned)
+					.. ", same="
+					.. tostring(shim == extra)
+					.. ")"
+			)
+			failed = failed + 1
+		end
 	end
 
 	do
