@@ -18,10 +18,17 @@ end
 function M.setup(api)
 	vim.api.nvim_create_user_command("Laze", function(cmd)
 		local sub = cmd.fargs[1]
+		local bang = cmd.bang
+		-- Vim only recognizes a bang attached to the command name, so the documented and typed form
+		-- (`:Laze clean!`) arrives as a trailing bang on the subcommand; map it back.
+		if sub ~= nil and sub:sub(-1) == "!" then
+			sub = sub:sub(1, -2)
+			bang = true
+		end
 		if sub == "update" then
 			api.update()
 		elseif sub == "clean" then
-			api.clean(cmd.bang)
+			api.clean(bang)
 		elseif sub == "health" then
 			api.health()
 		elseif sub == "reload" then
