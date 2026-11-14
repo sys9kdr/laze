@@ -1628,6 +1628,56 @@ do
 	vim.fn.delete(dir, "rf")
 end
 
+-- Post-startup tree load order (the nvim-cmp regression): a dep's after/plugin that requires the PARENT's modules
+-- needs the whole dependency tree on 'runtimepath' before any of it sources, matching lazy.nvim's loader and
+-- Neovim's own startup phases. The unit runner is post-startup, so this exercises load_with_deps' two-pass path.
+do
+	local root = vim.fn.tempname() .. "_treetest"
+	local function write(path, content)
+		vim.fn.mkdir(vim.fn.fnamemodify(path, ":h"), "p")
+		local fd = io.open(path, "w")
+		fd:write(content)
+		fd:close()
+	end
+	write(root .. "/parent/lua/treeparentmod/init.lua", "return { ok = true }\n")
+	write(
+		root .. "/dep/after/plugin/dep_after.lua",
+		[[
+		vim.g.laze_tree_log = (vim.g.laze_tree_log or '') .. 'after,'
+		vim.g.laze_tree_dep_req = pcall(require, 'treeparentmod') and 'ok' or 'fail'
+	]]
+	)
+	write(root .. "/dep/plugin/dep_plugin.lua", "vim.g.laze_tree_log = (vim.g.laze_tree_log or '') .. 'plugin,'\n")
+
+	local compiled = laze.compile({
+		{
+			dir = root .. "/parent",
+			name = "treeparent",
+			event = "BufRead",
+			dependencies = { { dir = root .. "/dep", name = "treedep" } },
+			config = function()
+				vim.g.laze_tree_log = (vim.g.laze_tree_log or "") .. "config"
+			end,
+		},
+	})
+	local plan = laze.build_plan(compiled)
+	plan()
+
+	vim.api.nvim_exec_autocmds("BufRead", { group = "laze_events" })
+	local got_log = vim.g.laze_tree_log or "<missing>"
+	local got_req = vim.g.laze_tree_dep_req or "<missing>"
+	if got_req == "ok" and got_log == "plugin,after,config" then
+		print("  ✓ tree load: dep after/plugin sees parent on rtp, sourcing precedes parent config")
+		passed = passed + 1
+	else
+		print(("  ✗ tree load: got log=%s req=%s (expected plugin,after,config and ok)"):format(got_log, got_req))
+		failed = failed + 1
+	end
+	vim.g.laze_tree_log = nil
+	vim.g.laze_tree_dep_req = nil
+	vim.fn.delete(root, "rf")
+end
+
 if is_filtered("perf") or next(filter) == nil then
 	print("\n=== perf regression tests ===\n")
 
