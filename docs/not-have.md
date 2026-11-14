@@ -35,7 +35,7 @@ Out of scope: dependency solver, manager UI, install/update commands, lazy.nvim'
 
 - What: no dashboard, update UI, install/update command surface in `setup()`.
 - Why not: state ownership — the core is compile → plan → setup; runtime machinery belongs to opt-in modules.
-- Alternative: `require("laze.extra").setup()` registers `:Laze` (`update`/`clean`/`health`/`reload`), or wire your own:
+- Alternative: `require("laze.extras").setup()` registers `:Laze` (`update`/`clean`/`health`/`reload`), or wire your own:
 
 ```lua
 vim.api.nvim_create_user_command("Sync", function()
