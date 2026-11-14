@@ -14,16 +14,15 @@ Deepen modules and simplify interfaces. A module should hide a real mechanism be
 
 ## Commands
 
+Dev commands live in the [`Makefile`](Makefile); run `make` to list targets.
+The ones you will reach for:
+
 ```sh
-nvim --cmd "set rtp+=." -l tests/run.lua        # integration (+ spawned + perf)
-nvim --cmd "set rtp+=." -l tests/run.lua fast   # single session
-nvim --cmd "set rtp+=." -l tests/run.lua perf   # perf only
-nvim --clean -l tests/test_compile.lua          # unit (luajit also works)
-nvim --clean -l tests/test_subset.lua           # spec-surface conformance
-selene lua                                      # static lint, production
-selene --config tests/selene.toml tests         # static lint, tests
-stylua .                                        # format (pinned StyLua)
-stylua --check .                                # formatting check (CI)
+make check        # all gates: unit, subset, integration, lint, format check
+make fast         # quick gates: fast integration, unit, subset, format check
+make test         # integration (+ spawned + perf), single run
+make test-unit    # unit; also test-subset, test-perf
+make lint         # static lint; also lint-tests. make fmt / make fmt-check
 ```
 
 ## Commit style

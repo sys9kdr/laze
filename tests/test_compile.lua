@@ -1,5 +1,5 @@
 --- test_compile.lua — Standalone compile tests for laze
---- Run: nvim --clean -l tests/test_compile.lua   (luajit also works, no nvim)
+--- Run: nvim --clean -l tests/test_compile.lua
 
 package.path = string.format("./lua/?.lua;%s", package.path)
 

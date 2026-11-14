@@ -13,11 +13,70 @@ concurrency:
   group: ci-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
+# Job-level parallelism is the parallelism here: the gates total ~3s
+# serially, so `make -j` would buy nothing while interleaving output.
+# Every gate is a Makefile target, so `make check` is the same contract.
 jobs:
-  test:
+  # Engine-independent unit suites: nvim --clean, no plugins, laze is loaded
+  # through package.path. Not version-matrixed — they never touch vim.pack.
+  unit:
     runs-on: ubuntu-latest
-    # The integration suite spawns nvim/git sessions; without a bound a
-    # broken spawn hangs until GitHub's 6h job limit.
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - name: Install Neovim
+        uses: rhysd/action-setup-vim@febef33995d6649302e9d88dda81e071b68f16a7 # v1.6.1
+        with:
+          neovim: true
+          version: stable
+
+      - name: Unit tests
+        run: make test-unit test-subset
+
+  lint:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      # Pinned toolchain; the Makefile help text names the same versions.
+      SELENE_VERSION: 0.32.0
+      # Upstream's published digest for the asset below (release API `digest`).
+      SELENE_SHA256: d3773393578580074386e69337d35b7acddfbaa9fc38964c07fa3e28436ade9b
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      # Selene has no official action, and the community ones are stale, so
+      # fetch the release binary directly and verify it before putting it on
+      # PATH. The zip lands without the execute bit, hence chmod.
+      - name: Install Selene
+        run: |
+          set -euo pipefail
+          curl -fsSfL -o "$RUNNER_TEMP/selene.zip" \
+            "https://github.com/Kampfkarren/selene/releases/download/${SELENE_VERSION}/selene-${SELENE_VERSION}-linux.zip"
+          (cd "$RUNNER_TEMP" && echo "${SELENE_SHA256}  selene.zip" | sha256sum --check)
+          unzip -q -d "$RUNNER_TEMP" "$RUNNER_TEMP/selene.zip"
+          chmod +x "$RUNNER_TEMP/selene"
+          echo "$RUNNER_TEMP" >> "$GITHUB_PATH"
+
+      # Official action, pinned to the v5.0.0 commit. args: false installs the
+      # binary without running it; the Makefile stays the place that runs it.
+      - name: Install StyLua
+        uses: JohnnyMorganz/stylua-action@76fd70c03e6340ceaf673366712db9b20560b402 # v5.0.0
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          version: 2.6.0
+          args: false
+
+      - name: Lint + format check
+        run: |
+          selene --version
+          stylua --version
+          make lint lint-tests fmt-check
+
+  # Integration suite spawns real nvim + git sessions; without a bound a
+  # broken spawn hangs until GitHub's 6h job limit.
+  integration:
+    runs-on: ubuntu-latest
     timeout-minutes: 10
     strategy:
       fail-fast: false
@@ -25,22 +84,13 @@ jobs:
         # laze requires nvim 0.12+ (vim.pack). nightly catches API drift.
         nvim: [v0.12.0, nightly]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
       - name: Install Neovim
-        uses: rhysd/action-setup-vim@v1
+        uses: rhysd/action-setup-vim@febef33995d6649302e9d88dda81e071b68f16a7 # v1.6.1
         with:
-          neovim: true
           version: ${{ matrix.nvim }}
-
-      # GitHub's ubuntu image does not ship luajit (exit 127 otherwise).
-      - name: Install luajit
-        run: sudo apt-get update && sudo apt-get install -y luajit
-
-      - name: Unit tests (luajit, no nvim needed)
-        run: |
-          luajit tests/test_compile.lua
-          luajit tests/test_subset.lua
+          neovim: true
 
       - name: Integration tests (incl. spawned-session startup phases)
-        run: nvim --cmd "set rtp+=." -l tests/run.lua
+        run: make test

@@ -2,9 +2,9 @@
 ---
 --- Regenerates all snapshot files from current compile output.
 --- Run: nvim --cmd "set rtp+=." -l tests/update_snapshots.lua
---- Or (standalone): luajit tests/update_snapshots.lua (if run from repo root).
---- Plain Lua can regenerate ref-only fixtures; a fixture with a version-only
---- semver range needs Neovim's vim.version.range.
+--- Ref-only fixtures would regenerate under plain Lua too, but a fixture with a
+--- version-only semver range needs Neovim's vim.version.range, so nvim is the
+--- documented way.
 package.path = string.format("./lua/?.lua;%s", package.path)
 
 local compile = require("laze.compile").compile
