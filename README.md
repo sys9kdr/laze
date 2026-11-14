@@ -2,6 +2,7 @@
 
 A tiny package manager with lazy.nvim-style specs, built on Neovim's native `vim.pack` APIs.
 Requires Neovim **0.12+**.
+
 Laze adds a subset of lazy.nvim's spec syntax and lazy-loading on top of `vim.pack`.
 Package management (e.g. installation) is handled by `vim.pack`.
 
@@ -18,22 +19,33 @@ local laze = require("laze")
 
 laze.setup({
   -- Eager: no trigger → loads at startup (colorscheme first)
-  { "folke/tokyonight.nvim" },
-
+  {
+    "folke/tokyonight.nvim",
+    config = function()
+      vim.cmd([[colorscheme tokyonight]])
+    end
+  },
   -- Lazy: event
-  { "folke/which-key.nvim", event = "VeryLazy",
-    config = function() require("which-key").setup() end },
-
+  {
+    "folke/which-key.nvim",
+    event = "VeryLazy",
+    config = function()
+      require("which-key").setup()
+    end
+  },
   -- Lazy: command
-  { "nvim-telescope/telescope.nvim", cmd = "Telescope",
-    dependencies = { "nvim-lua/plenary.nvim" } },
-
+  {
+    "nvim-telescope/telescope.nvim",
+    cmd = "Telescope",
+    dependencies = { "nvim-lua/plenary.nvim" }
+  },
   -- Lazy: key (rhs = replay; no rhs = takeover, the plugin's map wins)
-  { "stevearc/oil.nvim", keys = { { "<leader>o", "<cmd>Oil<CR>" } } },
-
-  -- Lazy: require() of a declared module
-  { "folke/snacks.nvim", module = { "snacks" }, config = function()
-    require("snacks").setup() end },
+  {
+    "stevearc/oil.nvim",
+    keys = {
+      { "<leader>o", "<cmd>Oil<CR>" }
+    }
+  },
 })
 ```
 
@@ -42,11 +54,11 @@ laze.setup({
 Laze is **not fully compatible with lazy.nvim**.
 
 - **Spec subset.** Most common specs work as-is.
-  See [known differences](docs/known-differences.md) and [design](docs/design.md).
-  It is not for configs that rely on lazy.nvim's composition features (`import`, `specs`, `opts` merging).
-  See [who laze is for](docs/not-have.md#who-laze-is-for-and-who-it-is-not-for).
-- **No manager UI.** Laze focuses on specs and lazy-loading, not plugin management commands.
-    - `laze.extra` is opt-in and experimental util commands, they use no UIs or `vim.pack()` UIs.
+    - See [known differences](docs/known-differences.md), [migration](docs/migration.md) and [design](docs/design.md).
+    - It is not for configs that rely on lazy.nvim's composition features (`import`, `specs`, `opts` merging). See [who laze is for](docs/not-have.md#who-laze-is-for-and-who-it-is-not-for).
+- **No manager UI and built-in commands.** Laze focuses on specs and lazy-loading, not plugin management commands.
+    - You can use `vim.pack` utils e.g. `vim.pack.update()`, `vim.pack.del()` or `vim.pack.get()`; `:h vim.pack`
+    - `laze.extras` is an opt-in, experimental set of utility commands. It ships no UI of its own, delegating to `vim.pack` (including its confirmation prompts). See [extras](docs/extras.md).
 
 ## License and credits
 
