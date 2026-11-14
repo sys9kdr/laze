@@ -1,4 +1,4 @@
--- Accepted perf items: docs/performance.md.
+-- Accepted perf items: docs/internal/performance.md.
 
 -- Module-level so a rebuilt plan clears the previous plan's preload entries instead of stacking stale trigger closures.
 local installed_preloads = {}
@@ -7,7 +7,7 @@ local installed_preloads = {}
 -- that took over the lhs survive a rebuild.
 local installed_keys = {}
 
---- See docs/rtp-index.md.
+--- See docs/internal/performance.md.
 ---@param data_dir string
 ---@return table<string, string>
 local function build_rtp_index(data_dir)
@@ -96,7 +96,7 @@ local function build_plan(compiled, opts)
 	local data_dir = vim.fn.stdpath("data")
 	-- Lazy pkg -> opt dir cache. Invalidated by this plan's only 'runtimepath' mutations (the dir prepend and the
 	-- `:packadd!` fallback). A miss is always safe; closure-local because reload_all() rebuilds it. See
-	-- docs/rtp-index.md.
+	-- docs/internal/performance.md.
 	local rtp_index = nil
 	local loaded = {}
 	local startup_pending = {}
@@ -230,7 +230,7 @@ local function build_plan(compiled, opts)
 			if not ok_req then
 				mark_failed(err_req)
 				if on_fail then
-					on_fail(id, err_req)
+					on_fail(id, tostring(err_req))
 				end
 				return
 			end
@@ -343,6 +343,8 @@ local function build_plan(compiled, opts)
 				plugin_dir = found[1]
 				if plugin_dir then
 					local cmd = during_startup and "packadd! " or "packadd "
+					-- LuaLS sees `vim.cmd` as a callable table, not a function.
+					---@diagnostic disable-next-line: param-type-mismatch
 					pcall(vim.cmd, cmd .. vim.fn.fnameescape(entry.pkg))
 					rtp_index = nil
 				end

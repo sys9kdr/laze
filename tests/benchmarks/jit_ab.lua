@@ -26,7 +26,7 @@
 --     WORKLOAD=probe JIT=$m nvim --clean -l tests/benchmarks/jit_ab.lua
 --   done
 --
--- Baselines and interpretation: docs/performance.md.
+-- Baselines and interpretation: docs/internal/performance.md.
 
 jit.off() -- first statement: the mode must be set before anything else compiles
 local mode = vim.env.JIT or "on"

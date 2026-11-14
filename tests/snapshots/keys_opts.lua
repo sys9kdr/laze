@@ -1,6 +1,7 @@
 local FN = require("tests.fixtures._sentinel").FN
 
 return {
+	diagnostics = {},
 	pack = {
 		{
 			name = "key-plain",

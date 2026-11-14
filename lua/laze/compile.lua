@@ -270,7 +270,7 @@ end
 --- One variant per (lhs, mode); a `mode` array expands in declaration order. Each variant is an independent trigger
 --- map, so an n-mode press cannot fire a v-only declaration. Variants sharing lhs+mode share one map, so mismatched
 --- rhs/desc/silent warns and keeps the first.
-local function add_to_key_route(route_map, keys, plugin_id)
+local function add_to_key_route(route_map, keys, plugin_id, warn)
 	for i = 1, #keys do
 		local ke = keys[i]
 		local lhs = ke.lhs
@@ -331,7 +331,7 @@ local function add_to_key_route(route_map, keys, plugin_id)
 						variant = { mode = mode, ids = {}, rhs = ke.rhs, desc = ke.desc, silent = ke.silent, ft = ft }
 						table.insert(variants, variant)
 					elseif variant.rhs ~= ke.rhs or variant.desc ~= ke.desc or variant.silent ~= ke.silent then
-						require("laze.internal.diag").warn(
+						warn(
 							("keys %q in mode %q is shared by multiple plugins with different rhs/opts — keeping the first"):format(
 								lhs,
 								mode
@@ -611,8 +611,9 @@ end
 ---@param idx integer
 ---@param warned table<string, boolean>
 ---@param notify fun(id: string, detail: string)
+---@param warn fun(message: string)
 ---@return vim.VersionRange|nil
-local function validate_spec(spec, idx, warned, notify)
+local function validate_spec(spec, idx, warned, notify, warn)
 	local src = spec[1] or spec.src
 	if not src and not spec.dir and not spec.url then
 		require("laze.internal.diag").spec_at(idx, "missing source — use [1], .src, .dir, or .url")
@@ -645,7 +646,7 @@ local function validate_spec(spec, idx, warned, notify)
 	end
 
 	if spec.dev == "" then
-		require("laze.internal.diag").warn(("spec [%d] (%s) has dev='' — ignored"):format(idx, spec_id))
+		warn(("spec [%d] (%s) has dev='' — ignored"):format(idx, spec_id))
 	end
 
 	if spec.init ~= nil and type(spec.init) ~= "function" then
@@ -815,7 +816,7 @@ local function flatten_spec(spec, out, label)
 end
 
 ---@param specs LazeSpec[]|string|LazeSpec
----@param opts? { dev_root?: string, dev?: { path?: string, patterns?: string[] } }
+---@param opts? { dev_root?: string, dev?: { path?: string, patterns?: string[], fallback?: boolean }, known_differences?: boolean }
 ---@return LazeCompiled
 local function compile(specs, opts)
 	if specs == nil then
@@ -877,11 +878,23 @@ local function compile(specs, opts)
 	local expanded = {}
 	local expanded_names = {}
 	local expanded_srcs = {}
-	-- Known-difference messages are deduped per compile (issue #12); the
-	-- closure is shared by dependency expansion and spec validation.
+	-- Diagnostics are data: compile never notifies. Known-difference messages are deduped per compile (issue #12); the
+	-- shell flushes the list after compile returns.
+	local diagnostics = {}
+	local function warn(message)
+		table.insert(diagnostics, { message = message })
+	end
 	local kd_notified = {}
 	local function notify_kd(id, detail, key)
-		require("laze.internal.known_differences").notify(id, detail, kd_notified, opts, key)
+		if opts and opts.known_differences == false then
+			return
+		end
+		key = key or id
+		if kd_notified[key] then
+			return
+		end
+		kd_notified[key] = true
+		table.insert(diagnostics, { id = id, detail = detail })
 	end
 	-- `after` names derived from deps live here, not on user specs: a spec table may be passed to lazy.nvim later.
 	local dep_after = {}
@@ -954,12 +967,12 @@ local function compile(specs, opts)
 		modules = {},
 	}
 
-	-- Deduped per field per compile: one vim.notify costs ~180 us headless, so N specs sharing a field must not pay N
-	-- times. The first offending spec is named in the message.
+	-- Deduped per field per compile: one message per field, so N specs sharing a field do not produce N diagnostics. The
+	-- first offending spec is named in the message.
 	local warned = {}
 
 	for idx, spec in ipairs(expanded) do
-		local version_range = validate_spec(spec, idx, warned, notify_kd)
+		local version_range = validate_spec(spec, idx, warned, notify_kd, warn)
 
 		local src = spec[1] or spec.src
 		local dir = spec.dir
@@ -1117,7 +1130,7 @@ local function compile(specs, opts)
 
 		if is_local then
 			if norm.build ~= nil then
-				require("laze.internal.diag").warn(
+				warn(
 					"plugin '" .. name .. "' is a local dir; build is not run (vim.pack does not install or rebuild local dirs)"
 				)
 			end
@@ -1159,7 +1172,7 @@ local function compile(specs, opts)
 		add_to_event_route(routes.events, norm.event, name)
 		add_to_route(routes.fts, norm.ft, name)
 		add_to_route(routes.cmds, norm.cmd, name)
-		add_to_key_route(routes.keys, norm.keys, name)
+		add_to_key_route(routes.keys, norm.keys, name, warn)
 		if norm.module then
 			add_to_route(routes.modules, type(norm.module) == "table" and norm.module or { norm.module }, name)
 		end
@@ -1173,9 +1186,7 @@ local function compile(specs, opts)
 	for id, entry in pairs(registry) do
 		for _, dep_id in ipairs(entry.after or {}) do
 			if not registry[dep_id] then
-				require("laze.internal.diag").warn(
-					"plugin '" .. id .. "' has after dependency on '" .. dep_id .. "' which does not exist"
-				)
+				warn("plugin '" .. id .. "' has after dependency on '" .. dep_id .. "' which does not exist")
 			end
 		end
 	end
@@ -1201,6 +1212,7 @@ local function compile(specs, opts)
 		pack = pack,
 		registry = registry,
 		routes = routes,
+		diagnostics = diagnostics,
 	}
 end
 
