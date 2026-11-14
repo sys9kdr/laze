@@ -3707,6 +3707,42 @@ do
 			failed = failed + 1
 		end
 	end
+	do
+		-- Vim only recognizes a bang on the command name, so `:Laze clean!` arrives as a trailing bang
+		-- on the subcommand; the wiring must map it (and keep `:Laze! clean` and plain forms intact).
+		local got = "unset"
+		require("laze.extras.commands").setup({
+			update = function() end,
+			clean = function(b)
+				got = b
+			end,
+			health = function() end,
+			reload = function() end,
+		})
+		vim.cmd("Laze clean!")
+		local trailing = got
+		got = "unset"
+		vim.cmd("Laze clean")
+		local plain = got
+		got = "unset"
+		vim.cmd("Laze! clean")
+		local attached = got
+		extra.setup() -- restore the real wiring for later checks
+		if trailing == true and plain == false and attached == true then
+			print("  ✓ extras: bang reaches subcommands as :Laze clean! and as :Laze! clean")
+			passed = passed + 1
+		else
+			print(
+				("  ✗ extras: bang forms misbehaved (trailing=%s plain=%s attached=%s)"):format(
+					tostring(trailing),
+					tostring(plain),
+					tostring(attached)
+				)
+			)
+			failed = failed + 1
+		end
+	end
+
 	local ok_clean, stale = pcall(extra.clean, false)
 	if ok_clean and type(stale) == "table" then
 		print("  ✓ extras: clean() is directly callable (custom wiring door)")
