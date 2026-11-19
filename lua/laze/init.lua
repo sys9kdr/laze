@@ -136,54 +136,6 @@ function M.setup(specs, opts)
 		require("laze.internal.diag").flush(compiled.diagnostics)
 	end
 
-	--- One lazy.nvim build item: ":..." is an Ex command, other strings are
-	--- shell commands run in the plugin dir, functions get a plugin object.
-	---@param item string|fun(plugin: table)
-	---@param plugin table
-	---@param cwd string
-	---@return boolean ok
-	---@return string? err
-	local function run_build_item(item, plugin, cwd)
-		if type(item) == "function" then
-			local ok, err = pcall(item, plugin)
-			if not ok then
-				return false, tostring(err)
-			end
-			return true
-		elseif item:sub(1, 1) == ":" then
-			-- LuaLS sees `vim.cmd` as a callable table, not a function.
-			---@diagnostic disable-next-line: param-type-mismatch
-			local ok, err = pcall(vim.cmd, item)
-			if not ok then
-				return false, tostring(err)
-			end
-			return true
-		end
-		local result = vim.system({ "sh", "-c", item }, { cwd = cwd }):wait()
-		if result.code ~= 0 then
-			return false, ("exit %d: %s"):format(result.code, result.stderr or "")
-		end
-		return true
-	end
-
-	---@param build string|fun(plugin: table)|(string|fun(plugin: table))[]
-	---@param plugin table
-	---@param cwd string
-	---@return boolean ok
-	---@return string? err
-	local function run_build(build, plugin, cwd)
-		if type(build) == "table" then
-			for _, item in ipairs(build) do
-				local ok, err = run_build_item(item, plugin, cwd)
-				if not ok then
-					return false, err
-				end
-			end
-			return true
-		end
-		return run_build_item(build, plugin, cwd)
-	end
-
 	-- vim.pack has no build concept: run the spec's `build` on PackChanged. This augroup MUST be registered before
 	-- vim.pack.add: PackChanged fires synchronously inside add() for a fresh install, so a late subscription would skip
 	-- every first build.
@@ -195,6 +147,8 @@ function M.setup(specs, opts)
 			builds[entry.pkg] = entry.build
 		end
 	end
+	local adding = false
+	local add_started_builds = false
 	if next(builds) then
 		vim.api.nvim_create_autocmd("PackChanged", {
 			group = vim.api.nvim_create_augroup("laze_build", { clear = true }),
@@ -218,14 +172,8 @@ function M.setup(specs, opts)
 						pcall(vim.cmd.packadd, data.spec.name)
 					end
 				end
-				local plugin = { name = data.spec.name, dir = data.path, spec = data.spec }
-				local ok, build_ok, err = pcall(run_build, build, plugin, data.path)
-				if not ok or not build_ok then
-					-- pcall failure: the message is in build_ok; build failure: in err.
-					require("laze.internal.diag").warn(
-						("build failed for %s: %s"):format(data.spec.name, tostring(ok and err or build_ok))
-					)
-				end
+				add_started_builds = add_started_builds or adding
+				require("laze.internal.build").run(build, { name = data.spec.name, dir = data.path, spec = data.spec })
 			end,
 		})
 	end
@@ -257,11 +205,17 @@ function M.setup(specs, opts)
 			end
 		end
 	end
+	adding = true
 	if #eager_pack > 0 then
 		vim.pack.add(eager_pack, { load = false })
 	end
 	if #lazy_pack > 0 then
 		vim.pack.add(lazy_pack, { load = function() end })
+	end
+	adding = false
+	-- Plugins installed by these adds must not load before their build has produced its artifacts.
+	if add_started_builds then
+		require("laze.internal.build").wait()
 	end
 
 	local plan_opts = vim.tbl_extend("force", opts, { enabled_ok = enabled_ok, cond_ok = cond_ok })

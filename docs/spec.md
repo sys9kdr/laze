@@ -114,7 +114,10 @@ Triggers are registered as **`package.preload` entries** at plan build time — 
 }
 ```
 
-Passed directly to `vim.pack.Spec`.
+Passed directly to `vim.pack.Spec`; `setup()` runs it on `PackChanged` (install/update).
+Shell commands run asynchronously in the plugin dir (`vim.system`), `:` commands and functions on the main thread; list items run in order and stop at the first failure, while different plugins build in parallel.
+Progress shows as `nvim_echo` progress messages; failures also warn.
+Builds started by `setup()`'s own install are awaited before the plan loads anything, so a fresh plugin is configured with its build artifacts in place; builds triggered by `vim.pack.update()` stay in the background.
 
 ## `dev` / `dev_path`
 

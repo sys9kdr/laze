@@ -141,7 +141,7 @@ Version/ref lowering is spec behavior, not a non-goal: [spec.md](spec.md#pin-dat
 
 ### Build execution
 
-- What: `build` passes through to `vim.pack.Spec`; `setup()` runs it on `PackChanged` (install/update) in `init.lua`.
+- What: `build` passes through to `vim.pack.Spec`; `setup()` runs it on `PackChanged` (install/update), asynchronously ([spec.md](spec.md#build)).
 - Why not: state ownership — vim.pack emits the hook, laze only subscribes.
 - Alternative: none; `dir` plugins never run `build` (vim.pack does not manage local dirs — compile-time warning).
 
