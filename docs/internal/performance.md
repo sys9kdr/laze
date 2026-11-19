@@ -160,6 +160,7 @@ Module triggers were implemented by replacing `_G.require` at plan build time �
 Now each trigger is a `package.preload` entry (plan.lua): zero interception of unrelated requires, no global mutation, and each entry consumes itself on first require (single-shot).
 `installed_preloads` tracks entries across `build_plan` calls so hot reloads clear stale closures.
 Regression-tested in `tests/run.lua` (unrelated requires untouched, entry consumed, stale entries cleared).
+Submodules (`codediff.config` for `module = "codediff"`) resolve through one searcher appended to `package.loaders`, so it runs only after every other loader missed: 0.6 µs per miss against a ~95 µs not-found require, 30 module triggers (`nvim --clean -l`, 2000 misses, 3 fresh processes).
 
 ### plan.lua: `vim.keymap.del` + `nvim_feedkeys` — resolved (design pinned)
 

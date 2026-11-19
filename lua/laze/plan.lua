@@ -3,6 +3,26 @@
 -- Module-level so a rebuilt plan clears the previous plan's preload entries instead of stacking stale trigger closures.
 local installed_preloads = {}
 
+-- Declared module -> loader for its submodules (`codediff` covers `codediff.config`, which lazy.nvim also loads on).
+-- Replaced wholesale by every plan.
+---@type table<string, fun(modname: string): any>
+local submodule_triggers = {}
+
+-- Appended to package.loaders, so it runs only after every other loader missed: requires that resolve stay untouched.
+local function submodule_searcher(modname)
+	local prefix = modname
+	while true do
+		prefix = prefix:match("^(.+)%.[^.]+$")
+		if not prefix then
+			return nil
+		end
+		local trigger = submodule_triggers[prefix]
+		if trigger then
+			return trigger
+		end
+	end
+end
+
 -- { { mode, lhs, desc, buf? } }. Module-level for the same reason; desc-guarded deletion lets a plugin map
 -- that took over the lhs survive a rebuild.
 local installed_keys = {}
@@ -486,23 +506,38 @@ local function build_plan(compiled, opts)
 		package.preload[name] = nil
 		installed_preloads[name] = nil
 	end
+	local function require_through(name, ids)
+		-- require holds an in-flight sentinel in package.loaded while this runs; load_plugin's re-require would hit it.
+		-- Clear it so the real module loads from rtp.
+		package.loaded[name] = nil
+		for _, id in ipairs(ids) do
+			load_with_deps(id)
+		end
+		local mod = original_require(name)
+		for _, id in ipairs(ids) do
+			partial_hooks(id)
+		end
+		return mod
+	end
+	-- Captured so a stale plan's trigger cannot consume an entry of the plan that replaced it.
+	local triggers = {}
+	submodule_triggers = triggers
 	for modname, ids in pairs(routes.modules or {}) do
 		installed_preloads[modname] = true
 		package.preload[modname] = function()
 			package.preload[modname] = nil
 			installed_preloads[modname] = nil
-			-- require holds an in-flight sentinel in package.loaded while this runs; load_plugin's re-require would hit it.
-			-- Clear it so the real module loads from rtp.
-			package.loaded[modname] = nil
-			for _, id in ipairs(ids) do
-				load_with_deps(id)
-			end
-			local mod = original_require(modname)
-			for _, id in ipairs(ids) do
-				partial_hooks(id)
-			end
-			return mod
+			return require_through(modname, ids)
 		end
+		-- Consumed before loading for the same reason: a submodule the plugin lacks must fall through to require's
+		-- not-found error instead of recursing into this trigger.
+		triggers[modname] = function(name)
+			triggers[modname] = nil
+			return require_through(name, ids)
+		end
+	end
+	if next(triggers) and not vim.list_contains(package.loaders, submodule_searcher) then
+		table.insert(package.loaders, submodule_searcher)
 	end
 
 	local init_ran = false
