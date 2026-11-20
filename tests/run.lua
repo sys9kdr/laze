@@ -1678,6 +1678,69 @@ do
 	vim.fn.delete(root, "rf")
 end
 
+-- Build runner, post-startup (the vim.pack.update path): shell items must not block the caller, a list runs in order
+-- and stops at the first failure, and the failure is reported.
+do
+	local build = require("laze.internal.build")
+	local dir = vim.fn.tempname() .. "_lazebuildasync"
+	vim.fn.mkdir(dir, "p")
+	local warnings = {}
+	local orig_notify = vim.notify
+	vim.notify = function(msg, _)
+		table.insert(warnings, msg)
+	end
+
+	local order = {}
+	local start = vim.uv.hrtime()
+	build.run({
+		"sleep 0.3 && echo a >> log",
+		"echo b >> log",
+		function(p)
+			order = vim.fn.readfile(p.dir .. "/log")
+		end,
+	}, { name = "async-ok", dir = dir, spec = {} })
+	local returned_ms = (vim.uv.hrtime() - start) / 1e6
+	local done = vim.wait(5000, function()
+		return #order > 0
+	end)
+	if returned_ms < 200 and done and table.concat(order, ",") == "a,b" then
+		print("  ✓ build: shell items run async, list items in order")
+		passed = passed + 1
+	else
+		print(
+			("  ✗ build: async run returned after %.0f ms, done=%s order=%s"):format(
+				returned_ms,
+				tostring(done),
+				table.concat(order, ",")
+			)
+		)
+		failed = failed + 1
+	end
+
+	local after_failure = false
+	build.run({
+		"exit 3",
+		function()
+			after_failure = true
+		end,
+	}, { name = "async-fail", dir = dir, spec = {} })
+	vim.wait(5000, function()
+		return #warnings > 0
+	end)
+	vim.wait(50)
+	vim.notify = orig_notify
+	if not after_failure and warnings[1] and warnings[1]:find("build failed for async-fail: exit 3", 1, true) then
+		print("  ✓ build: failing item stops the list and warns")
+		passed = passed + 1
+	else
+		print(
+			("  ✗ build: failure — later item ran=%s warning=%s"):format(tostring(after_failure), tostring(warnings[1]))
+		)
+		failed = failed + 1
+	end
+	vim.fn.delete(dir, "rf")
+end
+
 if is_filtered("perf") or next(filter) == nil then
 	print("\n=== perf regression tests ===\n")
 
@@ -2131,6 +2194,7 @@ if not fast_only then
 	local dotted = make_repo("laze-build-test.nvim", {
 		["plugin/build_plugin.lua"] = "vim.g.laze_build_plugin = true\n",
 	})
+	local slow = make_repo("buildslow", { ["plugin/s.lua"] = "" })
 	local cmdrepo = make_repo("buildcmd", { ["plugin/b.lua"] = "" })
 	local fnrepo = make_repo("buildfn", { ["plugin/f.lua"] = "" })
 	local listrepo = make_repo("buildlist", { ["plugin/l.lua"] = "" })
@@ -2153,6 +2217,10 @@ if not fast_only then
 			.. ("  { src = %q, name = \"buildlist\", build = { \"touch list-ran\", function() vim.fn.writefile({'ran'}, vim.fn.stdpath('data') .. '/list-fn-ran') end } },\n"):format(
 				listrepo
 			)
+			-- The plan must not configure a freshly installed plugin before its async build finished.
+			.. ("  { src = %q, name = \"buildslow\", build = \"sleep 1 && touch slow-ran\", config = function(p) vim.fn.writefile({ tostring(vim.uv.fs_stat(p.dir .. '/slow-ran') ~= nil) }, vim.fn.stdpath('data') .. '/slow-at-config') end },\n"):format(
+				slow
+			)
 			.. "})\n"
 	)
 	fd:close()
@@ -2164,23 +2232,28 @@ if not fast_only then
 	}
 	vim.system({ vim.v.progpath, "-u", init_file, "--headless", "+qa" }, { env = env, timeout = 30000 }):wait()
 
+	local slow_at_config = vim.fn.filereadable(root .. "/data/nvim/slow-at-config") == 1
+			and vim.fn.readfile(root .. "/data/nvim/slow-at-config")[1]
+		or "<missing>"
 	if
 		#vim.fn.glob(root .. "/data/nvim/site/pack/*/opt/laze-build-test.nvim/build-ran", false, true) == 1
 		and #vim.fn.glob(root .. "/data/nvim/cmd-ran", false, true) == 1
 		and #vim.fn.glob(root .. "/data/nvim/fn-ran", false, true) == 1
 		and #vim.fn.glob(root .. "/data/nvim/site/pack/*/opt/buildlist/list-ran", false, true) == 1
 		and #vim.fn.glob(root .. "/data/nvim/list-fn-ran", false, true) == 1
+		and slow_at_config == "true"
 	then
-		print("  ✓ build: string/:cmd/function/list forms run after install (pkg-keyed lookup)")
+		print("  ✓ build: string/:cmd/function/list forms run after install (pkg-keyed lookup, awaited before config)")
 		passed = passed + 1
 	else
 		print(
-			("  ✗ build: markers — string:%d :cmd:%d fn:%d list:%d listfn:%d"):format(
+			("  ✗ build: markers — string:%d :cmd:%d fn:%d list:%d listfn:%d slow-at-config:%s"):format(
 				#vim.fn.glob(root .. "/data/nvim/site/pack/*/opt/laze-build-test.nvim/build-ran", false, true),
 				#vim.fn.glob(root .. "/data/nvim/cmd-ran", false, true),
 				#vim.fn.glob(root .. "/data/nvim/fn-ran", false, true),
 				#vim.fn.glob(root .. "/data/nvim/site/pack/*/opt/buildlist/list-ran", false, true),
-				#vim.fn.glob(root .. "/data/nvim/list-fn-ran", false, true)
+				#vim.fn.glob(root .. "/data/nvim/list-fn-ran", false, true),
+				slow_at_config
 			)
 		)
 		failed = failed + 1
