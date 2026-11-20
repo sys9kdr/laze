@@ -98,8 +98,9 @@ Use it for plugins that should not be on the critical path.
 }
 ```
 
-When you call `require("which-key")`, the plugin loads automatically (with its `after` deps).
+When you call `require("which-key")` or any of its submodules (`require("which-key.util")`), the plugin loads automatically (with its `after` deps).
 Triggers are registered as **`package.preload` entries** at plan build time — the global `require` is never wrapped, unrelated requires pay zero overhead, and each entry consumes itself on first use.
+Submodules go through one searcher appended to `package.loaders`, so it only runs for a require that every other loader missed.
 
 ## `build`
 

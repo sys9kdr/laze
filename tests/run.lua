@@ -1959,6 +1959,69 @@ if is_filtered("perf") or next(filter) == nil then
 		vim.fn.delete(dir, "rf")
 	end
 
+	-- Submodule of a declared module (atlas requires `codediff.config` before `codediff`): lazy.nvim 306a055 loads and
+	-- configures the plugin on any of its modules (lazy/core/loader.lua M.loader; measured: loaded=true configured=true).
+	do
+		local dir = vim.fn.tempname()
+		vim.fn.mkdir(dir .. "/lua/lzsub", "p")
+		vim.fn.writefile({ "return { via = 'root' }" }, dir .. "/lua/lzsub/init.lua")
+		vim.fn.writefile({ "return { via = 'config' }" }, dir .. "/lua/lzsub/config.lua")
+
+		local configured = false
+		local compiled = laze.compile({
+			{
+				dir = dir,
+				name = "lz-sub",
+				module = "lzsub",
+				config = function()
+					configured = true
+				end,
+			},
+		})
+		laze.build_plan(compiled)()
+		local unrelated_ok = pcall(require, "lzsubother.config")
+
+		local ok, mod = pcall(require, "lzsub.config")
+		if not unrelated_ok and ok and type(mod) == "table" and mod.via == "config" and configured then
+			print("  ✓ module trigger: submodule require loads and configures the plugin")
+			passed = passed + 1
+		else
+			print(
+				("  ✗ module trigger: submodule require ok=%s mod=%s configured=%s"):format(
+					tostring(ok),
+					tostring(ok and mod.via or mod),
+					tostring(configured)
+				)
+			)
+			failed = failed + 1
+		end
+
+		local missing_ok, missing_err = pcall(require, "lzsub.missing")
+		if not missing_ok and tostring(missing_err):find("module 'lzsub.missing' not found", 1, true) then
+			print("  ✓ module trigger: missing submodule after load fails with not-found")
+			passed = passed + 1
+		else
+			print("  ✗ module trigger: missing submodule — " .. tostring(missing_err))
+			failed = failed + 1
+		end
+
+		local dir2 = vim.fn.tempname()
+		vim.fn.mkdir(dir2 .. "/lua/lzsubtwo", "p")
+		vim.fn.writefile({ "return {}" }, dir2 .. "/lua/lzsubtwo/config.lua")
+		laze.build_plan(laze.compile({ { dir = dir2, name = "lz-sub-2", module = "lzsubtwo" } }))()
+		laze.build_plan(laze.compile({ { "test/plain-plugin", name = "plain" } }))()
+		if not pcall(require, "lzsubtwo.config") then
+			print("  ✓ module trigger: build_plan without modules clears stale submodule triggers")
+			passed = passed + 1
+		else
+			print("  ✗ module trigger: stale submodule trigger survived a trigger-less build_plan")
+			failed = failed + 1
+		end
+
+		vim.fn.delete(dir, "rf")
+		vim.fn.delete(dir2, "rf")
+	end
+
 	do
 		local compiled = laze.compile({
 			{ "test/alloc-a", name = "alloc-a" },
