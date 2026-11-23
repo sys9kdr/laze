@@ -1967,14 +1967,14 @@ if is_filtered("perf") or next(filter) == nil then
 		vim.fn.writefile({ "return { via = 'root' }" }, dir .. "/lua/lzsub/init.lua")
 		vim.fn.writefile({ "return { via = 'config' }" }, dir .. "/lua/lzsub/config.lua")
 
-		local configured = false
+		local config_count = 0
 		local compiled = laze.compile({
 			{
 				dir = dir,
 				name = "lz-sub",
 				module = "lzsub",
 				config = function()
-					configured = true
+					config_count = config_count + 1
 				end,
 			},
 		})
@@ -1982,15 +1982,31 @@ if is_filtered("perf") or next(filter) == nil then
 		local unrelated_ok = pcall(require, "lzsubother.config")
 
 		local ok, mod = pcall(require, "lzsub.config")
-		if not unrelated_ok and ok and type(mod) == "table" and mod.via == "config" and configured then
-			print("  ✓ module trigger: submodule require loads and configures the plugin")
+		local preload_cleared_after_sub = package.preload["lzsub"] == nil
+		local root_ok, root_mod = pcall(require, "lzsub")
+		local config_once = config_count == 1
+		if
+			not unrelated_ok
+			and ok
+			and type(mod) == "table"
+			and mod.via == "config"
+			and config_count >= 1
+			and preload_cleared_after_sub
+			and root_ok
+			and type(root_mod) == "table"
+			and root_mod.via == "root"
+			and config_once
+		then
+			print("  ✓ module trigger: submodule require loads and configures once; preload cleared")
 			passed = passed + 1
 		else
 			print(
-				("  ✗ module trigger: submodule require ok=%s mod=%s configured=%s"):format(
+				("  ✗ module trigger: submodule require ok=%s mod=%s config_count=%d preload_cleared=%s root_ok=%s"):format(
 					tostring(ok),
 					tostring(ok and mod.via or mod),
-					tostring(configured)
+					config_count,
+					tostring(preload_cleared_after_sub),
+					tostring(root_ok)
 				)
 			)
 			failed = failed + 1
