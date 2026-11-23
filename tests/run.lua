@@ -1180,6 +1180,37 @@ do
 	pcall(vim.api.nvim_buf_delete, target, { force = true })
 end
 
+do
+	local user_fired = 0
+	local compiled = laze.compile({
+		{
+			dir = vim.fn.tempname(),
+			name = "refire-user-pattern",
+			event = { { event = "User", pattern = "LazeReplayUserTest" } },
+			config = function()
+				local grp = vim.api.nvim_create_augroup("laze_test_user_grp", { clear = true })
+				vim.api.nvim_create_autocmd("User", {
+					group = grp,
+					pattern = "LazeReplayUserTest",
+					callback = function()
+						user_fired = user_fired + 1
+					end,
+				})
+			end,
+		},
+	})
+	laze.build_plan(compiled)()
+
+	vim.api.nvim_exec_autocmds("User", { pattern = "LazeReplayUserTest" })
+	if user_fired == 1 then
+		print("  ✓ event route: User event replay preserves pattern and fires newly registered handler")
+		passed = passed + 1
+	else
+		print(("  ✗ event route: User event replay — handler saw %d fires (expected 1)"):format(user_fired))
+		failed = failed + 1
+	end
+end
+
 -- #38: the replay must not re-run handlers that already existed when the trigger fired (user config, other plugins).
 -- lazy.nvim snapshots augroups before loading and excludes them from the replay; ungrouped autocmds are skipped
 -- outright because a fresh one is indistinguishable from an old one.
