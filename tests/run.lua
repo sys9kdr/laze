@@ -3137,18 +3137,27 @@ do
 	local root = vim.fn.tempname()
 	local dir = root .. "/out-of-pack"
 	vim.fn.mkdir(dir .. "/plugin", "p")
+	vim.fn.mkdir(dir .. "/ftdetect", "p")
 	local f = io.open(dir .. "/plugin/oop.lua", "w")
 	f:write("vim.api.nvim_create_user_command('LazeOopCmd', function() end, {})\n")
 	f:close()
+	local f_ft = io.open(dir .. "/ftdetect/oop.lua", "w")
+	f_ft:write("vim.g.laze_oop_ftdetect_lua_ran = true\n")
+	f_ft:close()
 
 	local compiled = laze.compile({ { dir = dir, name = "oop", cmd = "LazeOopCmd" } })
 	laze.build_plan(compiled)()
 	pcall(vim.cmd, "LazeOopCmd")
-	if vim.fn.exists(":LazeOopCmd") == 2 then
-		print("  ✓ cmd route: dir outside packpath sources plugin/ on load")
+	if vim.fn.exists(":LazeOopCmd") == 2 and vim.g.laze_oop_ftdetect_lua_ran then
+		print("  ✓ cmd route: dir outside packpath sources plugin/ and ftdetect/*.lua on load")
 		passed = passed + 1
 	else
-		print("  ✗ cmd route: dir-outside-packpath plugin/ never sourced")
+		print(
+			("  ✗ cmd route: dir-outside-packpath plugin/ or ftdetect/*.lua never sourced (cmd=%d ft_lua=%s)"):format(
+				vim.fn.exists(":LazeOopCmd"),
+				tostring(vim.g.laze_oop_ftdetect_lua_ran)
+			)
+		)
 		failed = failed + 1
 	end
 	vim.fn.delete(root, "rf")
