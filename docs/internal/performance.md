@@ -170,6 +170,14 @@ See plan.lua.
 
 ## Accepted by design (no action)
 
+### plan.lua: cmd completion stubs install on the first CmdlineEnter
+
+Tab completion needs the user command to exist, and `CmdUndefined` never fires while completing (measured: `getcompletion("LazePremiseC", "cmdline")` with only a `CmdUndefined` autocmd registered returns nothing and fires no autocmd; the same command run by hand fires it and then exists).
+So the completion stubs cannot ride the `CmdUndefined` route, and registering them at startup is what lazy.nvim pays: `nvim_create_user_command` is ~3.2 µs per command (best of 5×50, `--clean --headless`), so ~160 µs for 50 commands.
+laze registers one one-shot `CmdlineEnter` autocmd instead (~2.7 µs, same order as the other trigger autocmds) and installs the stubs when the cmdline is first opened: a session that never opens it registers nothing.
+The stub body parses as part of `laze.internal.dispatch`, which is already trigger-time code.
+Consequences users can observe are in [spec.md](../spec.md#cmd).
+
 ### compile.lua: `vim.fn.expand` per dev spec
 
 One `expand()` API call per dev spec, compile is one-shot.

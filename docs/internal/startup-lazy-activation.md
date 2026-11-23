@@ -43,6 +43,7 @@ Source-once, containment with `pcall` + `vim.notify(..., WARN)`, and the "no pro
 For `cmd` triggers, `CmdUndefined` prepares the plugin and installs a temporary proxy that records range, bang, modifiers, and arguments.
 Finalization sources the plugin command definition, then the proxy replays the recorded invocation.
 The proxy is removed if the plugin did not define the advertised command, so the replay reports the actual missing-command error instead of re-queuing.
+The interactive completion stub ([spec.md](../spec.md#cmd)) hands the same invocation to this proxy when `vim_did_enter == 0`, so a cmdline opened during startup (`nvim +"normal! :"`) keeps one replay path instead of running the command before `plugin/` is sourced.
 
 Known limitation (measured 2026-09, Neovim core behavior, not laze's serialization): when the retried invocation carries quoted/space-containing arguments (`:Cmd "x y"`), the retry reaches the proxy with arguments already empty — the information is lost before laze sees it, so no replay encoding can recover it.
 Escaped bars (`:Cmd a\|b`) round-trip fine, and post-startup invocations are unaffected.
