@@ -1107,6 +1107,29 @@ do
 end
 
 do
+	local loaded = false
+	local compiled = laze.compile({
+		{
+			dir = vim.fn.tempname(),
+			name = "string-event-pattern",
+			event = "User LazeStringEventPattern",
+			config = function()
+				loaded = true
+			end,
+		},
+	})
+	laze.build_plan(compiled)()
+	vim.api.nvim_exec_autocmds("User", { pattern = "LazeStringEventPattern" })
+	if loaded then
+		print("  ✓ event route: whitespace-separated string trigger fires and loads the plugin")
+		passed = passed + 1
+	else
+		print("  ✗ event route: whitespace-separated string trigger failed to load")
+		failed = failed + 1
+	end
+end
+
+do
 	local seen = {}
 	local compiled = laze.compile({
 		{

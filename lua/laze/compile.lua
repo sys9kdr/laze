@@ -178,8 +178,19 @@ local EVENT_ALIASES = {
 	BufWrite = "BufWritePre",
 }
 
+--- Parse a string event spec like "User VeryLazy" or "BufReadPre *.rs" (lazy.nvim parity).
+---@param s string
+---@return {event: string, pattern?: string}
+local function parse_event_string(s)
+	local ev, pat = s:match("^(%w+)%s+(.*)$")
+	ev = ev or s
+	pat = (pat and pat ~= "") and pat or nil
+	return { event = EVENT_ALIASES[ev] or ev, pattern = pat }
+end
+
 --- Respect lazy.nvim's `{ event = ..., pattern = ... }` table as a one-item list: ipairs over a map-shaped table yields
---- nothing, which would silently make a lazy spec eager.
+--- nothing, which would silently make a lazy spec eager. Accepts string-shaped event specs with patterns
+--- (e.g. "User MyEvent" or "BufReadPre *.rs").
 ---@param v any
 ---@return {event: string, pattern?: string}[]
 local function normalize_events(v)
@@ -187,18 +198,22 @@ local function normalize_events(v)
 		return {}
 	end
 	if type(v) == "string" then
-		return { { event = EVENT_ALIASES[v] or v } }
+		return { parse_event_string(v) }
 	end
 	if type(v) == "table" then
 		local result = {}
 		local items = v.event ~= nil and { v } or v
 		for _, item in ipairs(items) do
 			if type(item) == "string" then
-				table.insert(result, { event = EVENT_ALIASES[item] or item })
+				table.insert(result, parse_event_string(item))
 			elseif type(item) == "table" then
 				local events = type(item.event) == "table" and item.event or { item.event }
 				for _, ev in ipairs(events) do
-					table.insert(result, { event = EVENT_ALIASES[ev] or ev, pattern = item.pattern })
+					local parsed = parse_event_string(ev)
+					table.insert(result, {
+						event = parsed.event,
+						pattern = item.pattern or parsed.pattern,
+					})
 				end
 			end
 		end
