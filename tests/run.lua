@@ -340,7 +340,7 @@ do
 
 	local aucmds = vim.api.nvim_get_autocmds({
 		event = "CmdUndefined",
-		group = "laze_cmds",
+		group = "laze_routes",
 	})
 
 	if #aucmds == 1 and aucmds[1].pattern == "*" then
@@ -397,7 +397,7 @@ do
 	laze.build_plan(compiled)()
 
 	-- 1. CmdlineEnter is registered
-	local enter_aucmds = vim.api.nvim_get_autocmds({ event = "CmdlineEnter", group = "laze_cmds" })
+	local enter_aucmds = vim.api.nvim_get_autocmds({ event = "CmdlineEnter", group = "laze_routes" })
 	if #enter_aucmds == 1 then
 		print("  ✓ cmd route: CmdlineEnter autocmd registered for lazy command stubs")
 		passed = passed + 1
@@ -570,7 +570,7 @@ do
 	})
 	laze.build_plan(rearmed)()
 	local before = vim.api.nvim_get_commands({ builtin = false })["LazeStubReArm"]
-	local armed = #vim.api.nvim_get_autocmds({ event = "CmdlineEnter", group = "laze_cmds" })
+	local armed = #vim.api.nvim_get_autocmds({ event = "CmdlineEnter", group = "laze_routes" })
 	vim.api.nvim_exec_autocmds("CmdlineEnter", { modeline = false })
 	local after = vim.api.nvim_get_commands({ builtin = false })["LazeStubReArm"]
 	if not before and armed == 1 and after and command_desc(after) == "laze: lazy command trigger" then
@@ -895,7 +895,7 @@ do
 
 	local aucmds = vim.api.nvim_get_autocmds({
 		event = "FileType",
-		group = "laze_fts",
+		group = "laze_routes",
 	})
 
 	if #aucmds == 1 and aucmds[1].pattern == "*" then
@@ -1582,7 +1582,7 @@ do
 
 	local aucmds = vim.api.nvim_get_autocmds({
 		event = "BufRead",
-		group = "laze_events",
+		group = "laze_routes",
 	})
 
 	if #aucmds == 1 then
@@ -1616,7 +1616,7 @@ do
 	local plan = laze.build_plan(compiled)
 	plan()
 
-	local rows = vim.api.nvim_get_autocmds({ group = "laze_events" })
+	local rows = vim.api.nvim_get_autocmds({ event = { "BufRead", "InsertEnter" }, group = "laze_routes" })
 	if #rows == 2 and rows[1].id == rows[2].id then
 		print("  ✓ event route: two events share one autocmd call (same id)")
 		passed = passed + 1
@@ -1625,9 +1625,9 @@ do
 		failed = failed + 1
 	end
 
-	vim.api.nvim_exec_autocmds("BufRead", { group = "laze_events" })
-	vim.api.nvim_exec_autocmds("BufRead", { group = "laze_events" })
-	vim.api.nvim_exec_autocmds("InsertEnter", { group = "laze_events" })
+	vim.api.nvim_exec_autocmds("BufRead", { group = "laze_routes" })
+	vim.api.nvim_exec_autocmds("BufRead", { group = "laze_routes" })
+	vim.api.nvim_exec_autocmds("InsertEnter", { group = "laze_routes" })
 	if ran_a == 1 and ran_b == 1 then
 		print("  ✓ event route: grouped rows fire once each, independently")
 		passed = passed + 1
@@ -1652,13 +1652,49 @@ do
 	laze.build_plan(c1)()
 	local c2 = laze.compile({ { dir = vim.fn.tempname(), name = "stale-none" } })
 	laze.build_plan(c2)()
-	local rows = vim.api.nvim_get_autocmds({ group = "laze_events" })
+	local rows = vim.api.nvim_get_autocmds({ event = "BufReadPost", group = "laze_routes" })
 	vim.api.nvim_exec_autocmds("BufReadPost", {})
 	if #rows == 0 and ran == 0 then
 		print("  ✓ rebuild: removed event trigger cleared, stale closure silent")
 		passed = passed + 1
 	else
 		print(("  ✗ rebuild: rows=%d ran=%d"):format(#rows, ran))
+		failed = failed + 1
+	end
+end
+
+-- #68: every route autocmd lives in one group, so a single `clear = true` resets the whole plan and
+-- `:autocmd laze_routes` shows the complete set. The pre-consolidation group names must be gone.
+do
+	local compiled = laze.compile({
+		{ "test/group-ev", event = "BufReadPre" },
+		{ "test/group-cmd", cmd = "LazeGroupCmd" },
+		{ "test/group-ft", ft = "markdown" },
+	})
+	laze.build_plan(compiled)()
+	local events = {}
+	for _, row in ipairs(vim.api.nvim_get_autocmds({ group = "laze_routes" })) do
+		events[row.event] = true
+	end
+	local leftovers = 0
+	for _, name in ipairs({ "laze_events", "laze_fts", "laze_cmds", "laze_key_fts", "laze_verylazy" }) do
+		local ok, rows = pcall(vim.api.nvim_get_autocmds, { group = name })
+		if ok then
+			leftovers = leftovers + #rows
+		end
+	end
+	if
+		events.BufReadPre
+		and events.CmdUndefined
+		and events.CmdlineEnter
+		and events.FileType
+		and events.UIEnter
+		and leftovers == 0
+	then
+		print("  ✓ plan routes: one laze_routes group holds every route autocmd")
+		passed = passed + 1
+	else
+		print(("  ✗ plan routes: events=%s leftovers=%d"):format(vim.inspect(events), leftovers))
 		failed = failed + 1
 	end
 end
@@ -1820,7 +1856,7 @@ do
 		print(("  ✗ lazy dep: expected no load at startup, got %s"):format(vim.inspect(log)))
 		failed = failed + 1
 	else
-		vim.api.nvim_exec_autocmds("BufRead", { group = "laze_events" })
+		vim.api.nvim_exec_autocmds("BufRead", { group = "laze_routes" })
 		if #log == 3 and log[1] == "grand" and log[2] == "child" and log[3] == "parent" then
 			print("  ✓ lazy dep: nested deps load with parent (deepest first)")
 			passed = passed + 1
@@ -1906,7 +1942,7 @@ do
 		print("  ✗ after/plugin: sourced at startup for lazy plugin")
 		failed = failed + 1
 	else
-		vim.api.nvim_exec_autocmds("BufRead", { group = "laze_events" })
+		vim.api.nvim_exec_autocmds("BufRead", { group = "laze_routes" })
 		if _G.laze_after_sourced == true then
 			print("  ✓ after/plugin: sourced at trigger for lazy plugin")
 			passed = passed + 1
@@ -1954,7 +1990,7 @@ do
 	local plan = laze.build_plan(compiled)
 	plan()
 
-	vim.api.nvim_exec_autocmds("BufRead", { group = "laze_events" })
+	vim.api.nvim_exec_autocmds("BufRead", { group = "laze_routes" })
 	local got_log = vim.g.laze_tree_log or "<missing>"
 	local got_req = vim.g.laze_tree_dep_req or "<missing>"
 	if got_req == "ok" and got_log == "plugin,after,config" then
@@ -3566,7 +3602,7 @@ local function check_event_variant_order(patterned_first)
 	local specs = patterned_first and { patterned, plain } or { plain, patterned }
 	laze.build_plan(laze.compile(specs))()
 
-	local rows = vim.api.nvim_get_autocmds({ event = "BufReadPost", group = "laze_events" })
+	local rows = vim.api.nvim_get_autocmds({ event = "BufReadPost", group = "laze_routes" })
 	local lua_rows = 0
 	for _, row in ipairs(rows) do
 		if row.pattern == "*.lua" then

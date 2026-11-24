@@ -580,17 +580,15 @@ local function build_plan(compiled, opts)
 		end
 		has_run_plan = true
 
-		-- Groups are recreated unconditionally (clear = true) so a rebuilt
-		-- plan with fewer routes drops the predecessor's stale closures.
-		local events_group = vim.api.nvim_create_augroup("laze_events", { clear = true })
-		local fts_group = vim.api.nvim_create_augroup("laze_fts", { clear = true })
-		local cmds_group = vim.api.nvim_create_augroup("laze_cmds", { clear = true })
-		local key_fts_group = vim.api.nvim_create_augroup("laze_key_fts", { clear = true })
+		-- One group for every route autocmd, recreated unconditionally (clear = true) so a rebuilt plan with fewer
+		-- routes drops the predecessor's stale closures. `laze_build` (init.lua) and `laze_startup_phase` keep their
+		-- own groups: they are registered earlier and must outlive this clear.
+		local routes_group = vim.api.nvim_create_augroup("laze_routes", { clear = true })
 
 		-- `User VeryLazy` fires unconditionally (lazy.nvim parity), so user
 		-- autocmds keyed on it run even with no spec declaring it.
 		vim.api.nvim_create_autocmd("UIEnter", {
-			group = vim.api.nvim_create_augroup("laze_verylazy", { clear = true }),
+			group = routes_group,
 			once = true,
 			callback = function()
 				vim.api.nvim_exec_autocmds("User", { pattern = "VeryLazy" })
@@ -598,7 +596,7 @@ local function build_plan(compiled, opts)
 		})
 
 		if next(routes.events) then
-			local group = events_group
+			local group = routes_group
 			-- One autocmd per bucket of (event, pattern) variants, keyed by pattern: one API call per bucket instead of per
 			-- event (~1.3 us each). `once` self-deletes per row, so the callback filters on ev.event to load only that
 			-- event's ids.
@@ -650,7 +648,7 @@ local function build_plan(compiled, opts)
 		end
 
 		if next(routes.fts) then
-			local group = fts_group
+			local group = routes_group
 			-- One FileType autocmd for all triggers (per-ft autocmds cost ~15 us each at startup).
 			vim.api.nvim_create_autocmd("FileType", {
 				group = group,
@@ -687,7 +685,7 @@ local function build_plan(compiled, opts)
 		end
 
 		if next(routes.cmds) then
-			local group = cmds_group
+			local group = routes_group
 			-- One CmdUndefined autocmd for all triggers (per-cmd autocmds cost ~12 us each at startup). Misfires are rare, so
 			-- the O(1) lookup is free.
 			vim.api.nvim_create_autocmd("CmdUndefined", {
@@ -755,7 +753,7 @@ local function build_plan(compiled, opts)
 						-- lazy.nvim installs the buffer-local map only in buffers of the declared filetype(s), and does not
 						-- retrofit buffers that already had it.
 						vim.api.nvim_create_autocmd("FileType", {
-							group = key_fts_group,
+							group = routes_group,
 							pattern = entry.ft,
 							callback = function(ev)
 								install(ev.buf)
