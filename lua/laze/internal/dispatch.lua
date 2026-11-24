@@ -199,9 +199,10 @@ end
 
 --- Clear all remaining command stubs on rebuild.
 function M.clear_cmd_stubs()
+	local command_desc = require("laze.internal.cmdproxy").command_desc
 	local commands = vim.api.nvim_get_commands({ builtin = false })
 	for name, def in pairs(commands) do
-		if def.definition == STUB_DESC then
+		if command_desc(def) == STUB_DESC then
 			pcall(vim.api.nvim_del_user_command, name)
 		end
 	end

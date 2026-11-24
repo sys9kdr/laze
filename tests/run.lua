@@ -460,8 +460,9 @@ do
 	end
 
 	-- 7. An unregistered command is not left behind by the stub (the stub deletes itself before the load)
+	local command_desc = require("laze.internal.cmdproxy").command_desc
 	local after_exec = vim.api.nvim_get_commands({ builtin = false })["LazeCompExec"]
-	if after_exec and after_exec.definition ~= "laze: lazy command trigger" then
+	if after_exec and command_desc(after_exec) ~= "laze: lazy command trigger" then
 		print("  ✓ cmd route: stub is replaced by the plugin's own command, not stacked under it")
 		passed = passed + 1
 	else
@@ -473,6 +474,7 @@ end
 -- cmd stub details: raw args (including `|`) reach the plugin command verbatim, a name Neovim rejects costs only its
 -- own stub, an undefined command warns, and a rebuilt plan drops stale stubs and re-arms the one-shot CmdlineEnter.
 do
+	local command_desc = require("laze.internal.cmdproxy").command_desc
 	local received = nil
 	local compiled = laze.compile({
 		{
@@ -508,9 +510,9 @@ do
 	if
 		warned
 		and stub
-		and stub.definition == "laze: lazy command trigger"
+		and command_desc(stub) == "laze: lazy command trigger"
 		and kept
-		and kept.definition == "laze: lazy command trigger"
+		and command_desc(kept) == "laze: lazy command trigger"
 	then
 		print("  ✓ cmd stubs: an invalid command name warns and skips only itself")
 		passed = passed + 1
@@ -571,11 +573,27 @@ do
 	local armed = #vim.api.nvim_get_autocmds({ event = "CmdlineEnter", group = "laze_cmds" })
 	vim.api.nvim_exec_autocmds("CmdlineEnter", { modeline = false })
 	local after = vim.api.nvim_get_commands({ builtin = false })["LazeStubReArm"]
-	if not before and armed == 1 and after and after.definition == "laze: lazy command trigger" then
+	if not before and armed == 1 and after and command_desc(after) == "laze: lazy command trigger" then
 		print("  ✓ cmd stubs: a rebuilt plan re-arms CmdlineEnter and installs on the next cmdline entry")
 		passed = passed + 1
 	else
 		print(("  ✗ cmd stubs: before=%s armed=%d after=%s"):format(vim.inspect(before), armed, vim.inspect(after)))
+		failed = failed + 1
+	end
+
+	-- 6. Sentinel detection accepts both `nvim_get_commands` shapes: `definition` (<= 0.12) and a separate `desc`
+	-- field (later nightlies, where `definition` is empty). The 0.12-only run cannot exercise the nightly shape for
+	-- real, so pin the contract here.
+	if
+		command_desc({ definition = "x" }) == "x"
+		and command_desc({ definition = "", desc = "x" }) == "x"
+		and command_desc({ definition = "" }) == ""
+		and command_desc(nil) == nil
+	then
+		print("  ✓ cmd stubs: sentinel lookup handles both nvim_get_commands desc shapes")
+		passed = passed + 1
+	else
+		print("  ✗ cmd stubs: command_desc does not handle both shapes")
 		failed = failed + 1
 	end
 end
