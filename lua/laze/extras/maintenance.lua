@@ -29,13 +29,62 @@ local function self_dir()
 	return source:sub(2):match("^(.*)/lua/laze/extras/maintenance%.lua$")
 end
 
+--- Lockfile `vim.pack` records its managed plugins in. Nightlies expose it as
+--- 'packlockfile'; 0.12 hardcodes the config path.
+---@return string
+local function lockfile_path()
+	local ok, path = pcall(function()
+		---@diagnostic disable-next-line: undefined-field
+		return vim.go.packlockfile
+	end)
+	if ok and type(path) == "string" and path ~= "" then
+		return path
+	end
+	return vim.fs.joinpath(vim.fn.stdpath("config"), "nvim-pack-lock.json")
+end
+
+--- Plugin names recorded in the lockfile. `vim.pack.get()` can hide an entry
+--- for a whole session (see `installed_plugins`), so orphan detection also reads
+--- the file. A missing or unreadable lockfile yields `{}`: detection must not
+--- turn a broken file into an error.
+---@return string[]
+local function lockfile_names()
+	local ok_read, lines = pcall(vim.fn.readfile, lockfile_path())
+	if not ok_read then
+		return {}
+	end
+	local ok_json, lock = pcall(vim.json.decode, table.concat(lines, "\n"))
+	if not ok_json or type(lock) ~= "table" or type(lock.plugins) ~= "table" then
+		return {}
+	end
+	local names = {}
+	for name in pairs(lock.plugins) do
+		if type(name) == "string" then
+			names[#names + 1] = name
+		end
+	end
+	return names
+end
+
 --- Installed plugins with the fields `clean` needs. `info = false` skips the
 --- per-plugin `git branches/tags` spawn in `vim.pack.get()` (unused here).
----@return { name: string, path: string, active: boolean }[]
+--- Lockfile entries `get()` omits are included with `hidden = true`: when the
+--- startup install of a lockfile-only plugin fails or is declined, `vim.pack`
+--- drops it from its in-memory lock without rewriting the file (neovim#42971),
+--- so `get()` would otherwise bless an orphan the lockfile still has.
+---@return { name: string, path: string?, active: boolean, hidden?: boolean }[]
 local function installed_plugins()
 	local plugins = {}
+	local seen = {}
 	for _, p in ipairs(vim.pack.get(nil, { info = false })) do
+		seen[p.spec.name] = true
 		plugins[#plugins + 1] = { name = p.spec.name, path = p.path, active = p.active }
+	end
+	for _, name in ipairs(lockfile_names()) do
+		if not seen[name] then
+			seen[name] = true
+			plugins[#plugins + 1] = { name = name, path = nil, active = false, hidden = true }
+		end
 	end
 	return plugins
 end
@@ -55,12 +104,12 @@ function M.clean(bang)
 	local self = self_dir()
 	---@type string[]
 	local stale = {}
-	---@type table<string, boolean>
-	local active = {}
+	---@type table<string, { active: boolean, hidden: boolean }>
+	local state = {}
 	for _, p in ipairs(installed_plugins()) do
 		if p.path ~= self and not desired[p.name] then
 			stale[#stale + 1] = p.name
-			active[p.name] = p.active
+			state[p.name] = { active = p.active, hidden = p.hidden == true }
 		end
 	end
 	table.sort(stale)
@@ -69,14 +118,20 @@ function M.clean(bang)
 		return stale
 	end
 
-	-- `vim.pack.del` refuses plugins active in this session; handing them over
-	-- makes it delete the rest and then throw.
+	-- `vim.pack.del` refuses two kinds here, and both make it delete the rest
+	-- of the list before throwing: plugins active in this session, and entries
+	-- vim.pack dropped from its in-memory lock after a failed or declined
+	-- startup install (the lockfile still names them; neovim/neovim#42971).
 	---@type string[]
 	local deletable = {}
 	---@type string[]
 	local blocked = {}
+	---@type string[]
+	local invisible = {}
 	for _, name in ipairs(stale) do
-		if active[name] then
+		if state[name].hidden then
+			invisible[#invisible + 1] = name
+		elseif state[name].active then
 			blocked[#blocked + 1] = name
 		else
 			deletable[#deletable + 1] = name
@@ -91,6 +146,12 @@ function M.clean(bang)
 		if #blocked > 0 then
 			lines[#lines + 1] = ("active this session (restart before deleting): " .. table.concat(blocked, ", "))
 		end
+		if #invisible > 0 then
+			lines[#lines + 1] = (
+				"in the lockfile but not installed this session (neovim/neovim#42971; clean! cannot remove them): "
+				.. table.concat(invisible, ", ")
+			)
+		end
 		vim.notify(table.concat(lines, "\n"))
 		return stale
 	end
@@ -104,6 +165,15 @@ function M.clean(bang)
 	if #blocked > 0 then
 		vim.notify(
 			("laze: %d active plugin(s) not deleted (restart first):\n%s"):format(#blocked, table.concat(blocked, "\n")),
+			vim.log.levels.WARN
+		)
+	end
+	if #invisible > 0 then
+		vim.notify(
+			("laze: %d lockfile plugin(s) not deleted: vim.pack dropped them this session (neovim/neovim#42971)\n%s"):format(
+				#invisible,
+				table.concat(invisible, "\n")
+			),
 			vim.log.levels.WARN
 		)
 	end

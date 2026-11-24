@@ -4119,6 +4119,36 @@ end
 -- extras: opt-in modules are never required by the core. on_load/on_fail wiring is core API and is exercised by the e2e
 -- test; no wrapper module needed.
 do
+	-- clean() also reads the vim.pack lockfile. Tests that stub vim.pack.get() must point the lockfile
+	-- at a scratch path too, or the host config leaks in (and vim.pack would repair the scratch file
+	-- from the installed dirs). Nightlies take the path from 'packlockfile' (its default is fixed at
+	-- startup), 0.12 derives it from 'stdpath("config")'.
+	local function scratch_lockfile()
+		local dir = vim.fn.tempname()
+		vim.fn.mkdir(vim.fs.joinpath(dir, "nvim"), "p")
+		local has_opt, prev_opt = pcall(function()
+			return vim.go.packlockfile
+		end)
+		local prev_xdg = vim.env.XDG_CONFIG_HOME
+		local path
+		if has_opt then
+			vim.go.packlockfile = vim.fs.joinpath(dir, "nvim-pack-lock.json")
+			path = vim.go.packlockfile
+		else
+			vim.env.XDG_CONFIG_HOME = dir
+			path = vim.fs.joinpath(dir, "nvim", "nvim-pack-lock.json")
+		end
+		return path,
+			function()
+				if has_opt then
+					vim.go.packlockfile = prev_opt
+				else
+					vim.env.XDG_CONFIG_HOME = prev_xdg
+				end
+				vim.fn.delete(dir, "rf")
+			end
+	end
+
 	local cmds = vim.api.nvim_get_commands({})
 	local leaked = false
 	for _, name in ipairs({ "LazeProfile", "LazeRetry", "LazeSync", "Laze" }) do
@@ -4291,6 +4321,7 @@ do
 		vim.pack.del = function(names)
 			deleted = names
 		end
+		local _, restore_lock = scratch_lockfile()
 		local ok, stale_names = pcall(maintenance.clean, true)
 		local warned_busy = false
 		for _, msg in ipairs(msgs) do
@@ -4309,6 +4340,7 @@ do
 				warned_err = true
 			end
 		end
+		restore_lock()
 		vim.pack.get, vim.pack.del, vim.notify = orig_get, orig_del, orig_notify
 		if
 			self_root
@@ -4330,6 +4362,87 @@ do
 				warned_busy = warned_busy,
 				ok_err = ok_err,
 				warned_err = warned_err,
+			}))
+			failed = failed + 1
+		end
+	end
+
+	do
+		-- A lockfile-only entry that vim.pack hid for this session (failed or declined startup install,
+		-- neovim/neovim#42971) is still an orphan: report it, but never hand it to vim.pack.del.
+		local maintenance = require("laze.extras.maintenance")
+		local orig_get, orig_del, orig_notify = vim.pack.get, vim.pack.del, vim.notify
+		local msgs, deleted = {}, nil
+		vim.notify = function(msg)
+			msgs[#msgs + 1] = msg
+		end
+		vim.pack.get = function()
+			return {
+				{ spec = { name = "zz-busy" }, path = "/nonexistent/busy", active = true },
+				{ spec = { name = "zz-gone" }, path = "/nonexistent/gone", active = false },
+			}
+		end
+		vim.pack.del = function(names)
+			deleted = names
+		end
+		local lock_path, restore_lock = scratch_lockfile()
+		vim.fn.writefile({
+			vim.json.encode({
+				plugins = {
+					["zz-busy"] = { rev = "0", src = "https://example.invalid/zz-busy" },
+					["zz-lock"] = { rev = "0", src = "https://example.invalid/zz-lock" },
+				},
+			}),
+		}, lock_path)
+
+		local ok_dry, stale_dry = pcall(maintenance.clean, false)
+		local dry_warned = false
+		for _, msg in ipairs(msgs) do
+			if msg:find("zz-lock", 1, true) and msg:find("42971", 1, true) then
+				dry_warned = true
+			end
+		end
+		msgs = {}
+		local ok, stale_names = pcall(maintenance.clean, true)
+		local warned_hidden = false
+		for _, msg in ipairs(msgs) do
+			if msg:find("zz-lock", 1, true) and msg:find("42971", 1, true) then
+				warned_hidden = true
+			end
+		end
+
+		-- A malformed or missing lockfile must not break detection.
+		vim.fn.writefile({ "{" }, lock_path)
+		local ok_broken = pcall(maintenance.clean, false)
+		vim.fn.delete(lock_path)
+		local ok_missing = pcall(maintenance.clean, false)
+
+		restore_lock()
+		vim.pack.get, vim.pack.del, vim.notify = orig_get, orig_del, orig_notify
+		if
+			ok_dry
+			and ok
+			and vim.deep_equal(stale_dry, { "zz-busy", "zz-gone", "zz-lock" })
+			and vim.deep_equal(stale_names, stale_dry)
+			and vim.deep_equal(deleted, { "zz-gone" })
+			and dry_warned
+			and warned_hidden
+			and ok_broken
+			and ok_missing
+		then
+			print("  ✓ extra: clean reports lockfile-only orphans without deleting them")
+			passed = passed + 1
+		else
+			print("  ✗ extra: clean lockfile cross-check misbehaved: " .. vim.inspect({
+				ok_dry = ok_dry,
+				ok = ok,
+				stale_dry = stale_dry,
+				stale = stale_names,
+				deleted = deleted,
+				dry_warned = dry_warned,
+				warned_hidden = warned_hidden,
+				ok_broken = ok_broken,
+				ok_missing = ok_missing,
 			}))
 			failed = failed + 1
 		end
