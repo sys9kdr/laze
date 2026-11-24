@@ -27,6 +27,9 @@ end
 -- that took over the lhs survive a rebuild.
 local installed_keys = {}
 
+-- Module-level flag so dispatch is never required at cold startup just to clear uninstalled stubs.
+local has_run_plan = false
+
 --- See docs/internal/performance.md.
 ---@param data_dir string
 ---@return table<string, string>
@@ -567,11 +570,15 @@ local function build_plan(compiled, opts)
 			end
 		end
 
-		-- Keymaps have no group to clear. The sweep body parses only on a rebuild, when a previous plan left maps.
+		-- Keymaps and command stubs have no group to clear. The sweep bodies parse only on a rebuild, when a previous plan left stubs.
 		if #installed_keys > 0 then
 			require("laze.internal.dispatch").clear(installed_keys)
 		end
 		installed_keys = {}
+		if has_run_plan then
+			require("laze.internal.dispatch").clear_cmd_stubs()
+		end
+		has_run_plan = true
 
 		-- Groups are recreated unconditionally (clear = true) so a rebuilt
 		-- plan with fewer routes drops the predecessor's stale closures.
@@ -691,6 +698,16 @@ local function build_plan(compiled, opts)
 					if ids then
 						require("laze.internal.dispatch").cmd(ev, ids, startup_cmd_calls, load_with_deps)
 					end
+				end,
+			})
+			-- Install the interactive command stubs on the first CmdlineEnter: names complete, and argument completion
+			-- loads the plugin. One one-shot autocmd (~2.7 us) at plan build; a session that never opens the cmdline
+			-- registers no commands at all (lazy.nvim registers every cmd stub at startup).
+			vim.api.nvim_create_autocmd("CmdlineEnter", {
+				group = group,
+				once = true,
+				callback = function()
+					require("laze.internal.dispatch").install_cmd_stubs(routes.cmds, startup_cmd_calls, load_with_deps)
 				end,
 			})
 		end

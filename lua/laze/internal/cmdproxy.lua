@@ -9,6 +9,20 @@ local M = {}
 
 local PROXY_DESC = "laze: defer command until VimEnter"
 
+--- A user command's `desc`. Up to 0.12 `nvim_get_commands` reports it as `definition`; newer nightlies moved it to its
+--- own `desc` field (`definition` becomes ""). Accept both so sentinel detection is version-independent.
+---@param def table?
+---@return string?
+function M.command_desc(def)
+	if not def then
+		return nil
+	end
+	if def.desc and def.desc ~= "" then
+		return def.desc
+	end
+	return def.definition
+end
+
 ---@param calls table<string, string[]> per-plan replay queue
 ---@param cmd string
 function M.defer(calls, cmd)
@@ -42,8 +56,7 @@ function M.defer(calls, cmd)
 			-- never defines), remove it before replaying or the replay re-queues itself forever and masks the real "not an
 			-- editor command" error.
 			local current = vim.api.nvim_get_commands({ builtin = false })[cmd]
-			-- `nvim_get_commands` exposes a user command's `desc` as `definition`.
-			if current and current.definition == PROXY_DESC then
+			if M.command_desc(current) == PROXY_DESC then
 				pcall(vim.api.nvim_del_user_command, cmd)
 			end
 			for _, call in ipairs(queued or {}) do

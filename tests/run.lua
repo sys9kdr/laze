@@ -361,6 +361,243 @@ do
 	end
 end
 
+-- cmd route: Tab completion and interactive command stubs on CmdlineEnter
+do
+	local loaded = false
+	local subcmd_received = nil
+	local compiled = laze.compile({
+		{
+			dir = vim.fn.tempname(),
+			name = "cmd-comp-test",
+			cmd = { "LazeCompCmd", "LazeCompExec" },
+			config = function()
+				loaded = true
+				vim.api.nvim_create_user_command("LazeCompCmd", function(ev)
+					subcmd_received = ev.args
+				end, {
+					nargs = "*",
+					bang = true,
+					complete = function(lead)
+						local items = { "subone", "subtwo", "other" }
+						local out = {}
+						for _, it in ipairs(items) do
+							if vim.startswith(it, lead) then
+								table.insert(out, it)
+							end
+						end
+						return out
+					end,
+				})
+				vim.api.nvim_create_user_command("LazeCompExec", function(ev)
+					subcmd_received = "exec:" .. (ev.bang and "!" or "") .. ev.args
+				end, { nargs = "*", bang = true })
+			end,
+		},
+	})
+	laze.build_plan(compiled)()
+
+	-- 1. CmdlineEnter is registered
+	local enter_aucmds = vim.api.nvim_get_autocmds({ event = "CmdlineEnter", group = "laze_cmds" })
+	if #enter_aucmds == 1 then
+		print("  ✓ cmd route: CmdlineEnter autocmd registered for lazy command stubs")
+		passed = passed + 1
+	else
+		print(("  ✗ cmd route: expected 1 CmdlineEnter autocmd, got %d"):format(#enter_aucmds))
+		failed = failed + 1
+	end
+
+	-- 2. Before CmdlineEnter, stub is not yet installed (zero startup cost)
+	local pre_cmd = vim.api.nvim_get_commands({ builtin = false })["LazeCompCmd"]
+	if not pre_cmd then
+		print("  ✓ cmd route: stubs not registered before entering cmdline")
+		passed = passed + 1
+	else
+		print("  ✗ cmd route: stub was prematurely registered before CmdlineEnter")
+		failed = failed + 1
+	end
+
+	-- 3. Trigger CmdlineEnter
+	vim.api.nvim_exec_autocmds("CmdlineEnter", { modeline = false })
+
+	-- 4. Command name completion works without loading the plugin
+	local name_comps = vim.fn.getcompletion("LazeCompC", "cmdline")
+	if #name_comps == 1 and name_comps[1] == "LazeCompCmd" and not loaded then
+		print("  ✓ cmd route: command name completion works without loading plugin")
+		passed = passed + 1
+	else
+		print(
+			("  ✗ cmd route: command name completion failed: comps=%s loaded=%s"):format(
+				vim.inspect(name_comps),
+				tostring(loaded)
+			)
+		)
+		failed = failed + 1
+	end
+
+	-- 5. Subcommand completion loads the plugin and returns real completion candidates
+	local sub_comps = vim.fn.getcompletion("LazeCompCmd sub", "cmdline")
+	if #sub_comps == 2 and sub_comps[1] == "subone" and sub_comps[2] == "subtwo" and loaded then
+		print("  ✓ cmd route: subcommand completion loads plugin and returns completions")
+		passed = passed + 1
+	else
+		print(
+			("  ✗ cmd route: subcommand completion failed: comps=%s loaded=%s"):format(
+				vim.inspect(sub_comps),
+				tostring(loaded)
+			)
+		)
+		failed = failed + 1
+	end
+
+	-- 6. Interactive command execution via stub passes bang and arguments
+	pcall(vim.cmd, "LazeCompExec! hello world")
+	if subcmd_received == "exec:!hello world" then
+		print("  ✓ cmd route: command execution via stub preserves bang and arguments")
+		passed = passed + 1
+	else
+		print(("  ✗ cmd route: command execution failed: got %s"):format(tostring(subcmd_received)))
+		failed = failed + 1
+	end
+
+	-- 7. An unregistered command is not left behind by the stub (the stub deletes itself before the load)
+	local command_desc = require("laze.internal.cmdproxy").command_desc
+	local after_exec = vim.api.nvim_get_commands({ builtin = false })["LazeCompExec"]
+	if after_exec and command_desc(after_exec) ~= "laze: lazy command trigger" then
+		print("  ✓ cmd route: stub is replaced by the plugin's own command, not stacked under it")
+		passed = passed + 1
+	else
+		print(("  ✗ cmd route: stub still shadows the plugin command: %s"):format(vim.inspect(after_exec)))
+		failed = failed + 1
+	end
+end
+
+-- cmd stub details: raw args (including `|`) reach the plugin command verbatim, a name Neovim rejects costs only its
+-- own stub, an undefined command warns, and a rebuilt plan drops stale stubs and re-arms the one-shot CmdlineEnter.
+do
+	local command_desc = require("laze.internal.cmdproxy").command_desc
+	local received = nil
+	local compiled = laze.compile({
+		{
+			dir = vim.fn.tempname(),
+			name = "cmd-stub-args",
+			cmd = { "LazeStubBar", "LazeStubKeep", "LazeStubMissing", "laze-stub-bad" },
+			config = function()
+				vim.api.nvim_create_user_command("LazeStubBar", function(ev)
+					received = ev.args
+				end, { nargs = "*" })
+			end,
+		},
+	})
+
+	local notified = {}
+	local orig_notify = vim.notify
+	vim.notify = function(msg, _)
+		table.insert(notified, tostring(msg))
+	end
+	laze.build_plan(compiled)()
+	vim.api.nvim_exec_autocmds("CmdlineEnter", { modeline = false })
+	vim.notify = orig_notify
+
+	-- 1. A name Neovim will not accept warns instead of throwing inside the autocmd, and the valid stub lands.
+	local warned = false
+	for _, msg in ipairs(notified) do
+		if msg:find("laze-stub-bad", 1, true) then
+			warned = true
+		end
+	end
+	local stub = vim.api.nvim_get_commands({ builtin = false })["LazeStubBar"]
+	local kept = vim.api.nvim_get_commands({ builtin = false })["LazeStubKeep"]
+	if
+		warned
+		and stub
+		and command_desc(stub) == "laze: lazy command trigger"
+		and kept
+		and command_desc(kept) == "laze: lazy command trigger"
+	then
+		print("  ✓ cmd stubs: an invalid command name warns and skips only itself")
+		passed = passed + 1
+	else
+		print(("  ✗ cmd stubs: warned=%s stub=%s"):format(tostring(warned), vim.inspect(stub)))
+		failed = failed + 1
+	end
+
+	-- 2. The stub replays raw args, so `|` stays part of them (a `-bar` stub would run the tail separately).
+	pcall(vim.cmd, "LazeStubBar a | echo 1")
+	if received == "a | echo 1" then
+		print("  ✓ cmd stubs: raw args reach the plugin command verbatim, `|` included")
+		passed = passed + 1
+	else
+		print(("  ✗ cmd stubs: args= %s"):format(tostring(received)))
+		failed = failed + 1
+	end
+
+	-- 3. A command the plugin never defines warns instead of replaying into E492.
+	notified = {}
+	vim.notify = function(msg, _)
+		table.insert(notified, tostring(msg))
+	end
+	local ok_missing = pcall(vim.cmd, "LazeStubMissing")
+	vim.notify = orig_notify
+	local warned_missing = false
+	for _, msg in ipairs(notified) do
+		if msg:find("LazeStubMissing", 1, true) then
+			warned_missing = true
+		end
+	end
+	if ok_missing and warned_missing then
+		print("  ✓ cmd stubs: a command the plugin never defines warns instead of erroring")
+		passed = passed + 1
+	else
+		print(("  ✗ cmd stubs: ok=%s warned=%s"):format(tostring(ok_missing), tostring(warned_missing)))
+		failed = failed + 1
+	end
+
+	-- 4. A rebuild without cmd routes clears the stubs...
+	local plain = laze.compile({ { dir = vim.fn.tempname(), name = "cmd-stub-plain", event = "VeryLazy" } })
+	laze.build_plan(plain)()
+	local cleared = vim.api.nvim_get_commands({ builtin = false })["LazeStubKeep"]
+	if not cleared then
+		print("  ✓ cmd stubs: a rebuilt plan clears the previous plan's stubs")
+		passed = passed + 1
+	else
+		print(("  ✗ cmd stubs: stub survived the rebuild: %s"):format(vim.inspect(cleared)))
+		failed = failed + 1
+	end
+
+	-- 5. ...and a rebuild with cmd routes re-arms the one-shot CmdlineEnter.
+	local rearmed = laze.compile({
+		{ dir = vim.fn.tempname(), name = "cmd-stub-rearm", cmd = "LazeStubReArm", config = function() end },
+	})
+	laze.build_plan(rearmed)()
+	local before = vim.api.nvim_get_commands({ builtin = false })["LazeStubReArm"]
+	local armed = #vim.api.nvim_get_autocmds({ event = "CmdlineEnter", group = "laze_cmds" })
+	vim.api.nvim_exec_autocmds("CmdlineEnter", { modeline = false })
+	local after = vim.api.nvim_get_commands({ builtin = false })["LazeStubReArm"]
+	if not before and armed == 1 and after and command_desc(after) == "laze: lazy command trigger" then
+		print("  ✓ cmd stubs: a rebuilt plan re-arms CmdlineEnter and installs on the next cmdline entry")
+		passed = passed + 1
+	else
+		print(("  ✗ cmd stubs: before=%s armed=%d after=%s"):format(vim.inspect(before), armed, vim.inspect(after)))
+		failed = failed + 1
+	end
+
+	-- 6. Sentinel detection accepts both `nvim_get_commands` shapes: `definition` (<= 0.12) and a separate `desc`
+	-- field (later nightlies, where `definition` is empty). The 0.12-only run cannot exercise the nightly shape for
+	-- real, so pin the contract here.
+	if
+		command_desc({ definition = "x" }) == "x"
+		and command_desc({ definition = "", desc = "x" }) == "x"
+		and command_desc({ definition = "" }) == ""
+		and command_desc(nil) == nil
+	then
+		print("  ✓ cmd stubs: sentinel lookup handles both nvim_get_commands desc shapes")
+		passed = passed + 1
+	else
+		print("  ✗ cmd stubs: command_desc does not handle both shapes")
+		failed = failed + 1
+	end
+end
+
 -- Disabled plugins (cond = false / enabled = false) must not leave key triggers at all: lazy.nvim disables such a
 -- plugin before handlers are enabled, so neither a load trigger nor a still-live rhs is installed. Covers both the
 -- literal and the function form (#30).

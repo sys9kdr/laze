@@ -127,6 +127,87 @@ function M.cmd(ev, ids, startup_cmd_calls, load)
 	end
 end
 
+local STUB_DESC = "laze: lazy command trigger"
+
+--- Rebuild the command line a stub invocation replays after the load. Raw `args` (not `fargs`) keeps quoting and `|`
+--- verbatim, so the plugin's own command parses exactly what was typed.
+---@param cmd string
+---@param command table `nvim_create_user_command` callback arg
+---@return string
+local function replay_line(cmd, command)
+	local range = ""
+	if command.range == 2 then
+		range = ("%d,%d"):format(command.line1, command.line2)
+	elseif command.range == 1 then
+		range = tostring(command.line1)
+	end
+	local modifiers = command.mods ~= "" and (command.mods .. " ") or ""
+	local args = command.args ~= "" and (" " .. command.args) or ""
+	return modifiers .. range .. cmd .. (command.bang and "!" or "") .. args
+end
+
+--- Install user command stubs for Tab completion and command dispatch: the names complete, and argument completion
+--- loads the plugin and defers to its own `complete` (Neovim never fires `CmdUndefined` while completing).
+--- Called on the first CmdlineEnter, so a session that never opens the cmdline registers nothing.
+---@param cmds table<string, string[]>
+---@param startup_cmd_calls table<string, string[]>
+---@param load fun(id: string): boolean
+function M.install_cmd_stubs(cmds, startup_cmd_calls, load)
+	local existing_cmds = vim.api.nvim_get_commands({ builtin = false })
+	for cmd, ids in pairs(cmds) do
+		if not existing_cmds[cmd] then
+			-- A name Neovim will not accept (lowercase, `-`, `_`) can never be a command either; one bad spec must not
+			-- break every other stub, so register them one by one.
+			local ok, err = pcall(vim.api.nvim_create_user_command, cmd, function(command)
+				-- Delete first: after the load this would remove the plugin's own command instead of the stub.
+				pcall(vim.api.nvim_del_user_command, cmd)
+				for _, id in ipairs(ids) do
+					load(id)
+				end
+				local line = replay_line(cmd, command)
+				if vim.v.vim_did_enter == 0 then
+					-- A cmdline opened during startup (e.g. `nvim +"normal! :"`): plugin/ is not sourced yet, so replay
+					-- through the bridge the CmdUndefined route uses (docs/internal/startup-lazy-activation.md).
+					require("laze.internal.cmdproxy").defer(startup_cmd_calls, cmd)
+					vim.cmd(line)
+					return
+				end
+				if vim.fn.exists(":" .. cmd) == 0 then
+					require("laze.internal.diag").warn(("command '%s' is not defined by the plugin(s) it loads"):format(cmd))
+					return
+				end
+				vim.cmd(line)
+			end, {
+				nargs = "*",
+				bang = true,
+				range = true,
+				desc = STUB_DESC,
+				complete = function(_, line)
+					pcall(vim.api.nvim_del_user_command, cmd)
+					for _, id in ipairs(ids) do
+						load(id)
+					end
+					return vim.fn.getcompletion(line, "cmdline")
+				end,
+			})
+			if not ok then
+				require("laze.internal.diag").warn(("command '%s' was not registered: %s"):format(cmd, tostring(err)))
+			end
+		end
+	end
+end
+
+--- Clear all remaining command stubs on rebuild.
+function M.clear_cmd_stubs()
+	local command_desc = require("laze.internal.cmdproxy").command_desc
+	local commands = vim.api.nvim_get_commands({ builtin = false })
+	for name, def in pairs(commands) do
+		if command_desc(def) == STUB_DESC then
+			pcall(vim.api.nvim_del_user_command, name)
+		end
+	end
+end
+
 ---@param load fun(id: string): boolean
 ---@param mode string
 ---@param lhs string

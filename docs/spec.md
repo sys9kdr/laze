@@ -66,6 +66,19 @@ A later entry for the same `(lhs, mode, ft)` replaces an earlier one, so `{ "<F7
 `rhs = ""` or `"<nop>"` registers a plain no-op map that never loads it.
 All of these match lazy.nvim.
 
+### `cmd`
+
+`cmd = "Telescope"` (or a `string[]`) loads the plugin when the command runs, and the name completes: `:Tel<Tab>` → `:Telescope`.
+Argument completion loads the plugin first and then defers to its own `-complete`, so `:Telescope find_<Tab>` offers the plugin's candidates.
+
+Neovim never fires `CmdUndefined` while completing, so completion needs the command to already exist.
+laze registers the completion stubs on the **first command-line entry** of the session (one `CmdlineEnter` autocmd at plan build; lazy.nvim registers its stubs at startup), which means a session that never opens the cmdline — `nvim -l` scripts, CI, `nvim --headless` one-shots — registers no commands at all.
+Two probes see the pre-`:` state until you press `:` once: `exists(':Telescope')` is `0` and `getcompletion('Tel', 'cmdline')` is empty.
+The stub never shadows the plugin: the first run or completion deletes it and replays the same command line (range, bang, modifiers, raw args) against the plugin's own command.
+
+A command name Neovim refuses — lowercase, `-`, `_` — can never exist either: laze warns and skips that one name, and every other trigger keeps working.
+Same for a name the loaded plugin never defines: it warns instead of replaying into `E492`.
+
 ### Triggers
 
 Triggers (`event`/`ft`/`cmd`/`keys`) accept `string` or `string[]`; `event` additionally accepts lazy.nvim's `{ event, pattern }` table, either alone or in an array (e.g. `event = { event = "BufReadPre", pattern = "*.lua" }` or `event = { "BufEnter", { event = "BufLeave", pattern = "*.md" } }`), and `keys` accepts `{ lhs, mode?, rhs?, desc?, silent? }` entries (`mode` may be a `string[]`, default `"n"`).
