@@ -524,15 +524,19 @@ local function build_plan(compiled, opts)
 	submodule_triggers = triggers
 	for modname, ids in pairs(routes.modules or {}) do
 		installed_preloads[modname] = true
-		package.preload[modname] = function()
+		local function consume()
 			package.preload[modname] = nil
 			installed_preloads[modname] = nil
+			triggers[modname] = nil
+		end
+		package.preload[modname] = function()
+			consume()
 			return require_through(modname, ids)
 		end
 		-- Consumed before loading for the same reason: a submodule the plugin lacks must fall through to require's
 		-- not-found error instead of recursing into this trigger.
 		triggers[modname] = function(name)
-			triggers[modname] = nil
+			consume()
 			return require_through(name, ids)
 		end
 	end
