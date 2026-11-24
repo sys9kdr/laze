@@ -35,6 +35,8 @@ One command with subcommands (lazy.nvim-style, tab-completed):
 
 `:Laze clean` without `!` never deletes — it prints the stale names so you can check them first.
 The desired set is exactly the specs from the last `setup()`; laze itself is never reported, so it does not need to appear in its own specs.
+`clean` unions `vim.pack.get()` with the lockfile (`'packlockfile'` on nightlies, `$XDG_CONFIG_HOME/nvim/nvim-pack-lock.json` on 0.12). A failed or declined lockfile-driven install can leave `vim.pack` hiding an entry for the rest of the session without rewriting the file ([neovim/neovim#42971](https://github.com/neovim/neovim/issues/42971)); those names are still reported, but they are never passed to `vim.pack.del` (it would throw) — simplify your specs, restart, and run `clean!` again to remove them.
+A missing or unparseable lockfile is ignored, so detection never turns it into an error.
 `clean!` skips plugins that are active in the current session (plain `vim.pack.del` refuses them) and warns which need a restart.
 `:Laze health` covers the spec side only (installed/MISSING, lazy/eager); install, lockfile and `active` state belong to `vim.pack` — use `:checkhealth vim.pack` for those.
 Unknown subcommands warn with the valid list instead of throwing.
