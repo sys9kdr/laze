@@ -409,6 +409,17 @@ local events_cases = {
 	{ "BufRead", { { event = "BufReadPost" } }, "alias normalized to stored form" },
 	{ "BufWrite", { { event = "BufWritePre" } }, "alias normalized to stored form" },
 	{ "BufCreate", { { event = "BufAdd" } }, "alias normalized to stored form" },
+	{ "User MyCustomEvent", { { event = "User", pattern = "MyCustomEvent" } }, "string event with pattern" },
+	{
+		"BufRead *.rs",
+		{ { event = "BufReadPost", pattern = "*.rs" } },
+		"string event with pattern and alias normalized",
+	},
+	{
+		{ "User Foo", "User Bar" },
+		{ { event = "User", pattern = "Foo" }, { event = "User", pattern = "Bar" } },
+		"string array with patterns",
+	},
 }
 
 for _, case in ipairs(events_cases) do
