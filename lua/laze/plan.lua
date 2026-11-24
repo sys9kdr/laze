@@ -177,7 +177,7 @@ local function build_plan(compiled, opts)
 	-- matching the shapes `:packadd` and the dir branch of load_plugin use.
 	local function source_plugin_files(dir)
 		source_glob(dir, "/plugin/**/*.{lua,vim}")
-		source_glob(dir, "/ftdetect/*.vim")
+		source_glob(dir, "/ftdetect/*.{lua,vim}")
 		source_after_plugin(dir)
 	end
 
@@ -301,7 +301,7 @@ local function build_plan(compiled, opts)
 				-- late additions need manual sourcing.
 				if pending.dir and pending.source_later then
 					source_glob(pending.dir, "/plugin/**/*.{lua,vim}")
-					source_glob(pending.dir, "/ftdetect/*.vim")
+					source_glob(pending.dir, "/ftdetect/*.{lua,vim}")
 					source_after_plugin(pending.dir)
 				end
 				run_hooks(id, pending.entry, pending.start, pending.dir)
@@ -355,7 +355,7 @@ local function build_plan(compiled, opts)
 			if not during_startup and not activate_only then
 				-- Nothing else sources these post-startup, so commands, maps and filetype detection would never exist.
 				source_glob(entry.dir, "/plugin/**/*.{lua,vim}")
-				source_glob(entry.dir, "/ftdetect/*.vim")
+				source_glob(entry.dir, "/ftdetect/*.{lua,vim}")
 			end
 			plugin_dir = entry.dir
 		else
