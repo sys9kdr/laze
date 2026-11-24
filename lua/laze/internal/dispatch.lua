@@ -54,11 +54,16 @@ end
 ---@param exclude table<string, boolean>
 local function replay_groups(event, ev, exclude)
 	local done = {}
+	local is_user = event == "User"
 	for _, autocmd in ipairs(vim.api.nvim_get_autocmds({ event = event })) do
 		local name = autocmd.group_name
 		if name and not exclude[name] and not done[name] then
 			done[name] = true
-			M.refire(event, { group = name, buffer = ev.buf, data = ev.data })
+			if is_user then
+				M.refire(event, { group = name, pattern = ev.match, data = ev.data })
+			else
+				M.refire(event, { group = name, buffer = ev.buf, data = ev.data })
+			end
 		end
 	end
 end
