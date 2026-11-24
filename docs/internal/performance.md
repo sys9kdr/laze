@@ -149,6 +149,13 @@ Both are now a single `*`-pattern dispatcher that does an O(1) `routes` hash loo
 Per-plugin idempotency comes from `load_with_deps`' `loaded[]` guard (the old per-ft `once` self-delete is subsumed by it); misfires on unrelated filetypes/commands cost one hash miss.
 Events were already one autocmd per event name; keys need one mapping per `(lhs, mode)` variant by nature (`vim.keymap.set`, ~15 µs each — accepted, inherent API cost).
 
+### plan.lua: five route augroups — resolved (2026-11)
+
+`plan()` created `laze_events`, `laze_fts`, `laze_cmds`, `laze_key_fts`, `laze_verylazy` unconditionally, i.e. five `nvim_create_augroup(clear = true)` calls even for a spec set with no triggers (~0.4–0.5 µs each; 5 groups + 5 autocmds 8.9–9.4 µs vs 5.4 µs for 1 group + 5 autocmds, so ~4 µs — below the inter-process noise floor).
+Nothing cleared or targeted a subset: all five were created and re-created at the same point, so the split encoded no mechanism.
+One `laze_routes` group now holds every route autocmd; registration order is unchanged, so a `FileType` still runs the ft loader before the ft-key installers (verified by autocmd id). `laze_build` (init.lua) and `laze_startup_phase` keep their own groups: they are registered earlier and must outlive the route `clear = true`.
+`:autocmd laze_routes` shows the complete set. Issue #68.
+
 ### plan.lua: O(N×M) route scan on every startup — resolved
 
 Formerly `plugin_has_routes()` walked all routes × entries × IDs per plugin (O(N×M)).
