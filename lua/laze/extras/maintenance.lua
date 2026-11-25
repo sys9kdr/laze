@@ -2,15 +2,15 @@
 
 local M = {}
 
+--- Reuse the last setup's compile: recompiling would repeat its diagnostics (known differences, unsupported fields).
 ---@return table<string, boolean>?
 local function desired_pkgs()
-	local laze = require("laze")
-	local specs = laze.get_specs()
-	if not specs then
+	local compiled = require("laze").get_compiled()
+	if not compiled then
 		return nil
 	end
 	local set = {}
-	for _, s in ipairs(laze.compile(specs).pack) do
+	for _, s in ipairs(compiled.pack) do
 		set[s.name] = true
 	end
 	return set
@@ -190,13 +190,11 @@ function M.clean(bang)
 end
 
 function M.health()
-	local laze = require("laze")
-	local specs = laze.get_specs()
-	if not specs then
+	local compiled = require("laze").get_compiled()
+	if not compiled then
 		vim.notify("laze: health: no setup has run yet", vim.log.levels.WARN)
 		return
 	end
-	local compiled = laze.compile(specs)
 	local data_dir = vim.fn.stdpath("data")
 	local lines = {}
 	for id, entry in pairs(compiled.registry) do

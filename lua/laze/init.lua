@@ -220,7 +220,7 @@ function M.setup(specs, opts)
 
 	local plan_opts = vim.tbl_extend("force", opts, { enabled_ok = enabled_ok, cond_ok = cond_ok })
 	plan.build_plan(compiled, plan_opts)()
-	last_setup = { specs = specs, opts = opts }
+	last_setup = { specs = specs, opts = opts, compiled = compiled }
 	return compiled
 end
 
@@ -228,6 +228,13 @@ end
 ---@return LazeSpec[]?
 function M.get_specs()
 	return last_setup and last_setup.specs
+end
+
+--- Compiled output of the last setup() call (for opt-in extras). Do not mutate.
+--- Extras read this instead of recompiling: a second compile re-emits the compile diagnostics setup already flushed.
+---@return LazeCompiled?
+function M.get_compiled()
+	return last_setup and last_setup.compiled
 end
 
 --- Re-run the last setup(): recompile, re-add to vim.pack (idempotent for

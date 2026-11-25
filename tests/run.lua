@@ -4464,6 +4464,46 @@ do
 			failed = failed + 1
 		end
 	end
+
+	do
+		-- clean/health must reuse the last compile: compiling again re-emits the diagnostics setup already flushed.
+		local maintenance = require("laze.extras.maintenance")
+		local orig_add, orig_get, orig_notify = vim.pack.add, vim.pack.get, vim.notify
+		local msgs = {}
+		vim.pack.add = function() end
+		vim.pack.get = function()
+			return {}
+		end
+		vim.notify = function(msg)
+			msgs[#msgs + 1] = tostring(msg)
+		end
+		local _, restore_lock = scratch_lockfile()
+		local compiled = laze.setup({ { "example/warned.nvim", name = "zz-warned", lazy = true, import = "x" } })
+		local after_setup = #msgs
+		maintenance.health()
+		maintenance.clean(false)
+		restore_lock()
+		vim.pack.add, vim.pack.get, vim.notify = orig_add, orig_get, orig_notify
+		local repeated = false
+		for i = after_setup + 1, #msgs do
+			if msgs[i]:find("'import' is not supported", 1, true) then
+				repeated = true
+			end
+		end
+		if after_setup == 1 and not repeated and laze.get_compiled() == compiled then
+			print("  ✓ extra: clean/health reuse the last compile instead of re-emitting its diagnostics")
+			passed = passed + 1
+		else
+			print(
+				("  ✗ extra: clean/health recompiled (setup msgs=%d, repeated=%s, reused=%s)"):format(
+					after_setup,
+					tostring(repeated),
+					tostring(laze.get_compiled() == compiled)
+				)
+			)
+			failed = failed + 1
+		end
+	end
 end
 
 print(("\n%d passed, %d failed\n"):format(passed, failed))
