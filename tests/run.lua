@@ -1391,6 +1391,29 @@ do
 	end
 end
 
+-- reload_all(new_specs) overrides specs, not configuration: the last setup's opts (dev path, hooks) must carry over,
+-- or a dev-loop reload silently loses its wiring.
+do
+	local loads = {}
+	laze.setup({ { dir = vim.fn.getcwd(), name = "reload-opts-a" } }, {
+		on_load = function(id)
+			table.insert(loads, id)
+		end,
+	})
+	laze.reload_all({ { dir = vim.fn.getcwd(), name = "reload-opts-b" } })
+	if #loads == 2 and loads[1] == "reload-opts-a" and loads[2] == "reload-opts-b" then
+		print("  ✓ reload_all(new_specs): keeps the previous setup's opts (on_load fires for the new specs)")
+		passed = passed + 1
+	else
+		print(
+			("  ✗ reload_all(new_specs): loads = [%s] (expected reload-opts-a, reload-opts-b)"):format(
+				table.concat(loads, ", ")
+			)
+		)
+		failed = failed + 1
+	end
+end
+
 -- ft / event triggers re-fire the triggering event after loading, so autocmds
 -- the plugin registers in config see the buffer that caused the load
 do
@@ -2776,6 +2799,70 @@ if not fast_only then
 		failed = failed + 1
 	end
 
+	vim.fn.delete(root, "rf")
+end
+
+-- glob magic in a pack directory: pkg dirs come from repo names, and `[`, `{`, `*` are legal path characters. Three
+-- layers break on them: the load path's `glob(pack/*/opt/<pkg>)` fallback reads an unescaped pkg (and stdpath prefix)
+-- as a pattern, `vim._core.packadd` silently skips such a directory (no E919 for `packadd!`), and Neovim's own
+-- plugin/ phases glob too. A lazy load must fall back to exact-path activation; eager specs cannot work at all
+-- (vim.pack.add itself E919s) and are rejected at compile time. Skipped under `fast` (needs a spawned install session).
+if not fast_only then
+	local root = vim.fn.tempname() .. "_lazeglob"
+	vim.fn.mkdir(root, "p")
+	local repo_path = vim.fn.getcwd()
+
+	local magic_dir = root .. "/magic[x]repo"
+	vim.fn.mkdir(magic_dir .. "/plugin", "p")
+	local fd = io.open(magic_dir .. "/plugin/m.lua", "w")
+	fd:write(("vim.fn.writefile({'ran'}, %q)\n"):format(root .. "/marker"))
+	fd:close()
+	vim.system({ "git", "init", "-q" }, { cwd = magic_dir, timeout = 10000 }):wait()
+	vim.system({ "git", "add", "-A" }, { cwd = magic_dir, timeout = 10000 }):wait()
+	vim
+		.system(
+			{ "git", "-c", "user.name=laze", "-c", "user.email=laze@local", "commit", "-qm", "init" },
+			{ cwd = magic_dir, timeout = 10000 }
+		)
+		:wait()
+
+	local init_file = root .. "/init.lua"
+	fd = io.open(init_file, "w")
+	fd:write(
+		'vim.opt.packpath:prepend(vim.fn.stdpath("data"))\n'
+			.. ("vim.opt.rtp:prepend(%q)\n"):format(repo_path)
+			-- No `name`: the pkg dir keeps the repo's magic-laden basename. VeryLazy fires after startup, so the
+			-- load takes the post-startup branch: no rtp fast path, the glob fallback plus exact-path activation is
+			-- what must locate the directory and source plugin/.
+			.. ("require('laze').setup({ { src = %q, event = 'VeryLazy' } })\n"):format(magic_dir)
+			.. "vim.schedule(function()\n"
+			.. ("  vim.wait(8000, function() return vim.uv.fs_stat(%q) ~= nil end, 50)\n"):format(root .. "/marker")
+			.. ("  vim.fn.writefile({ tostring(vim.uv.fs_stat(%q) ~= nil) }, %q)\n"):format(
+				root .. "/marker",
+				root .. "/result"
+			)
+			.. "  vim.cmd('qa!')\n"
+			.. "end)\n"
+	)
+	fd:close()
+
+	local env = {
+		XDG_DATA_HOME = root .. "/data",
+		XDG_CONFIG_HOME = root .. "/config",
+		NVIM_LOG_FILE = root .. "/nvim.log",
+	}
+	vim.system({ vim.v.progpath, "-u", init_file, "--headless" }, { env = env, timeout = 40000 }):wait()
+
+	-- Check the marker by literal path (string concat, not glob): the escaped-glob fix is under test, so the
+	-- assertion must not rely on glob magic handling itself.
+	local got = vim.fn.filereadable(root .. "/result") == 1 and vim.fn.readfile(root .. "/result")[1] or "<missing>"
+	if got == "true" then
+		print("  ✓ glob magic pkg dir: post-startup load activates the dir without `:packadd` and sources plugin/")
+		passed = passed + 1
+	else
+		print(("  ✗ glob magic pkg dir: result=%s"):format(got))
+		failed = failed + 1
+	end
 	vim.fn.delete(root, "rf")
 end
 
