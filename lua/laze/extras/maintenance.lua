@@ -30,9 +30,16 @@ local function self_dir()
 end
 
 --- Lockfile `vim.pack` records its managed plugins in. Nightlies expose it as
---- 'packlockfile'; 0.12 hardcodes the config path.
+--- 'packlockfile', but `vim.pack` caches the path on its first use, so prefer
+--- the cached one: reading a different file than `vim.pack` would invent
+--- orphans when the option changes mid-session. 0.12 hardcodes the config path.
 ---@return string
 local function lockfile_path()
+	---@diagnostic disable-next-line: undefined-field
+	local cached = vim.pack._plugin_lock_path
+	if type(cached) == "string" and cached ~= "" then
+		return cached
+	end
 	local ok, path = pcall(function()
 		---@diagnostic disable-next-line: undefined-field
 		return vim.go.packlockfile
@@ -72,6 +79,8 @@ end
 --- startup install of a lockfile-only plugin fails or is declined, `vim.pack`
 --- drops it from its in-memory lock without rewriting the file (neovim#42971),
 --- so `get()` would otherwise bless an orphan the lockfile still has.
+--- Stopgap for that upstream bug: drop the union once the supported Neovim
+--- minimum has the fix (#83).
 ---@return { name: string, path: string?, active: boolean, hidden?: boolean }[]
 local function installed_plugins()
 	local plugins = {}
