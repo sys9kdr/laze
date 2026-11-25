@@ -30,6 +30,14 @@ local installed_keys = {}
 -- Module-level flag so dispatch is never required at cold startup just to clear uninstalled stubs.
 local has_run_plan = false
 
+-- Vim's glob magic for one literal path segment. Neovim has no globescape(): prefix every metacharacter (and the
+-- backslash itself) so a pkg dir containing e.g. brackets still matches by name instead of being read as a pattern.
+---@param segment string
+---@return string
+local function glob_escape(segment)
+	return (segment:gsub("[\\%[%]{}*?]", "\\%0"))
+end
+
 --- See docs/internal/performance.md.
 ---@param data_dir string
 ---@return table<string, string>
@@ -161,9 +169,9 @@ local function build_plan(compiled, opts)
 	local original_require = require
 
 	-- `:packadd` sources plugin/ and ftdetect/ but not after/plugin (startup only), so post-startup loads need this.
-	-- Sorted to match the startup after/plugin phase.
+	-- Sorted to match the startup after/plugin phase. The dir is escaped: plugin dirs may contain glob magic.
 	local function source_after_plugin(dir)
-		local files = vim.fn.glob(dir .. "/after/plugin/**/*.{lua,vim}", false, true)
+		local files = vim.fn.glob(glob_escape(dir) .. "/after/plugin/**/*.{lua,vim}", false, true)
 		table.sort(files)
 		for _, file in ipairs(files) do
 			pcall(vim.cmd.source, file)
@@ -171,7 +179,7 @@ local function build_plan(compiled, opts)
 	end
 
 	local function source_glob(dir, pattern)
-		for _, file in ipairs(vim.fn.glob(dir .. pattern, false, true)) do
+		for _, file in ipairs(vim.fn.glob(glob_escape(dir) .. pattern, false, true)) do
 			pcall(vim.cmd.source, file)
 		end
 	end
@@ -350,6 +358,8 @@ local function build_plan(compiled, opts)
 		-- startup `:packadd` sources plugin/ and ftdetect/; after/plugin/ is sourced manually.
 		local during_startup = vim.v.vim_did_enter == 0
 		local plugin_dir
+		local force_source_later
+		local packadd_failed
 		if entry.dir then
 			-- Add local dirs by exact path. Never `:packadd`: it resolves by basename across 'packpath', so a stale install
 			-- sharing the name wins and the user's dir is silently skipped (issue: module not found with no hint).
@@ -372,7 +382,10 @@ local function build_plan(compiled, opts)
 				plugin_dir = rtp_index[entry.pkg]
 			end
 			if not plugin_dir then
-				local found = vim.fn.glob(data_dir .. "/site/pack/*/opt/" .. entry.pkg, false, true)
+				-- Escape glob magic in both literal parts (stdpath and the spec name may contain it); only the `*`
+				-- pack-phase segment stays a pattern.
+				local found =
+					vim.fn.glob(glob_escape(data_dir .. "/site/pack/") .. "*/opt/" .. glob_escape(entry.pkg), false, true)
 				plugin_dir = found[1]
 				if plugin_dir then
 					-- `packadd!` for startup (Neovim's own phases source) and for the tree-load activation pass
@@ -382,6 +395,41 @@ local function build_plan(compiled, opts)
 					---@diagnostic disable-next-line: param-type-mismatch
 					pcall(vim.cmd, cmd .. vim.fn.fnameescape(entry.pkg))
 					rtp_index = nil
+					-- Activation must be verified by the resolved directory: vim._core.packadd resolves through a vim.glob
+					-- pattern that silently skips a pkg dir containing glob magic (the shell fallback only turns that into
+					-- a visible E919 for `:packadd`, not `:packadd!`). Miss it and the plugin "loads" with nothing on
+					-- 'runtimepath'.
+					local activated = false
+					for _, p in ipairs(vim.opt.rtp:get()) do
+						if p == plugin_dir then
+							activated = true
+							break
+						end
+					end
+					if not activated then
+						-- Fall back to the local-dir activation below: prepend the exact path.
+						packadd_failed = true
+					end
+				end
+			end
+			if packadd_failed and plugin_dir then
+				vim.opt.rtp:prepend(plugin_dir)
+				rtp_index = nil
+				if during_startup then
+					if eager_depth > 0 or entry.eager then
+						-- No finalizer for eager loads and Neovim's plugin/ phases cannot glob this dir: source now.
+						-- (after/plugin stays unsourced for this rare dir during startup only; post-startup loads
+						-- source it via source_after_plugin.)
+						source_glob(plugin_dir, "/plugin/**/*.{lua,vim}")
+						source_glob(plugin_dir, "/ftdetect/*.{lua,vim}")
+					else
+						-- A late addition: Neovim's plugin/ phases will never see it, the VimEnter finalizer must source it.
+						force_source_later = true
+					end
+				elseif not activate_only then
+					-- Nothing else sourced these: `:packadd` failed, so plain `:packadd` semantics have to be done by hand.
+					source_glob(plugin_dir, "/plugin/**/*.{lua,vim}")
+					source_glob(plugin_dir, "/ftdetect/*.{lua,vim}")
 				end
 			end
 		end
@@ -401,7 +449,7 @@ local function build_plan(compiled, opts)
 				dir = plugin_dir,
 				start = start,
 				hooks_ran = false,
-				source_later = startup_plugin_phase_started,
+				source_later = force_source_later or startup_plugin_phase_started,
 			}
 			table.insert(startup_pending_order, id)
 			if not startup_finalizer_installed then
