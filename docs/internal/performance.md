@@ -313,7 +313,7 @@ make bench-jit-pro     # JIT A/B oracle, probe workload (JIT=on|off)
 Latest manual run (2026-10-29, Neovim 0.12.6, 4 real dir plugins): `compile_only` cold 1.45–1.72 ms / warm median 1.00–1.43 ms (3 runs); `compile_compare` laze median 1.29–1.34 ms vs lazy.nvim median 4.85–4.96 ms, delta ~3.6 ms (3.7x).
 Each implementation runs in a fresh process; one warmup run is discarded and the median of five interleaved runs is reported.
 The timed region is `require()` + `setup()` only.
-The specs use eager/`ft`/`cmd` triggers only: `VeryLazy` is excluded because laze fires it immediately in headless mode while lazy.nvim defers it, which would make the setup comparison asymmetric.
+The specs use eager/`ft`/`cmd` triggers only: `VeryLazy` is excluded because the two fire it at different late-startup points (laze: one tick after startup when built without a UI; lazy.nvim: after `LazyDone`), which would make the setup comparison asymmetric.
 
 All four specs are `dir`, so laze does no `vim.pack.add` and lazy.nvim does no install: this compares setup/registration, not the install path or full process startup.
 `bench.sh` startup numbers are dominated by process startup.
