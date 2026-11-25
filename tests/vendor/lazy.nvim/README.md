@@ -44,7 +44,7 @@ offline.
 | `tests/core/plugin_spec.lua` — dependencies | dependency tests in `tests/test_compile.lua` and `tests/run.lua` (name/source matching, disabled/cond pruning) |
 | `tests/core/plugin_spec.lua` — optional | KD-020 |
 | `tests/core/plugin_spec.lua` — duplicate fragments / opts | KD-022 |
-| `tests/handlers/keys_spec.lua` | raw-lhs route test in `tests/test_compile.lua`; KD-023 |
+| `tests/handlers/keys_spec.lua` | alias grouping test in `tests/run.lua`; KD-023 (resolved) |
 
 ## Audit findings
 
@@ -66,11 +66,15 @@ Still intentionally different (see the KD registry):
 - duplicate spec fragments are merged by lazy.nvim and rejected by laze
   (KD-022);
 - `optional = true` does not make dependencies optional in laze (KD-020);
-- key notation aliases are separate raw-lhs routes, so two spellings can
-  replace each other's trigger map (KD-023);
 - a table-valued `config = { ... }` is lazy.nvim's deprecated opts form and
   is still a compile error in laze. This is a candidate for the opts/main
   work in PR #15 rather than a new KD yet.
+
+Resolved by measurement (see the KD registry): key notation aliases used to
+be separate raw-lhs routes, so two spellings replaced each other's trigger
+map (KD-023). lazy.nvim keys its handlers by the expanded lhs (`^H` for both
+`<C-h>` and `<c-H>`); the plan now groups maps the same way, so both plugins
+load and the ID is retired.
 
 ## What this does not cover
 

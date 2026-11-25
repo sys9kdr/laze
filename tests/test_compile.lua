@@ -1258,13 +1258,13 @@ do
 end
 
 do
-	-- KD-023: notation aliases are separate raw-lhs routes. Neovim's keymap
-	-- table treats them as one key, so the later map replaces the earlier.
+	-- KD-023 (resolved): compile keeps routes keyed by the raw lhs; the plan groups maps by the expanded key, so
+	-- `<C-h>` and `<c-H>` share one trigger and both plugins load (tests/run.lua: notation aliases share one trigger).
 	local c = compile({
 		{ "foo/a", name = "a", keys = "<C-h>" },
 		{ "foo/b", name = "b", keys = "<c-H>" },
 	})
-	expect(c.routes.keys["<C-h>"] ~= nil and c.routes.keys["<c-H>"] ~= nil, "key notation aliases are separate routes")
+	expect(c.routes.keys["<C-h>"] ~= nil and c.routes.keys["<c-H>"] ~= nil, "compile keeps raw-lhs routes")
 end
 
 do

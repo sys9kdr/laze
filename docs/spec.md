@@ -63,6 +63,8 @@ This mirrors lazy.nvim's `dir` behavior — the directory must already exist on 
 The replay expands `<leader>` with the **current** `g:mapleader` — set it before `laze.setup()` and don't change it mid-session (the plugin's map is created with whatever leader was active at registration).
 `rhs = false` (or `vim.NIL`) drops the entry at compile time, so nothing is registered and the key never loads the plugin; the spec still counts as having a `keys` trigger and stays lazy (measured lazy.nvim behavior: `plugin.keys` stays truthy even when the resolved handler map is empty).
 A later entry for the same `(lhs, mode, ft)` replaces an earlier one, so `{ "<F7>", "x" }, { "<F7>", false }` removes the map while the reverse order re-adds it.
+Neovim stores one mapping per `(mode, key)`, so notation aliases that expand to the same key — `<C-h>`/`<c-H>`, `<Tab>`/`<C-i>` — share one trigger map and load every plugin that declares either spelling (lazy.nvim parity).
+When the spellings disagree about `rhs` — one entry has an `rhs`, another is a takeover — the trigger behaves like the entry under the first spelling in codepoint order.
 `rhs = ""` or `"<nop>"` registers a plain no-op map that never loads it.
 All of these match lazy.nvim.
 
@@ -85,6 +87,7 @@ Triggers (`event`/`ft`/`cmd`/`keys`) accept `string` or `string[]`; `event` addi
 `pattern` must be a string.
 Each distinct `(event, pattern)` pair is routed independently: a spec without a pattern never inherits another spec's pattern, and a patterned spec never fires for buffers that do not match.
 Keys are routed **per `(lhs, mode)` variant**: a `mode` array expands to one independent trigger map per mode, so two entries sharing an `lhs` with different modes both work — an `n`-mode press loads only the `n` variant, a `v`-mode press only the `v` variant.
+The route table keeps the raw `lhs` spelling, but map installation groups variants by the expanded key (see [`keys`](#keys)), so `<C-h>` and `<c-H>` are one variant.
 If entries share the same `lhs` *and* mode but disagree on `rhs`/`desc`/`silent`, laze warns and keeps the first entry's map options (the trigger map is shared; every declaring plugin still loads on that key).
 Empty `mode` values follow lazy.nvim: `mode = ""` is passed to `vim.keymap.set` (multi-mode mapping), and `mode = {}` installs no key trigger but keeps the plugin lazy.
 Event names use Neovim's stored form — aliases are normalized at compile time (`BufRead`→`BufReadPost`, `BufCreate`→`BufAdd`, `BufWrite`→`BufWritePre`, same mapping `nvim_create_autocmd` applies).

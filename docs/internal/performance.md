@@ -147,7 +147,12 @@ Required a compile-side fix found by the new tests: Neovim stores `BufRead`→`B
 `plan()` created one `FileType` autocmd per distinct ft and one `CmdUndefined` autocmd per cmd (~12–15 µs of API cost each — 100 distinct fts measured 1513 µs, 100 cmds 1227 µs for registration alone).
 Both are now a single `*`-pattern dispatcher that does an O(1) `routes` hash lookup on `ev.match` (100 fts → 13 µs, 100 cmds → 12 µs).
 Per-plugin idempotency comes from `load_with_deps`' `loaded[]` guard (the old per-ft `once` self-delete is subsumed by it); misfires on unrelated filetypes/commands cost one hash miss.
-Events were already one autocmd per event name; keys need one mapping per `(lhs, mode)` variant by nature (`vim.keymap.set`, ~15 µs each — accepted, inherent API cost).
+Events were already one autocmd per event name; keys need one mapping per expanded `(key, mode)` by nature (`vim.keymap.set`, ~15 µs each — accepted, inherent API cost; notation aliases collapsing to one map are covered under "key notation aliases").
+
+### plan.lua: key notation aliases group by expanded key — resolved (2026-11)
+
+Grouping key triggers by the expanded lhs (KD-023 fix) costs one `nvim_replace_termcodes` per raw lhs at plan build (~0.1 µs each).
+Fresh-process `build_plan` with mixed-alias key routes (baseline worktree vs fix, median of 40): 20 keys 0.003 ms both ways, 100 keys 0.009 → 0.008 ms — below the noise floor. `dispatch.clear` compares termcoded bytes per stored map instead of the raw spelling, same order.
 
 ### plan.lua: five route augroups — resolved (2026-11)
 
