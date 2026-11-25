@@ -135,6 +135,7 @@ Submodules go through one searcher appended to `package.loaders`, so it only run
 
 Passed directly to `vim.pack.Spec`; `setup()` runs it on `PackChanged` (install/update).
 Shell commands run asynchronously in the plugin dir (`vim.system`), `:` commands and functions on the main thread; list items run in order and stop at the first failure, while different plugins build in parallel.
+Before the build, the plugin is activated only if the items contain a `:` command: its `plugin/` is sourced so the command exists (lazy.nvim parity — a fresh startup sources `plugin/` once more in Neovim's plugin phase). Shell and function items run without activation, so a lazy plugin stays off the 'runtimepath' on a fresh install.
 Progress shows as `nvim_echo` progress messages; failures also warn.
 Builds started by `setup()`'s own install are awaited before the plan loads anything, so a fresh plugin is configured with its build artifacts in place; builds triggered by `vim.pack.update()` stay in the background.
 

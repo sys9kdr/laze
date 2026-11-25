@@ -24,6 +24,37 @@ local function progress(id, name, status)
 	return ok and new_id or id
 end
 
+--- Whether the build needs the plugin activated before it runs: only `:` items do (their commands are
+--- defined by plugin/, and lazy.nvim's build task loads the plugin for them). Shell and function items run
+--- without activation.
+---@param build string|fun(plugin: table)|(string|fun(plugin: table))[]
+---@return boolean
+function M.needs_activation(build)
+	if type(build) == "string" then
+		return build:sub(1, 1) == ":"
+	end
+	if type(build) == "function" then
+		return false
+	end
+	for _, item in ipairs(build) do
+		if type(item) == "string" and item:sub(1, 1) == ":" then
+			return true
+		end
+	end
+	return false
+end
+
+--- Fallback for `:` items when `:packadd` could not resolve the pkg dir (a glob-magic pkg name is silently
+--- skipped there): source plugin/ by exact path so the command is defined anyway. after/plugin stays with the
+--- plan's finalizer, mirroring the same fallback in load_plugin.
+---@param dir string
+function M.source_plugin_files(dir)
+	local escaped = (dir:gsub("[\\%[%]{}*?]", "\\%0"))
+	for _, file in ipairs(vim.fn.glob(escaped .. "/plugin/**/*.{lua,vim}", false, true)) do
+		pcall(vim.cmd.source, file)
+	end
+end
+
 ---@param build string|fun(plugin: table)|(string|fun(plugin: table))[]
 ---@param plugin { name: string, dir: string, spec: table }
 function M.run(build, plugin)

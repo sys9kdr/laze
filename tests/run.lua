@@ -2702,9 +2702,10 @@ if not fast_only then
 	vim.fn.delete(root, "rf")
 end
 
--- build: PackChanged → string/:cmd/function build forms. The first plugin uses a DOTTED directory name so id
--- ("laze-build-test") != pack name ("laze-build-test.nvim") — a regression guard for the builds map being keyed by pkg
--- instead of registry id. Skipped under `fast` (needs a spawned session + git installs).
+-- build: PackChanged → string/:cmd/function build forms, plus lazy-plugin activation gating (shell items must not
+-- put the plugin on 'runtimepath', `:` items must source plugin/ so their command exists). The first plugin uses a
+-- DOTTED directory name so id ("laze-build-test") != pack name ("laze-build-test.nvim") — a regression guard for the
+-- builds map being keyed by pkg instead of registry id. Skipped under `fast` (needs a spawned session + git installs).
 if not fast_only then
 	local root = vim.fn.tempname() .. "_lazebuild"
 	vim.fn.mkdir(root, "p")
@@ -2738,6 +2739,15 @@ if not fast_only then
 	local cmdrepo = make_repo("buildcmd", { ["plugin/b.lua"] = "" })
 	local fnrepo = make_repo("buildfn", { ["plugin/f.lua"] = "" })
 	local listrepo = make_repo("buildlist", { ["plugin/l.lua"] = "" })
+	-- Lazy builds: a shell item must NOT activate the plugin (on a fresh startup Neovim's plugin phase would
+	-- source a plugin put on 'runtimepath' by the build, making it behave eager), while a `:` item must
+	-- (its command is defined by plugin/ and has to exist when the build runs — E492 before the fix).
+	local lazyshell = make_repo("buildlazyshell", {
+		["plugin/ls.lua"] = "vim.fn.writefile({ 'sourced' }, vim.fn.stdpath('data') .. '/lazy-shell-sourced')\n",
+	})
+	local lazycolon = make_repo("buildlazycolon", {
+		["plugin/lc.lua"] = "vim.api.nvim_create_user_command('LazeBuildColonCmd', function() vim.fn.writefile({ 'ran' }, vim.fn.stdpath('data') .. '/colon-ran') end, {})\n",
+	})
 
 	local init_dir = root .. "/config"
 	vim.fn.mkdir(init_dir, "p")
@@ -2761,7 +2771,18 @@ if not fast_only then
 			.. ("  { src = %q, name = \"buildslow\", build = \"sleep 1 && touch slow-ran\", config = function(p) vim.fn.writefile({ tostring(vim.uv.fs_stat(p.dir .. '/slow-ran') ~= nil) }, vim.fn.stdpath('data') .. '/slow-at-config') end },\n"):format(
 				slow
 			)
+			.. ('  { src = %q, name = "buildlazyshell", cmd = "LazeShellTriggerCmd", build = "touch lazy-shell-ran" },\n'):format(
+				lazyshell
+			)
+			.. ("  { src = %q, name = \"buildlazycolon\", cmd = \"LazeColonTriggerCmd\", build = \":LazeBuildColonCmd\", config = function() vim.fn.writefile({ 'configured' }, vim.fn.stdpath('data') .. '/colon-config') end },\n"):format(
+				lazycolon
+			)
 			.. "})\n"
+			-- End-of-setup rtp snapshot: what a fresh startup's plugin phase will get. The shell-build lazy plugin
+			-- must not be in it.
+			.. "local rtp_hit = 'no'\n"
+			.. "for _, p in ipairs(vim.opt.rtp:get()) do if p:find('buildlazyshell', 1, true) then rtp_hit = 'yes' end end\n"
+			.. "vim.fn.writefile({ rtp_hit }, vim.fn.stdpath('data') .. '/lazy-shell-rtp')\n"
 	)
 	fd:close()
 
@@ -2775,6 +2796,14 @@ if not fast_only then
 	local slow_at_config = vim.fn.filereadable(root .. "/data/nvim/slow-at-config") == 1
 			and vim.fn.readfile(root .. "/data/nvim/slow-at-config")[1]
 		or "<missing>"
+	local lazy_shell_rtp = vim.fn.filereadable(root .. "/data/nvim/lazy-shell-rtp") == 1
+			and vim.fn.readfile(root .. "/data/nvim/lazy-shell-rtp")[1]
+		or "<missing>"
+	local shell_build_ran = #vim.fn.glob(
+			root .. "/data/nvim/site/pack/*/opt/buildlazyshell/lazy-shell-ran",
+			false,
+			true
+		) == 1
 	if
 		#vim.fn.glob(root .. "/data/nvim/site/pack/*/opt/laze-build-test.nvim/build-ran", false, true) == 1
 		and #vim.fn.glob(root .. "/data/nvim/cmd-ran", false, true) == 1
@@ -2782,18 +2811,30 @@ if not fast_only then
 		and #vim.fn.glob(root .. "/data/nvim/site/pack/*/opt/buildlist/list-ran", false, true) == 1
 		and #vim.fn.glob(root .. "/data/nvim/list-fn-ran", false, true) == 1
 		and slow_at_config == "true"
+		and vim.fn.filereadable(root .. "/data/nvim/lazy-shell-sourced") == 0
+		and lazy_shell_rtp == "no"
+		and shell_build_ran
+		and vim.fn.filereadable(root .. "/data/nvim/colon-ran") == 1
+		and vim.fn.filereadable(root .. "/data/nvim/colon-config") == 0
 	then
-		print("  ✓ build: string/:cmd/function/list forms run after install (pkg-keyed lookup, awaited before config)")
+		print(
+			"  ✓ build: string/:cmd/function/list forms run after install; shell items activate nothing, `:` items source plugin/ for the command"
+		)
 		passed = passed + 1
 	else
 		print(
-			("  ✗ build: markers — string:%d :cmd:%d fn:%d list:%d listfn:%d slow-at-config:%s"):format(
+			("  ✗ build: markers — string:%d :cmd:%d fn:%d list:%d listfn:%d slow-at-config:%s lazy-sourced:%d lazy-rtp:%s lazy-shell-build:%d colon-ran:%d colon-config:%d"):format(
 				#vim.fn.glob(root .. "/data/nvim/site/pack/*/opt/laze-build-test.nvim/build-ran", false, true),
 				#vim.fn.glob(root .. "/data/nvim/cmd-ran", false, true),
 				#vim.fn.glob(root .. "/data/nvim/fn-ran", false, true),
 				#vim.fn.glob(root .. "/data/nvim/site/pack/*/opt/buildlist/list-ran", false, true),
 				#vim.fn.glob(root .. "/data/nvim/list-fn-ran", false, true),
-				slow_at_config
+				slow_at_config,
+				vim.fn.filereadable(root .. "/data/nvim/lazy-shell-sourced"),
+				lazy_shell_rtp,
+				shell_build_ran and 1 or 0,
+				vim.fn.filereadable(root .. "/data/nvim/colon-ran"),
+				vim.fn.filereadable(root .. "/data/nvim/colon-config")
 			)
 		)
 		failed = failed + 1
