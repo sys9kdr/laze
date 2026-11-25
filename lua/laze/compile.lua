@@ -96,6 +96,14 @@ local function pkg_name(src, spec_name)
 	return last_segment(name) or name
 end
 
+-- Vim's glob magic in a pack directory name: vim._core.packadd resolves `pack/*/opt/<pkg>` as a glob pattern, so a
+-- directory containing any of these characters is unreachable through `:packadd` (E919). Same class plan.lua escapes.
+---@param s string
+---@return boolean
+local function has_glob_magic(s)
+	return s:find("[%[%]{}*?]") ~= nil
+end
+
 --- Expand a leading "~". Byte test, not `:match("^~")`: LuaJIT patterns run
 --- interpreted (~50 ns vs sub-ns on this hot path).
 ---@param path string
@@ -1206,6 +1214,28 @@ local function compile(specs, opts)
 		end
 	end
 
+	-- Two specs must not share one pack directory. Registry ids are unique, but ids and pack dirs are derived
+	-- differently (id "which-key" vs dir "which-key.lua"), so they can collide: the second pack entry would fight the
+	-- first for the same install dir and init.lua's pkg-keyed builds/pkg_to_id indexes would resolve
+	-- nondeterministically. `pack` order keeps the message deterministic.
+	local pkg_owner = {}
+	for _, spec in ipairs(pack) do
+		local prev = pkg_owner[spec.name]
+		if prev then
+			error(
+				"spec '"
+					.. tostring(spec.src)
+					.. "' shares pack directory '"
+					.. spec.name
+					.. "' with '"
+					.. tostring(prev)
+					.. "'; give one a distinct 'name'",
+				0
+			)
+		end
+		pkg_owner[spec.name] = spec.src
+	end
+
 	-- `after` deps are never eager: they load via their parents (eager parents at startup, lazy parents at trigger time).
 	-- Shared by init.lua and plan.lua so both agree on "eager".
 	local is_dep = {}
@@ -1221,6 +1251,28 @@ local function compile(specs, opts)
 		--   true  -> never eager
 		--   nil   -> eager only without triggers and not a dep
 		entry.eager = entry.lazy == false or (entry.lazy ~= true and not entry.has_route and not entry.is_dep)
+	end
+
+	-- Eager specs go through vim.pack.add → `:packadd`, and a pkg directory containing glob magic never resolves there
+	-- (E919): refuse at compile time instead of crashing mid-startup with an error laze cannot intercept. Lazy loads
+	-- are fine — the plan activates them by exact path (plan.lua fallback). Sorted ids keep the message deterministic.
+	local ids = {}
+	for id in pairs(registry) do
+		table.insert(ids, id)
+	end
+	table.sort(ids)
+	for _, id in ipairs(ids) do
+		local entry = registry[id]
+		if entry.eager and entry.pkg and has_glob_magic(entry.pkg) then
+			error(
+				"plugin '"
+					.. id
+					.. "' is eager but its pack directory '"
+					.. entry.pkg
+					.. "' contains glob metacharacters that vim.pack cannot resolve; give the spec a 'name' without them, or load it lazily",
+				0
+			)
+		end
 	end
 
 	return {
