@@ -149,6 +149,17 @@ return {
 			rationale = "Use the same URL spelling or give the dependency the explicit name; source normalization is a resolver concern laze does not own.",
 			test = "tests/test_compile.lua: URL .git: dependency short name registers a second spec (KD-025)",
 		},
+		{
+			id = "KD-026",
+			title = "Throwing cond/enabled hooks",
+			area = "spec",
+			class = "encoding",
+			notify = "never",
+			lazy = "Calls cond/enabled without pcall (Meta:fix_cond), so a throwing hook aborts setup with that error.",
+			laze = "Catches the error, warns, and treats the verdict as false; setup continues and the other plugins resolve.",
+			rationale = "A throwing hook breaks the documented returns-boolean contract; containing it keeps one broken hook from aborting startup, and the warning names the plugin.",
+			test = "tests/run.lua: throwing hooks warn + skip (plan never throws)",
+		},
 	},
 	resolved = {
 		{

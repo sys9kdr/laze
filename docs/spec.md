@@ -9,6 +9,7 @@ For converting a spec from lazy.nvim, see [migration.md](migration.md); for the 
 
 `cond`/`enabled` are resolved once during `setup()`, before `vim.pack.add`: `false` (literal or a function returning false) means the plugin is not installed and its `init`, triggers, keys and `config` are skipped — lazy.nvim parity.
 Verdicts are shared with the plan, so the hooks are evaluated exactly once.
+A hook that throws is contained: laze warns and treats that verdict as `false`, while lazy.nvim aborts `setup()` with the error (KD-026).
 See [design.md](design.md).
 
 ### `dependencies`
