@@ -899,6 +899,27 @@ do
 end
 
 do
+	-- Registry ids and pack directories derive differently (id "which-key" strips `.lua`; the dir is the raw src's
+	-- last segment, "which-key.lua"). Two ids sharing one pack directory would fight over the same install dir and
+	-- resolve init.lua's pkg-keyed indexes nondeterministically, so compile must refuse.
+	local ok = pcall(compile, {
+		{ "user/which-key.lua" },
+		{ "someone/else", name = "which-key.lua" },
+	})
+	expect(not ok, "shared pack directory: two ids resolving to one pkg dir are rejected")
+end
+
+do
+	-- A pkg directory containing Vim glob magic (`[`, `{`, `*`, ...) is invisible to vim._core.packadd (it resolves
+	-- `pack/*/opt/<pkg>` as a pattern). Lazy loads activate by exact path, but an eager load dies inside vim.pack.add
+	-- with E919 mid-startup, so compile must refuse it and name the fix.
+	local ok = pcall(compile, { { "user/repo[x]" } })
+	expect(not ok, "glob magic pkg: eager spec rejected (vim.pack cannot :packadd it)")
+	local lazy_ok = pcall(compile, { { "user/repo[x]", cmd = "RepoX" } })
+	expect(lazy_ok, "glob magic pkg: lazy spec compiles (exact-path activation covers it)")
+end
+
+do
 	-- Exact lazy.nvim dependency fixture: a bare string top-level spec and a
 	-- short dependency name that resolves to it.
 	local c = compile({

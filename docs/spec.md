@@ -29,6 +29,7 @@ A bare relative path like `foo/bar` is NOT a local dir — it becomes a GitHub U
 
 Used for internal routing (routes, after deps) and defaults to the plugin's repository name with `.nvim`/`.lua` stripped (lazy.nvim-compatible: `folke/which-key.nvim` → `which-key`).
 The installed directory (`pack/<pkg>/opt/<name>`) and `:packadd` use the *full* repository name (vim.pack's own derivation) — for `which-key.nvim` that directory is `which-key.nvim`, matching existing installs.
+A repository name containing Vim glob magic (`[`, `]`, `{`, `}`, `*`, `?`) is invisible to `:packadd`: lazy-loaded plugins still work (the plan activates the exact directory itself), but an *eager* spec of such a name is rejected at compile time — give it a `name` without metacharacters or add a trigger.
 It is **not** passed directly to `require` — laze only requires module names explicitly declared via `module`.
 
 ### `silent`

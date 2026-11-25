@@ -241,11 +241,12 @@ end
 --- existing installs), rebuild all triggers, run a fresh plan. Eager plugins
 --- re-load with fresh state, so their init/config and plugin files run again:
 --- treat it as a restart of the plugin stack. For dev loops.
----@param new_specs? LazeSpec[] Optional override; defaults to the last setup() specs
+---@param new_specs? LazeSpec[] Optional override; defaults to the last setup() specs. The last setup's opts
+---(dev path, hooks, ...) always carry over — the override replaces specs, not configuration.
 ---@return LazeCompiled?
 function M.reload_all(new_specs)
 	if new_specs then
-		return M.setup(new_specs)
+		return M.setup(new_specs, last_setup and last_setup.opts)
 	end
 	if not last_setup then
 		require("laze.internal.diag").warn("reload_all: no setup has run yet")

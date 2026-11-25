@@ -16,6 +16,13 @@ local function desired_pkgs()
 	return set
 end
 
+-- Vim's glob magic for one literal path segment; mirrors plan.lua. Neovim has no globescape().
+---@param segment string
+---@return string
+local function glob_escape(segment)
+	return (segment:gsub("[\\%[%]{}*?]", "\\%0"))
+end
+
 --- Directory of the plugin that provides this module, or nil when laze is not
 --- loaded from a `lua/laze/...` tree (e.g. a single-file bundle).
 --- `clean` never proposes deleting it: the running copy cannot be removed while
@@ -199,7 +206,11 @@ function M.health()
 	local lines = {}
 	for id, entry in pairs(compiled.registry) do
 		local installed = entry.dir and vim.fn.isdirectory(entry.dir) == 1
-			or (entry.pkg and #vim.fn.glob(data_dir .. "/site/pack/*/opt/" .. entry.pkg, false, true) > 0)
+			or (
+				entry.pkg
+				and #vim.fn.glob(glob_escape(data_dir .. "/site/pack/") .. "*/opt/" .. glob_escape(entry.pkg), false, true)
+					> 0
+			)
 		lines[#lines + 1] = ("%-30s %s %s"):format(
 			id,
 			installed and "installed" or "MISSING",
