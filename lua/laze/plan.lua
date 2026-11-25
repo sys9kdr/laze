@@ -710,58 +710,95 @@ local function build_plan(compiled, opts)
 			})
 		end
 
-		-- One map per (lhs, mode) variant. compile already expands a `mode`
-		-- array, so a takeover below touches only its own mode.
-		for lhs, variants in pairs(routes.keys) do
-			for _, entry in ipairs(variants) do
-				local mode = entry.mode
-				local rhs = entry.rhs
-				-- A variant whose plugins are all disabled gets no map at all, not even the trigger: lazy.nvim never enables
-				-- handlers for a disabled plugin (parity, #30).
-				local ids = {}
+		-- One map per effective key. compile keys routes by the raw lhs, but Neovim stores one mapping per (mode, key):
+		-- `<C-h>` and `<c-H>` (or `<Tab>` and `<C-i>`) are the same key, so two spellings would leave only the last map and
+		-- silently drop the other plugin's trigger. lazy.nvim keys its handlers by the expanded lhs; group the same way,
+		-- keeping one spelling (sorted, so rebuilds are deterministic) and unioning the ids.
+		local key_groups, key_order = {}, {}
+		local lhs_names = {}
+		for lhs in pairs(routes.keys) do
+			table.insert(lhs_names, lhs)
+		end
+		table.sort(lhs_names)
+		for _, lhs in ipairs(lhs_names) do
+			for _, entry in ipairs(routes.keys[lhs]) do
+				local group_id = table.concat({
+					lhs:find("[<>]") and vim.api.nvim_replace_termcodes(lhs, true, true, true) or lhs,
+					entry.mode,
+					entry.ft and table.concat(entry.ft, "\0") or "",
+				}, "\0")
+				local group_entry = key_groups[group_id]
+				if not group_entry then
+					group_entry = {
+						lhs = lhs,
+						mode = entry.mode,
+						rhs = entry.rhs,
+						desc = entry.desc,
+						silent = entry.silent,
+						ft = entry.ft,
+						ids = {},
+					}
+					key_groups[group_id] = group_entry
+					table.insert(key_order, group_entry)
+				end
 				for _, id in ipairs(entry.ids) do
-					if enabled_ok[id] and cond_ok[id] then
-						table.insert(ids, id)
+					if not vim.list_contains(group_entry.ids, id) then
+						table.insert(group_entry.ids, id)
 					end
 				end
-				if #ids > 0 and rhs ~= false then
-					local function install(buf)
-						local function map_opts(desc)
-							local map_options = { desc = desc }
-							if entry.silent ~= nil then
-								map_options.silent = entry.silent
-							end
-							if buf then
-								map_options.buffer = buf
-							end
-							return map_options
+			end
+		end
+
+		-- compile already expands a `mode` array, so a takeover below touches only its own mode.
+		for _, group_entry in ipairs(key_order) do
+			local lhs = group_entry.lhs
+			local mode = group_entry.mode
+			local rhs = group_entry.rhs
+			-- A variant whose plugins are all disabled gets no map at all, not even the trigger: lazy.nvim never enables
+			-- handlers for a disabled plugin (parity, #30).
+			local ids = {}
+			for _, id in ipairs(group_entry.ids) do
+				if enabled_ok[id] and cond_ok[id] then
+					table.insert(ids, id)
+				end
+			end
+			if #ids > 0 and rhs ~= false then
+				local function install(buf)
+					local function map_opts(desc)
+						local map_options = { desc = desc }
+						if group_entry.silent ~= nil then
+							map_options.silent = group_entry.silent
 						end
-						if type(rhs) == "string" and (rhs == "" or rhs:lower() == "<nop>") then
-							-- lazy.nvim: an empty rhs / <nop> is a static no-op mapping, not a load trigger.
-							local key_opts = map_opts(entry.desc)
-							vim.keymap.set(mode, lhs, rhs, key_opts)
-							table.insert(installed_keys, { mode = mode, lhs = lhs, desc = key_opts.desc, buf = buf })
-						else
-							local key_opts = map_opts(entry.desc or "laze: load on key")
-							table.insert(installed_keys, { mode = mode, lhs = lhs, desc = key_opts.desc, buf = buf })
-							vim.keymap.set(mode, lhs, function()
-								require("laze.internal.dispatch").keys(load_with_deps, mode, lhs, ids, rhs, buf)
-							end, key_opts)
+						if buf then
+							map_options.buffer = buf
 						end
+						return map_options
 					end
-					if entry.ft then
-						-- lazy.nvim installs the buffer-local map only in buffers of the declared filetype(s), and does not
-						-- retrofit buffers that already had it.
-						vim.api.nvim_create_autocmd("FileType", {
-							group = routes_group,
-							pattern = entry.ft,
-							callback = function(ev)
-								install(ev.buf)
-							end,
-						})
+					if type(rhs) == "string" and (rhs == "" or rhs:lower() == "<nop>") then
+						-- lazy.nvim: an empty rhs / <nop> is a static no-op mapping, not a load trigger.
+						local key_opts = map_opts(group_entry.desc)
+						vim.keymap.set(mode, lhs, rhs, key_opts)
+						table.insert(installed_keys, { mode = mode, lhs = lhs, desc = key_opts.desc, buf = buf })
 					else
-						install(nil)
+						local key_opts = map_opts(group_entry.desc or "laze: load on key")
+						table.insert(installed_keys, { mode = mode, lhs = lhs, desc = key_opts.desc, buf = buf })
+						vim.keymap.set(mode, lhs, function()
+							require("laze.internal.dispatch").keys(load_with_deps, mode, lhs, ids, rhs, buf)
+						end, key_opts)
 					end
+				end
+				if group_entry.ft then
+					-- lazy.nvim installs the buffer-local map only in buffers of the declared filetype(s), and does not
+					-- retrofit buffers that already had it.
+					vim.api.nvim_create_autocmd("FileType", {
+						group = routes_group,
+						pattern = group_entry.ft,
+						callback = function(ev)
+							install(ev.buf)
+						end,
+					})
+				else
+					install(nil)
 				end
 			end
 		end

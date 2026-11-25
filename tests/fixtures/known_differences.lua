@@ -128,17 +128,6 @@ return {
 			test = "tests/test_compile.lua: duplicate id rejected (was a silent overwrite)",
 		},
 		{
-			id = "KD-023",
-			title = "key notation aliases",
-			area = "keys",
-			class = "silent-drop",
-			notify = "never",
-			lazy = "Treats notation aliases as one handler id (`nvim_replace_termcodes`); `<C-h>` and `<c-H>` share a trigger and every declaring plugin loads.",
-			laze = "Routes keys by the raw `lhs`; two spellings create two trigger maps, and Neovim's keymap table lets the later `vim.keymap.set` replace the earlier one.",
-			rationale = "Normalizing would add a termcode pass and change route keys; laze keeps the raw lhs and documents the alias edge case.",
-			test = "tests/test_compile.lua: key notation aliases are separate routes",
-		},
-		{
 			id = "KD-024",
 			title = "table-valued config",
 			area = "setup",
@@ -217,6 +206,14 @@ return {
 			class = "silent-drop",
 			resolved = "laze 0.x (recursive expansion)",
 			note = "Inline dependency specs expand recursively, deepest first; each spec is registered once and shared deps are referenced. The ID is retired (not reused).",
+		},
+		{
+			id = "KD-023",
+			title = "key notation aliases",
+			area = "keys",
+			class = "silent-drop",
+			resolved = "laze 0.x (expanded-lhs trigger grouping)",
+			note = "compile keeps routes keyed by the raw lhs, but the plan groups maps by the expanded key (`nvim_replace_termcodes`) like lazy.nvim's handler ids, so `<C-h>`/`<c-H>` share one trigger and every declaring plugin loads. The ID is retired (not reused).",
 		},
 	},
 }

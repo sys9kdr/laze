@@ -240,8 +240,9 @@ end
 ---@param installed { mode: string, lhs: string, desc: string, buf?: integer }[]
 function M.clear(installed)
 	for _, k in ipairs(installed) do
-		-- get_keymap reports the leader-expanded lhs; expand likewise.
-		local want = vim.api.nvim_replace_termcodes(k.lhs, true, false, true)
+		-- get_keymap reports the notation form (`<C-H>`, `<lt>`) for special keys, so compare termcoded bytes, not
+		-- spellings; otherwise a trigger on `<C-h>` survives a rebuild and keeps loading the old plan's plugin.
+		local want = vim.api.nvim_replace_termcodes(k.lhs, true, true, true)
 		local maps
 		if not k.buf then
 			maps = vim.api.nvim_get_keymap(k.mode)
@@ -251,7 +252,7 @@ function M.clear(installed)
 			maps = {}
 		end
 		for _, km in ipairs(maps) do
-			if km.lhs == want and km.desc == k.desc then
+			if vim.api.nvim_replace_termcodes(km.lhs, true, true, true) == want and km.desc == k.desc then
 				del_map(k.mode, k.lhs, k.buf)
 				break
 			end

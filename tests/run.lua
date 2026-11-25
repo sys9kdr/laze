@@ -1280,6 +1280,117 @@ do
 	vim.fn.delete(dir, "rf")
 end
 
+-- keys route: notation aliases are one Neovim key, so two spellings must share one trigger map and load both plugins
+-- (KD-023 resolved; measured lazy.nvim: the handler id is the expanded lhs, `^H` for both `<C-h>` and `<c-H>`).
+do
+	local ran = {}
+	local dir = vim.fn.getcwd()
+	local compiled = laze.compile({
+		{
+			dir = dir,
+			name = "alias-upper",
+			keys = { { "<C-h>" } },
+			config = function()
+				ran.upper = true
+			end,
+		},
+		{
+			dir = dir,
+			name = "alias-lower",
+			keys = { { "<c-H>" } },
+			config = function()
+				ran.lower = true
+			end,
+		},
+	})
+	laze.build_plan(compiled)()
+	local maps = 0
+	for _, km in ipairs(vim.api.nvim_get_keymap("n")) do
+		if km.desc == "laze: load on key" then
+			maps = maps + 1
+		end
+	end
+	vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<C-h>", true, true, true), "x", false)
+	vim.wait(50)
+	pcall(vim.keymap.del, "n", "<C-h>")
+	if maps == 1 and ran.upper and ran.lower then
+		print("  ✓ keys route: notation aliases share one trigger and load both plugins")
+		passed = passed + 1
+	else
+		print(
+			("  ✗ keys route: alias merge — maps:%d upper:%s lower:%s"):format(
+				maps,
+				tostring(ran.upper),
+				tostring(ran.lower)
+			)
+		)
+		failed = failed + 1
+	end
+end
+
+-- alias group whose spellings disagree about rhs: one entry has a string rhs, the other is a takeover. The trigger must
+-- still load every plugin in the group and run the rhs (the entry under the first spelling, codepoint order, wins).
+do
+	local ran = {}
+	local dir = vim.fn.getcwd()
+	local compiled = laze.compile({
+		{
+			dir = dir,
+			name = "alias-rhs",
+			keys = { { "<C-h>", "<cmd>let g:laze_alias_rhs = 1<cr>" } },
+			config = function()
+				ran.rhs = true
+			end,
+		},
+		{
+			dir = dir,
+			name = "alias-takeover",
+			keys = { { "<c-H>" } },
+			config = function()
+				ran.takeover = true
+			end,
+		},
+	})
+	laze.build_plan(compiled)()
+	vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<C-h>", true, true, true), "x", false)
+	vim.wait(50)
+	pcall(vim.keymap.del, "n", "<C-h>")
+	if ran.rhs and ran.takeover and vim.g.laze_alias_rhs == 1 then
+		print("  ✓ keys route: mixed-rhs alias group loads both plugins and runs the rhs")
+		passed = passed + 1
+	else
+		print(
+			("  ✗ keys route: mixed-rhs alias — rhs:%s takeover:%s g:%s"):format(
+				tostring(ran.rhs),
+				tostring(ran.takeover),
+				tostring(vim.g.laze_alias_rhs)
+			)
+		)
+		failed = failed + 1
+	end
+end
+
+-- reload must drop the previous plan's trigger maps for notation lhs too: nvim_get_keymap reports `<C-H>`, not the raw
+-- byte, so comparing spellings left the old map (and its old-plan closure) alive.
+do
+	laze.setup({ { dir = vim.fn.getcwd(), name = "reload-alias-key", keys = { { "<C-h>" } } } })
+	local installed = vim.fn.maparg("<C-h>", "n") ~= ""
+	laze.reload_all({ { dir = vim.fn.getcwd(), name = "reload-no-key" } })
+	local remaining = vim.fn.maparg("<C-h>", "n")
+	if installed and remaining == "" then
+		print("  ✓ keys route: reload clears a notation-lhs trigger map")
+		passed = passed + 1
+	else
+		print(
+			("  ✗ keys route: reload left the alias trigger (installed:%s remaining:%q)"):format(
+				tostring(installed),
+				remaining
+			)
+		)
+		failed = failed + 1
+	end
+end
+
 -- ft / event triggers re-fire the triggering event after loading, so autocmds
 -- the plugin registers in config see the buffer that caused the load
 do
