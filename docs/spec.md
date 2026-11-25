@@ -97,10 +97,11 @@ Key-level `ft` (`keys = { { lhs, ft = "http" } }`, `ft` may be a `string[]`) ins
 ## `VeryLazy`
 
 `VeryLazy` is a convenience post-startup event.
-`User VeryLazy` is always emitted, even if no spec uses `event = "VeryLazy"`, so your own autocmds on it run too.
+`User VeryLazy` is always emitted, even if no spec uses `event = "VeryLazy"`, so your own autocmds on it run too — exactly once per plan, so a UI that attaches late never re-fires it.
 
-In GUI mode it fires on `UIEnter`.
-In headless mode — or whenever the plan is built after startup (`vim_did_enter ~= 0`, when a one-shot `UIEnter` autocmd would be dead) — it fires immediately after the execution plan is set up.
+A plan built with a UI up fires it on `UIEnter`.
+A plan built during startup without one (`--headless`, or an `--embed`/`--listen` server whose UI attaches late) fires one tick after startup completes, unless `UIEnter` gets there first.
+A plan built after startup (`vim_did_enter ~= 0`, when a one-shot `UIEnter` autocmd would be dead) fires immediately after the execution plan is set up.
 
 Use it for plugins that should not be on the critical path.
 

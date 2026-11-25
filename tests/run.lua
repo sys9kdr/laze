@@ -4202,7 +4202,7 @@ do
 	end
 end
 
--- Fires now in headless because no UIEnter is ever possible.
+-- Fires now (plan built after startup, so the one-shot UIEnter autocmd is dead).
 do
 	local ran = 0
 	local compiled = laze.compile({
@@ -4223,6 +4223,68 @@ do
 		passed = passed + 1
 	else
 		print("  ✗ VeryLazy: ran=" .. ran)
+		failed = failed + 1
+	end
+end
+
+-- A UI entering after the plan already emitted (--embed/--listen attach) must not re-fire it.
+do
+	local ran = 0
+	local id = vim.api.nvim_create_autocmd("User", {
+		pattern = "VeryLazy",
+		callback = function()
+			ran = ran + 1
+		end,
+	})
+	laze.build_plan(laze.compile({ { dir = vim.fn.tempname(), name = "vl-late-ui", event = "VeryLazy" } }))()
+	vim.api.nvim_exec_autocmds("UIEnter", {})
+	vim.api.nvim_del_autocmd(id)
+	if ran == 1 then
+		print("  ✓ VeryLazy: a late UIEnter after an early emit does not re-fire")
+		passed = passed + 1
+	else
+		print(("  ✗ VeryLazy: late UIEnter re-fired it, ran=" .. ran))
+		failed = failed + 1
+	end
+end
+
+-- Startup-time build without a UI (headless, or --embed/--listen with a late UI): the plan must not emit
+-- synchronously during init (a pre-VimEnter load would put VeryLazy plugins on the critical path); it emits once,
+-- one tick after startup, and a UI entering later stays quiet.
+do
+	local tmp = vim.fn.tempname()
+	local init_file = tmp .. ".lua"
+	local result = tmp .. ".res"
+	local fd = io.open(init_file, "w")
+	fd:write(([[
+vim.opt.rtp:prepend(%q)
+local ran = 0
+vim.api.nvim_create_autocmd("User", { pattern = "VeryLazy", callback = function() ran = ran + 1 end })
+local laze = require("laze")
+laze.build_plan(laze.compile({ { dir = vim.fn.tempname(), name = "vl-child", event = "VeryLazy" } }))()
+local sync = ran
+vim.api.nvim_create_autocmd("VimEnter", {
+	once = true,
+	callback = function()
+		vim.defer_fn(function()
+			local after_startup = ran
+			vim.api.nvim_exec_autocmds("UIEnter", {})
+			vim.defer_fn(function()
+				vim.fn.writefile({ ("%%d:%%d:%%d"):format(sync, after_startup, ran) }, %q)
+				vim.cmd("qa!")
+			end, 100)
+		end, 100)
+	end,
+})
+	]]):format(vim.fn.getcwd(), result))
+	fd:close()
+	vim.system({ vim.v.progpath, "-u", init_file, "--headless" }, { timeout = 30000 }):wait()
+	local got = vim.fn.filereadable(result) == 1 and vim.fn.readfile(result)[1] or "<missing>"
+	if got == "0:1:1" then
+		print("  ✓ VeryLazy: startup-time headless build emits once after startup, late UIEnter stays quiet")
+		passed = passed + 1
+	else
+		print(("  ✗ VeryLazy: startup-time headless build got %s (expected 0:1:1)"):format(got))
 		failed = failed + 1
 	end
 end

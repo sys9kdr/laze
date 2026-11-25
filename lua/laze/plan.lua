@@ -585,13 +585,20 @@ local function build_plan(compiled, opts)
 		-- own groups: they are registered earlier and must outlive this clear.
 		local routes_group = vim.api.nvim_create_augroup("laze_routes", { clear = true })
 
-		-- `User VeryLazy` fires unconditionally (lazy.nvim parity), so user
-		-- autocmds keyed on it run even with no spec declaring it.
+		-- `User VeryLazy` fires unconditionally (lazy.nvim parity), so user autocmds keyed on it run even with no spec
+		-- declaring it — and exactly once: an emission that skipped UIEnter must not let a later UI re-fire it.
+		local verylazy_fired = false
+		local function emit_verylazy()
+			verylazy_fired = true
+			vim.api.nvim_exec_autocmds("User", { pattern = "VeryLazy" })
+		end
 		vim.api.nvim_create_autocmd("UIEnter", {
 			group = routes_group,
 			once = true,
 			callback = function()
-				vim.api.nvim_exec_autocmds("User", { pattern = "VeryLazy" })
+				if not verylazy_fired then
+					emit_verylazy()
+				end
 			end,
 		})
 
@@ -831,10 +838,24 @@ local function build_plan(compiled, opts)
 			end
 		end
 
-		-- Normally VeryLazy fires through the one-shot UIEnter autocmd. If the plan is built after startup, UIEnter already
-		-- fired (or, headless, never will), so fire it now.
-		if vim.v.vim_did_enter ~= 0 or #vim.api.nvim_list_uis() == 0 then
-			vim.api.nvim_exec_autocmds("User", { pattern = "VeryLazy" })
+		-- Normally VeryLazy fires through the one-shot UIEnter autocmd. A plan built after startup fires now: UIEnter
+		-- already passed and that one-shot is dead. A plan built during startup without a UI (--headless, or --embed /
+		-- --listen whose UI attaches late) cannot know yet whether UIEnter will come, so fire one tick after startup
+		-- unless a UI got there first. A real TUI has its UI up at setup and never reaches either branch.
+		if vim.v.vim_did_enter ~= 0 then
+			emit_verylazy()
+		elseif #vim.api.nvim_list_uis() == 0 then
+			vim.api.nvim_create_autocmd("VimEnter", {
+				group = routes_group,
+				once = true,
+				callback = function()
+					vim.schedule(function()
+						if not verylazy_fired then
+							emit_verylazy()
+						end
+					end)
+				end,
+			})
 		end
 	end
 end
