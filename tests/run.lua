@@ -4129,11 +4129,14 @@ do
 		local has_opt, prev_opt = pcall(function()
 			return vim.go.packlockfile
 		end)
+		local prev_cached = vim.pack._plugin_lock_path
 		local prev_xdg = vim.env.XDG_CONFIG_HOME
 		local path
 		if has_opt then
 			vim.go.packlockfile = vim.fs.joinpath(dir, "nvim-pack-lock.json")
 			path = vim.go.packlockfile
+			-- lockfile_path() prefers the path vim.pack cached on first use.
+			vim.pack._plugin_lock_path = path
 		else
 			vim.env.XDG_CONFIG_HOME = dir
 			path = vim.fs.joinpath(dir, "nvim", "nvim-pack-lock.json")
@@ -4142,6 +4145,7 @@ do
 			function()
 				if has_opt then
 					vim.go.packlockfile = prev_opt
+					vim.pack._plugin_lock_path = prev_cached
 				else
 					vim.env.XDG_CONFIG_HOME = prev_xdg
 				end
@@ -4417,6 +4421,16 @@ do
 		vim.fn.delete(lock_path)
 		local ok_missing = pcall(maintenance.clean, false)
 
+		-- The path vim.pack cached on first use wins over a later 'packlockfile' change.
+		local cached_lock = vim.fs.joinpath(vim.fn.fnamemodify(lock_path, ":h"), "cached-lock.json")
+		vim.fn.writefile({
+			vim.json.encode({ plugins = { ["zz-cached"] = { rev = "0", src = "https://example.invalid/zz-cached" } } }),
+		}, cached_lock)
+		local prev_cached = vim.pack._plugin_lock_path
+		vim.pack._plugin_lock_path = cached_lock
+		local ok_cached, stale_cached = pcall(maintenance.clean, false)
+		vim.pack._plugin_lock_path = prev_cached
+
 		restore_lock()
 		vim.pack.get, vim.pack.del, vim.notify = orig_get, orig_del, orig_notify
 		if
@@ -4429,6 +4443,8 @@ do
 			and warned_hidden
 			and ok_broken
 			and ok_missing
+			and ok_cached
+			and vim.deep_equal(stale_cached, { "zz-busy", "zz-cached", "zz-gone" })
 		then
 			print("  ✓ extra: clean reports lockfile-only orphans without deleting them")
 			passed = passed + 1
@@ -4443,6 +4459,7 @@ do
 				warned_hidden = warned_hidden,
 				ok_broken = ok_broken,
 				ok_missing = ok_missing,
+				cached = stale_cached,
 			}))
 			failed = failed + 1
 		end
