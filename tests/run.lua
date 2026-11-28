@@ -2991,7 +2991,8 @@ if not fast_only then
 end
 
 -- build: PackChanged → string/:cmd/function build forms, plus lazy-plugin activation gating (shell items must not
--- put the plugin on 'runtimepath', `:` items must source plugin/ so their command exists). The first plugin uses a
+-- put the plugin on 'runtimepath', `:` items must source plugin/ so their command exists, an eager `:` build runs
+-- after activation has sourced plugin/). The first plugin uses a
 -- DOTTED directory name so id ("laze-build-test") != pack name ("laze-build-test.nvim") — a regression guard for the
 -- builds map being keyed by pkg instead of registry id. Skipped under `fast` (needs a spawned session + git installs).
 if not fast_only then
@@ -3036,6 +3037,15 @@ if not fast_only then
 	local lazycolon = make_repo("buildlazycolon", {
 		["plugin/lc.lua"] = "vim.api.nvim_create_user_command('LazeBuildColonCmd', function() vim.fn.writefile({ 'ran' }, vim.fn.stdpath('data') .. '/colon-ran') end, {})\n",
 	})
+	-- Eager plugin with a `:` build on install: activation sources plugin/ before the build runs, so the command
+	-- exists (append-only log pins the order). A second plugin/ source follows via the startup plugin phase once the
+	-- plugin is on 'runtimepath'; only the first two entries are asserted.
+	local eagercolon = make_repo("buildeagercolon", {
+		["plugin/ec.lua"] = table.concat({
+			"vim.fn.writefile({ 'sourced' }, vim.fn.stdpath('data') .. '/eager-colon.log', 'a')\n",
+			"vim.api.nvim_create_user_command('LazeEagerColonCmd', function() vim.fn.writefile({ 'ran' }, vim.fn.stdpath('data') .. '/eager-colon.log', 'a') end, {})\n",
+		}),
+	})
 
 	local init_dir = root .. "/config"
 	vim.fn.mkdir(init_dir, "p")
@@ -3065,6 +3075,7 @@ if not fast_only then
 			.. ("  { src = %q, name = \"buildlazycolon\", cmd = \"LazeColonTriggerCmd\", build = \":LazeBuildColonCmd\", config = function() vim.fn.writefile({ 'configured' }, vim.fn.stdpath('data') .. '/colon-config') end },\n"):format(
 				lazycolon
 			)
+			.. ('  { src = %q, name = "buildeagercolon", build = ":LazeEagerColonCmd" },\n'):format(eagercolon)
 			.. "})\n"
 			-- End-of-setup rtp snapshot: what a fresh startup's plugin phase will get. The shell-build lazy plugin
 			-- must not be in it.
@@ -3092,6 +3103,9 @@ if not fast_only then
 			false,
 			true
 		) == 1
+	local eager_colon_log = vim.fn.filereadable(root .. "/data/nvim/eager-colon.log") == 1
+			and vim.fn.readfile(root .. "/data/nvim/eager-colon.log")
+		or {}
 	if
 		#vim.fn.glob(root .. "/data/nvim/site/pack/*/opt/laze-build-test.nvim/build-ran", false, true) == 1
 		and #vim.fn.glob(root .. "/data/nvim/cmd-ran", false, true) == 1
@@ -3104,14 +3118,16 @@ if not fast_only then
 		and shell_build_ran
 		and vim.fn.filereadable(root .. "/data/nvim/colon-ran") == 1
 		and vim.fn.filereadable(root .. "/data/nvim/colon-config") == 0
+		and eager_colon_log[1] == "sourced"
+		and eager_colon_log[2] == "ran"
 	then
 		print(
-			"  ✓ build: string/:cmd/function/list forms run after install; shell items activate nothing, `:` items source plugin/ for the command"
+			"  ✓ build: string/:cmd/function/list forms run after install; shell items activate nothing, `:` items source plugin/ for the command, an eager `:` build runs after activation"
 		)
 		passed = passed + 1
 	else
 		print(
-			("  ✗ build: markers — string:%d :cmd:%d fn:%d list:%d listfn:%d slow-at-config:%s lazy-sourced:%d lazy-rtp:%s lazy-shell-build:%d colon-ran:%d colon-config:%d"):format(
+			("  ✗ build: markers — string:%d :cmd:%d fn:%d list:%d listfn:%d slow-at-config:%s lazy-sourced:%d lazy-rtp:%s lazy-shell-build:%d colon-ran:%d colon-config:%d eager-colon:%s/%s"):format(
 				#vim.fn.glob(root .. "/data/nvim/site/pack/*/opt/laze-build-test.nvim/build-ran", false, true),
 				#vim.fn.glob(root .. "/data/nvim/cmd-ran", false, true),
 				#vim.fn.glob(root .. "/data/nvim/fn-ran", false, true),
@@ -3122,7 +3138,9 @@ if not fast_only then
 				lazy_shell_rtp,
 				shell_build_ran and 1 or 0,
 				vim.fn.filereadable(root .. "/data/nvim/colon-ran"),
-				vim.fn.filereadable(root .. "/data/nvim/colon-config")
+				vim.fn.filereadable(root .. "/data/nvim/colon-config"),
+				tostring(eager_colon_log[1]),
+				tostring(eager_colon_log[2])
 			)
 		)
 		failed = failed + 1
