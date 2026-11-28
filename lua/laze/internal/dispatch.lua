@@ -15,18 +15,13 @@ local function del_map(mode, lhs, buf)
 end
 
 -- Re-fire the triggering event after a load so autocmds the plugin registers while loading see it (an ft plugin's
--- FileType handler would otherwise miss the buffer). Guarded against dispatcher re-entry.
-local refiring = {}
+-- FileType handler would otherwise miss the buffer). No re-entry guard: a nested load replays its own chain too,
+-- matching lazy.nvim (a handler that keeps triggering loads can recurse there as well).
 ---@param event string
 ---@param exec_opts table
 function M.refire(event, exec_opts)
-	if refiring[event] then
-		return
-	end
-	refiring[event] = true
 	exec_opts.modeline = false
 	pcall(vim.api.nvim_exec_autocmds, event, exec_opts)
-	refiring[event] = nil
 end
 
 -- Event dependencies: loading on FileType also replays BufReadPost/BufReadPre, and BufReadPost replays BufReadPre
@@ -77,7 +72,8 @@ local function replay_groups(event, ev, exclude)
 end
 
 -- Replay state for `event` and its dependencies, captured before the load: root first (BufReadPre), then the
--- triggering event. Only the root gets the event data, matching lazy.nvim's get_state.
+-- triggering event. Only the triggering event gets the event data: lazy.nvim's get_state clears `data` while walking
+-- dependencies, which are prepended to its list, so the data ends up on the event that actually fired.
 ---@param event string
 ---@param ev table
 ---@return table[]
@@ -95,7 +91,7 @@ local function snapshot_chain(event, ev)
 			exclude = name ~= "FileType" and snapshot_groups(name) or nil,
 			buf = ev.buf,
 			match = ev.match,
-			data = i == 1 and ev.data or nil,
+			data = name == event and ev.data or nil,
 		}
 	end
 	return state
