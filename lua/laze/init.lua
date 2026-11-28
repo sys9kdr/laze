@@ -161,19 +161,30 @@ function M.setup(specs, opts)
 				if not build then
 					return
 				end
-				-- A fresh install is not on the runtimepath yet, so activate it before the build (:TSInstallSelf and similar
-				-- need it). `packadd!` during startup avoids double-sourcing by the startup plugin phases.
-				if data.kind == "install" and not data.active then
-					if vim.v.vim_did_enter == 0 then
-						-- LuaLS sees `vim.cmd` as a callable table, not a function.
-						---@diagnostic disable-next-line: param-type-mismatch
-						pcall(vim.cmd, "packadd! " .. vim.fn.fnameescape(data.spec.name))
-					else
-						pcall(vim.cmd.packadd, data.spec.name)
+				local impl = require("laze.internal.build")
+				-- Activate only when a `:` item exists: its command is defined by plugin/, which must be sourced
+				-- before the command runs (`:packadd`, not `packadd!`). On a fresh startup Neovim's plugin phase
+				-- sources plugin/ once more — that is also what lazy.nvim's build-time Loader.load does, and real
+				-- plugin files guard themselves. Shell and function items run without activation: putting a lazy
+				-- plugin on 'runtimepath' here would let the startup phase source it, behaving eager on first run.
+				if not data.active and impl.needs_activation(build) then
+					pcall(vim.cmd.packadd, data.spec.name)
+					-- Verify against the resolved dir: `:packadd` resolves by name through a glob that silently
+					-- skips a pkg dir containing glob magic. Fall back to the exact path and source plugin/ by hand.
+					local activated = false
+					for _, p in ipairs(vim.opt.rtp:get()) do
+						if p == data.path then
+							activated = true
+							break
+						end
+					end
+					if not activated then
+						vim.opt.rtp:prepend(data.path)
+						impl.source_plugin_files(data.path)
 					end
 				end
 				add_started_builds = add_started_builds or adding
-				require("laze.internal.build").run(build, { name = data.spec.name, dir = data.path, spec = data.spec })
+				impl.run(build, { name = data.spec.name, dir = data.path, spec = data.spec })
 			end,
 		})
 	end
