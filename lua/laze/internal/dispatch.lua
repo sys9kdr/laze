@@ -29,6 +29,14 @@ function M.refire(event, exec_opts)
 	refiring[event] = nil
 end
 
+-- Event dependencies: loading on FileType also replays BufReadPost/BufReadPre, and BufReadPost replays BufReadPre
+-- (lazy.nvim/core/handler/event.lua M.triggers). A plugin loaded by FileType may register BufReadPost handlers that
+-- must still see the current buffer, even though the real BufReadPost already passed.
+local TRIGGERS = {
+	FileType = "BufReadPost",
+	BufReadPost = "BufReadPre",
+}
+
 -- Groups that already handle `event`, captured before the load. lazy.nvim excludes them from the replay so a
 -- pre-existing handler does not see the event twice. FileType is exempt: its replay exists to hand the current buffer
 -- to freshly loaded ft handlers.
@@ -68,12 +76,50 @@ local function replay_groups(event, ev, exclude)
 	end
 end
 
+-- Replay state for `event` and its dependencies, captured before the load: root first (BufReadPre), then the
+-- triggering event. Only the root gets the event data, matching lazy.nvim's get_state.
+---@param event string
+---@param ev table
+---@return table[]
+local function snapshot_chain(event, ev)
+	local chain = {}
+	local cursor = event
+	while cursor do
+		table.insert(chain, 1, cursor)
+		cursor = TRIGGERS[cursor]
+	end
+	local state = {}
+	for i, name in ipairs(chain) do
+		state[i] = {
+			event = name,
+			exclude = name ~= "FileType" and snapshot_groups(name) or nil,
+			buf = ev.buf,
+			match = ev.match,
+			data = i == 1 and ev.data or nil,
+		}
+	end
+	return state
+end
+
+---@param state table[]
+local function replay_state(state)
+	for _, s in ipairs(state) do
+		if s.event == "FileType" then
+			M.refire("FileType", { buffer = s.buf, data = s.data })
+		elseif s.event == "User" then
+			M.refire("User", { pattern = s.match, data = s.data })
+		else
+			replay_groups(s.event, s, s.exclude)
+		end
+	end
+end
+
 --- One bucket of `(event, pattern)` variants; only this event's routes load.
 ---@param ev table
 ---@param bucket_routes { event: string, ids: string[] }[]
 ---@param load fun(id: string): boolean
 function M.event(ev, bucket_routes, load)
-	local exclude = snapshot_groups(ev.event)
+	local state = snapshot_chain(ev.event, ev)
 	local loaded_any = false
 	for _, route in ipairs(bucket_routes) do
 		if route.event == ev.event then
@@ -88,11 +134,7 @@ function M.event(ev, bucket_routes, load)
 	-- original ev.buf. FileType replays globally (lazy.nvim exempts it from augroup exclusion); the rest replay
 	-- per fresh augroup so pre-existing handlers stay single-fire.
 	if loaded_any then
-		if ev.event == "FileType" then
-			M.refire(ev.event, { buffer = ev.buf, data = ev.data })
-		else
-			replay_groups(ev.event, ev, exclude)
-		end
+		replay_state(state)
 	end
 end
 
@@ -100,6 +142,7 @@ end
 ---@param ids string[]
 ---@param load fun(id: string): boolean
 function M.ft(ev, ids, load)
+	local state = snapshot_chain("FileType", ev)
 	local loaded_any = false
 	for _, id in ipairs(ids) do
 		if load(id) then
@@ -109,7 +152,7 @@ function M.ft(ev, ids, load)
 	-- Re-fire only if something loaded: its handlers missed the natural pass. Otherwise every matching handler
 	-- already saw this FileType.
 	if loaded_any then
-		M.refire("FileType", { buffer = ev.buf })
+		replay_state(state)
 	end
 end
 

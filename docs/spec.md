@@ -94,6 +94,7 @@ If entries share the same `lhs` *and* mode but disagree on `rhs`/`desc`/`silent`
 Empty `mode` values follow lazy.nvim: `mode = ""` is passed to `vim.keymap.set` (multi-mode mapping), and `mode = {}` installs no key trigger but keeps the plugin lazy.
 Event names use Neovim's stored form — aliases are normalized at compile time (`BufRead`→`BufReadPost`, `BufCreate`→`BufAdd`, `BufWrite`→`BufWritePre`, same mapping `nvim_create_autocmd` applies).
 **Function-shaped triggers are rejected with a compile error** — laze has no runtime trigger evaluation, and silently treating them as "no trigger" would turn the plugin eager.
+After a trigger loads a plugin, laze replays the triggering event for autocmds the plugin registered during the load, following lazy.nvim's dependency chain: a `FileType` load replays `BufReadPre`, then `BufReadPost`, then `FileType`; a `BufReadPost` load replays `BufReadPre`, then `BufReadPost`.
 Key-level `ft` (`keys = { { lhs, ft = "http" } }`, `ft` may be a `string[]`) installs a **buffer-local** trigger map via a `FileType` autocmd and never a global map — lazy.nvim parity; a key-level `ft` and a global declaration for the same `lhs`/mode are independent variants.
 
 ## `VeryLazy`
@@ -136,7 +137,7 @@ Submodules go through one searcher appended to `package.loaders`, so it only run
 
 Passed directly to `vim.pack.Spec`; `setup()` runs it on `PackChanged` (install/update).
 Shell commands run asynchronously in the plugin dir (`vim.system`), `:` commands and functions on the main thread; list items run in order and stop at the first failure, while different plugins build in parallel.
-Before the build, the plugin is activated only if the items contain a `:` command: its `plugin/` is sourced so the command exists (lazy.nvim parity — a fresh startup sources `plugin/` once more in Neovim's plugin phase). Shell and function items run without activation, so a lazy plugin stays off the 'runtimepath' on a fresh install.
+Before the build, the plugin is activated only if the items contain a `:` command and its directory is not already on the 'runtimepath': `plugin/` is sourced so the command exists (lazy.nvim parity — a fresh startup sources `plugin/` once more in Neovim's plugin phase). Shell and function items run without activation, so a lazy plugin stays off the 'runtimepath' on a fresh install.
 Progress shows as `nvim_echo` progress messages; failures also warn.
 Builds started by `setup()`'s own install are awaited before the plan loads anything, so a fresh plugin is configured with its build artifacts in place; builds triggered by `vim.pack.update()` stay in the background.
 
