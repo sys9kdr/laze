@@ -18,7 +18,7 @@ Laze stays intentionally small: explicitness over magic, pure transforms over st
 `vim.pack` handles placement, not load timing: `:packadd!` only adds to `runtimepath`, and `:packadd` never sources `after/plugin/` (a startup-only phase), so laze must own both timing and source-once behavior.
 
 Every plugin's `plugin/` and `after/plugin/` files are sourced **exactly once**: during startup eager plugins use only `:packadd!`, while after startup laze `:packadd`s and manually sources `after/plugin/`; startup-requested lazy plugins finalize once at `VimEnter` ([details](internal/startup-lazy-activation.md)).
-Trigger replay follows lazy.nvim: re-fire the event for handlers registered during the load, once per augroup added by that load (a `FileType` replays once for the triggering buffer).
+Trigger replay follows lazy.nvim: re-fire the event and its dependencies for handlers registered during the load, once per augroup added by that load (a `FileType` replays `BufReadPre`, then `BufReadPost`, then `FileType` for the triggering buffer).
 
 ## Loading laze itself
 

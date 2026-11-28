@@ -167,10 +167,9 @@ function M.setup(specs, opts)
 				-- sources plugin/ once more — that is also what lazy.nvim's build-time Loader.load does, and real
 				-- plugin files guard themselves. Shell and function items run without activation: putting a lazy
 				-- plugin on 'runtimepath' here would let the startup phase source it, behaving eager on first run.
-				if not data.active and impl.needs_activation(build) then
-					pcall(vim.cmd.packadd, data.spec.name)
-					-- Verify against the resolved dir: `:packadd` resolves by name through a glob that silently
-					-- skips a pkg dir containing glob magic. Fall back to the exact path and source plugin/ by hand.
+				-- Check the resolved dir, not PackChanged's `active` flag: laze registers lazy plugins with a no-op
+				-- load, so vim.pack reports them active on update while their plugin/ is still unsourced.
+				if impl.needs_activation(build) then
 					local activated = false
 					for _, p in ipairs(vim.opt.rtp:get()) do
 						if p == data.path then
@@ -179,8 +178,19 @@ function M.setup(specs, opts)
 						end
 					end
 					if not activated then
-						vim.opt.rtp:prepend(data.path)
-						impl.source_plugin_files(data.path)
+						pcall(vim.cmd.packadd, data.spec.name)
+						-- Verify against the resolved dir: `:packadd` resolves by name through a glob that silently
+						-- skips a pkg dir containing glob magic. Fall back to the exact path and source plugin/ by hand.
+						for _, p in ipairs(vim.opt.rtp:get()) do
+							if p == data.path then
+								activated = true
+								break
+							end
+						end
+						if not activated then
+							vim.opt.rtp:prepend(data.path)
+							impl.source_plugin_files(data.path)
+						end
 					end
 				end
 				add_started_builds = add_started_builds or adding

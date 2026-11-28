@@ -1707,6 +1707,90 @@ do
 	pcall(vim.api.nvim_buf_delete, buf, { force = true })
 end
 
+-- Event dependency chain (lazy.nvim/core/handler/event.lua M.triggers): a FileType load replays BufReadPre, then
+-- BufReadPost, then FileType; a BufReadPost load replays BufReadPre first. Pre-existing groups are excluded from
+-- the synthetic replay, so they do not see events that never fired naturally.
+do
+	local seen = {}
+	local pre = 0
+	local pre_group = vim.api.nvim_create_augroup("laze_refire_chain_pre", { clear = true })
+	for _, ev in ipairs({ "BufReadPre", "BufReadPost" }) do
+		vim.api.nvim_create_autocmd(ev, {
+			group = pre_group,
+			callback = function()
+				pre = pre + 1
+			end,
+		})
+	end
+	local compiled = laze.compile({
+		{
+			dir = vim.fn.tempname(),
+			name = "refire-chain-ft",
+			ft = "laze_refire_chain",
+			config = function()
+				local group = vim.api.nvim_create_augroup("laze_refire_chain_ft", { clear = true })
+				for _, ev in ipairs({ "BufReadPre", "BufReadPost", "FileType" }) do
+					vim.api.nvim_create_autocmd(ev, {
+						group = group,
+						callback = function(a)
+							table.insert(seen, ev .. ":" .. a.buf)
+						end,
+					})
+				end
+			end,
+		},
+	})
+	laze.build_plan(compiled)()
+	local buf = vim.api.nvim_create_buf(true, false)
+	vim.bo[buf].filetype = "laze_refire_chain"
+	local want = table.concat({ "BufReadPre:" .. buf, "BufReadPost:" .. buf, "FileType:" .. buf }, ",")
+	if table.concat(seen, ",") == want and pre == 0 then
+		print("  ✓ ft route: replay runs BufReadPre, BufReadPost, then FileType")
+		passed = passed + 1
+	else
+		print(("  ✗ ft route: chain replay — seen=%s pre=%d"):format(table.concat(seen, ","), pre))
+		failed = failed + 1
+	end
+	vim.api.nvim_del_augroup_by_name("laze_refire_chain_pre")
+	vim.api.nvim_del_augroup_by_name("laze_refire_chain_ft")
+	pcall(vim.api.nvim_buf_delete, buf, { force = true })
+end
+
+do
+	local seen = {}
+	local compiled = laze.compile({
+		{
+			dir = vim.fn.tempname(),
+			name = "refire-chain-post",
+			event = "BufReadPost",
+			config = function()
+				local group = vim.api.nvim_create_augroup("laze_refire_chain_post", { clear = true })
+				for _, ev in ipairs({ "BufReadPre", "BufReadPost" }) do
+					vim.api.nvim_create_autocmd(ev, {
+						group = group,
+						callback = function(a)
+							table.insert(seen, ev .. ":" .. a.buf)
+						end,
+					})
+				end
+			end,
+		},
+	})
+	laze.build_plan(compiled)()
+	local buf = vim.api.nvim_create_buf(true, false)
+	vim.api.nvim_exec_autocmds("BufReadPost", { buffer = buf })
+	local want = "BufReadPre:" .. buf .. ",BufReadPost:" .. buf
+	if table.concat(seen, ",") == want then
+		print("  ✓ event route: BufReadPost replay runs BufReadPre, then BufReadPost")
+		passed = passed + 1
+	else
+		print(("  ✗ event route: chain replay — seen=%s"):format(table.concat(seen, ",")))
+		failed = failed + 1
+	end
+	vim.api.nvim_del_augroup_by_name("laze_refire_chain_post")
+	pcall(vim.api.nvim_buf_delete, buf, { force = true })
+end
+
 do
 	local compiled = laze.compile({
 		{ "test/event-plugin", event = "BufRead" },
@@ -2835,6 +2919,148 @@ if not fast_only then
 				shell_build_ran and 1 or 0,
 				vim.fn.filereadable(root .. "/data/nvim/colon-ran"),
 				vim.fn.filereadable(root .. "/data/nvim/colon-config")
+			)
+		)
+		failed = failed + 1
+	end
+
+	vim.fn.delete(root, "rf")
+end
+
+-- build on vim.pack.update(): PackChanged kind "update" must run the build too, and a `:` item must activate a lazy
+-- plugin that setup registered but never loaded. vim.pack reports such a plugin as active (it was added this
+-- session) even though laze's no-op load left its plugin/ unsourced, so gating activation on `data.active` skips it
+-- and the command is missing. The shell build must still run without activation. Runs the update after startup,
+-- like `:Laze update`. Skipped under `fast`.
+if not fast_only then
+	local root = vim.fn.tempname() .. "_lazeupdate"
+	vim.fn.mkdir(root, "p")
+	local repo_path = vim.fn.getcwd()
+	local data_dir = root .. "/data/nvim"
+	local colon_marker = data_dir .. "/update-colon.log"
+	local shell_sourced = data_dir .. "/update-shell-sourced"
+
+	local function make_repo(name, files)
+		local dir = root .. "/" .. name
+		vim.fn.mkdir(dir, "p")
+		for rel, content in pairs(files) do
+			local file = dir .. "/" .. rel
+			vim.fn.mkdir(vim.fn.fnamemodify(file, ":h"), "p")
+			local fd = io.open(file, "w")
+			fd:write(content)
+			fd:close()
+		end
+		vim.system({ "git", "init", "-q" }, { cwd = dir, timeout = 10000 }):wait()
+		vim.system({ "git", "add", "-A" }, { cwd = dir, timeout = 10000 }):wait()
+		vim
+			.system(
+				{ "git", "-c", "user.name=laze", "-c", "user.email=laze@local", "commit", "-qm", "init" },
+				{ cwd = dir, timeout = 10000 }
+			)
+			:wait()
+		return dir
+	end
+
+	local colon = make_repo("buildupdatecolon", {
+		["plugin/u.lua"] = ("vim.api.nvim_create_user_command('LazeUpdateColonCmd', function() vim.fn.writefile({ 'ran' }, %q, 'a') end, {})\n"):format(
+			colon_marker
+		),
+	})
+	local shell = make_repo("buildupdateshell", {
+		["plugin/s.lua"] = ("vim.fn.writefile({ 'sourced' }, %q, 'a')\n"):format(shell_sourced),
+	})
+
+	local init_dir = root .. "/config"
+	vim.fn.mkdir(init_dir, "p")
+	local init_file = init_dir .. "/init.lua"
+	local fd = io.open(init_file, "w")
+	fd:write(
+		'vim.opt.packpath:prepend(vim.fn.stdpath("data"))\n'
+			.. ("vim.opt.rtp:prepend(%q)\n"):format(repo_path)
+			.. "require('laze').setup({\n"
+			.. ("  { src = %q, name = 'buildupdatecolon', cmd = 'LazeUpdateColonTrigger', build = ':LazeUpdateColonCmd' },\n"):format(
+				colon
+			)
+			.. ("  { src = %q, name = 'buildupdateshell', cmd = 'LazeUpdateShellTrigger', build = 'touch update-shell-ran' },\n"):format(
+				shell
+			)
+			.. "})\n"
+			-- Precondition for the activation assertion: setup added the lazy plugin but left its dir off rtp.
+			.. "local colon_dir = vim.fn.glob(vim.fn.stdpath('data') .. '/site/pack/*/opt/buildupdatecolon', false, true)[1]\n"
+			.. "local on_rtp = false\n"
+			.. "for _, p in ipairs(vim.opt.rtp:get()) do if p == colon_dir then on_rtp = true end end\n"
+			.. "vim.fn.writefile({ tostring(on_rtp) }, vim.fn.stdpath('data') .. '/update-colon-rtp')\n"
+			.. "if vim.env.LAZE_UPDATE == '1' then\n"
+			.. "  vim.api.nvim_create_autocmd('VimEnter', { once = true, callback = function()\n"
+			.. "    vim.pack.update(nil, { force = true })\n"
+			.. "    require('laze.internal.build').wait()\n"
+			.. "    vim.cmd('qa!')\n"
+			.. "  end })\n"
+			.. "end\n"
+	)
+	fd:close()
+
+	local env = {
+		XDG_DATA_HOME = root .. "/data",
+		XDG_CONFIG_HOME = root .. "/config",
+		NVIM_LOG_FILE = root .. "/nvim.log",
+	}
+	local install = vim
+		.system({ vim.v.progpath, "-u", init_file, "--headless", "+qa" }, { env = env, timeout = 30000 })
+		:wait()
+	local installed_colon = vim.fn.filereadable(colon_marker) == 1 and #vim.fn.readfile(colon_marker) or 0
+
+	-- Give vim.pack.update() a new revision in both repos; without a changed SHA it fires no PackChanged update.
+	for _, dir in ipairs({ colon, shell }) do
+		local file = dir .. "/update.txt"
+		local out = io.open(file, "w")
+		out:write("changed\n")
+		out:close()
+		vim.system({ "git", "add", "-A" }, { cwd = dir, timeout = 10000 }):wait()
+		vim
+			.system(
+				{ "git", "-c", "user.name=laze", "-c", "user.email=laze@local", "commit", "-qm", "update" },
+				{ cwd = dir, timeout = 10000 }
+			)
+			:wait()
+	end
+
+	local update_env = vim.deepcopy(env)
+	update_env.LAZE_UPDATE = "1"
+	local update = vim
+		.system({ vim.v.progpath, "-u", init_file, "--headless" }, { env = update_env, timeout = 40000 })
+		:wait()
+
+	local colon_lines = vim.fn.filereadable(colon_marker) == 1 and #vim.fn.readfile(colon_marker) or 0
+	local shell_ran = #vim.fn.glob(root .. "/data/nvim/site/pack/*/opt/buildupdateshell/update-shell-ran", false, true)
+		== 1
+	local rtp_before = vim.fn.filereadable(data_dir .. "/update-colon-rtp") == 1
+			and vim.fn.readfile(data_dir .. "/update-colon-rtp")[1]
+		or "<missing>"
+	local stderr = (update.stderr or "")
+	if
+		install.code == 0
+		and installed_colon == 1
+		and update.code == 0
+		and colon_lines == 2
+		and rtp_before == "false"
+		and shell_ran
+		and vim.fn.filereadable(shell_sourced) == 0
+		and not stderr:find("build failed", 1, true)
+	then
+		print("  ✓ build: vim.pack.update() runs the build and a `:` item activates an unloaded lazy plugin")
+		passed = passed + 1
+	else
+		print(
+			("  ✗ build update: install:%d colon-install:%d update:%d colon-update:%d rtp-before:%s shell:%s sourced:%d stderr:%q"):format(
+				install.code,
+				installed_colon,
+				update.code,
+				colon_lines,
+				rtp_before,
+				tostring(shell_ran),
+				vim.fn.filereadable(shell_sourced),
+				stderr
 			)
 		)
 		failed = failed + 1
